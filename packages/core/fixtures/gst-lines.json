@@ -1,0 +1,13 @@
+{
+  "description": "Golden vectors for computeLine. Any implementation (TS desktop/mobile, Go server) must reproduce these to the paisa.",
+  "cases": [
+    { "name": "exclusive 5% intra", "in": { "qty": 2, "rate": 5000, "gstRate": 5, "taxInclusive": false, "interState": false }, "out": { "taxable": 10000, "cgst": 250, "sgst": 250, "igst": 0, "cess": 0, "total": 10500 } },
+    { "name": "exclusive 18% inter", "in": { "qty": 3, "rate": 3333, "gstRate": 18, "taxInclusive": false, "interState": true }, "out": { "taxable": 9999, "cgst": 0, "sgst": 0, "igst": 1800, "cess": 0, "total": 11799 } },
+    { "name": "inclusive 5% MRP 10", "in": { "qty": 1, "rate": 1000, "gstRate": 5, "taxInclusive": true, "interState": false }, "out": { "taxable": 952, "cgst": 24, "sgst": 24, "igst": 0, "cess": 0, "total": 1000 } },
+    { "name": "inclusive 18% odd", "in": { "qty": 1, "rate": 9900, "gstRate": 18, "taxInclusive": true, "interState": false }, "out": { "taxable": 8390, "cgst": 755, "sgst": 755, "igst": 0, "cess": 0, "total": 9900 } },
+    { "name": "loose 0.750 kg @ 64/kg", "in": { "qty": 0.75, "rate": 6400, "gstRate": 5, "taxInclusive": true, "interState": false }, "out": { "taxable": 4572, "cgst": 114, "sgst": 114, "igst": 0, "cess": 0, "total": 4800 } },
+    { "name": "exclusive 40% with 2.5% disc", "in": { "qty": 4, "rate": 2500, "gstRate": 40, "discountPct": 2.5, "taxInclusive": false, "interState": false }, "out": { "taxable": 9750, "cgst": 1950, "sgst": 1950, "igst": 0, "cess": 0, "total": 13650 } },
+    { "name": "zero rated", "in": { "qty": 12, "rate": 650, "gstRate": 0, "taxInclusive": true, "interState": false }, "out": { "taxable": 7800, "cgst": 0, "sgst": 0, "igst": 0, "cess": 0, "total": 7800 } },
+    { "name": "cess exclusive inter", "in": { "qty": 1, "rate": 10000, "gstRate": 28, "cessRate": 12, "taxInclusive": false, "interState": true }, "out": { "taxable": 10000, "cgst": 0, "sgst": 0, "igst": 2800, "cess": 1200, "total": 14000 } }
+  ]
+}

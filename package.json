@@ -1,0 +1,30 @@
+{
+  "name": "hisaab",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Hisaab — fast, offline-first billing, inventory & GST for Indian retail and wholesale",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @hisaab/desktop",
+    "build": "npm run build -w @hisaab/desktop",
+    "preview": "npm run preview -w @hisaab/desktop",
+    "typecheck": "tsc -p packages/core --noEmit && tsc -p apps/desktop --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test --trace off",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "tauri:dev": "npm run tauri -w @hisaab/desktop -- dev",
+    "tauri:build": "npm run tauri -w @hisaab/desktop -- build"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.5",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  }
+}
