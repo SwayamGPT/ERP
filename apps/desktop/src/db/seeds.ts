@@ -197,7 +197,7 @@ export function loadSample(ctx: Ctx, template: Template, opts: { history?: boole
         lines: [{ itemId: perishable.id, unit: perishable.seed[4], factor: 1, qty: 6, rate: toPaise(perishable.seed[7]), taxInclusive: false, batchNo: 'OLD-01', expiry: addDays(today, -3), mrp: perishable.seed[5] ? toPaise(perishable.seed[5]) : null }],
       });
     }
-    const opening = { amount: toPaise(template === 'wholesaler' ? 250000 : 25000) };
+    const opening = { amount: toPaise(template === 'wholesaler' ? 4000000 : 400000) };
     ctx.db.exec(
       "INSERT INTO ledger_entries (voucher_type, voucher_id, date, account, debit, credit, narration) VALUES ('opening', 0, ?, 'BANK', ?, 0, 'Opening bank balance'), ('opening', 0, ?, 'CAPITAL', 0, ?, 'Opening bank balance')",
       [start, opening.amount, start, opening.amount],

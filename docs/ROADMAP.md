@@ -1,0 +1,154 @@
+# Hisaab — product roadmap & completion checklist
+
+Hisaab is a billing, inventory, accounting and GST app for Indian kirana stores, supermarkets and
+wholesalers. This file is the single checklist of what the finished product contains and which
+release delivers each piece. Tick items as they ship.
+
+| Release | Theme | Status |
+|---|---|---|
+| **R1** | Offline desktop MVP — counter billing, stock, khata, GST returns | ✅ shipped (this repo) |
+| **R2** | Cloud sync, owner & salesman mobile apps, native hardware | ⏳ next |
+| **R3** | Full accounting, advanced compliance, multi-branch | planned |
+| **R4** | Ecosystem — subscriptions, partner/CA portal, integrations | planned |
+
+---
+
+## 1. Billing & POS
+- [x] R1 · Single omnibox: name, short code, barcode, unit barcode, EAN-13 weighing-scale (weight or price) codes
+- [x] R1 · Keyboard-first flow (Enter: item → qty → next) with on-screen shortcut badges (F1–F10, Esc)
+- [x] R1 · Hold / resume bills (F2 / F3), persisted across restarts
+- [x] R1 · Cash (with change calculator), UPI, card, udhaar (credit) with part-payment
+- [x] R1 · Dynamic UPI QR with the exact payable amount (screen + receipt)
+- [x] R1 · Price tiers auto-applied per customer (MRP / Retail / Wholesale / Super-stockist)
+- [x] R1 · Schemes: buy-X-get-Y free qty, quantity slab discounts; line and bill discounts (cashier cap 5%)
+- [x] R1 · Multi-unit selling (piece / box / carton / bag, kg & g) with per-unit prices
+- [x] R1 · Round-off to the rupee as an explicit, ledger-posted line
+- [x] R1 · Print: 80 mm & 58 mm thermal, A4 tax invoice (HSN summary, amount in words, UPI QR)
+- [x] R1 · WhatsApp bill sharing (wa.me deep link)
+- [x] R1 · Sales returns (credit notes) — partial, refund or adjust in khata; bill cancellation with reversal
+- [x] R1 · Credit-limit check with owner/manager override; walk-in bills must be paid in full
+- [ ] R2 · Native ESC/POS printing without the print dialog; auto-cut
+- [ ] R2 · Cash-drawer kick
+- [ ] R2 · Live weighing-scale input over serial/USB
+- [ ] R2 · Customer-facing display
+- [ ] R2 · Loyalty points & coupons
+- [ ] R2 · Multiple counters on one shop LAN
+- [ ] R3 · Delivery challans, quotations / estimates, sale orders → invoice, recurring invoices
+
+## 2. Purchases
+- [x] R1 · Keyboard grid entry: unit, qty, free qty, rate, discount, batch, expiry, MRP
+- [x] R1 · Batches created per line; effective cost includes free goods; MRP / cost updated on item
+- [x] R1 · Inter-state supplier → IGST input credit automatically
+- [x] R1 · Purchase returns (debit notes), cancellation
+- [x] R1 · Pay now (cash/bank/UPI) or on credit; supplier payments later
+- [ ] R2 · Purchase orders & goods-received notes (GRN)
+- [ ] R2 · Import distributor bills from CSV / Excel
+- [ ] R2 · Reorder suggestions from sales velocity
+- [ ] R3 · Purchase-bill OCR (photo → entry)
+- [ ] R3 · GSTR-2B ITC matching against purchases
+
+## 3. Inventory
+- [x] R1 · Base-unit stock with any number of bigger units; "3 Carton 1 Pcs" display
+- [x] R1 · Batch & expiry tracking; FIFO by earliest expiry; expired batches are never auto-sold
+- [x] R1 · Manual batch pick on the bill
+- [x] R1 · Expiry alerts (expired / ≤30 / ≤90 days) and low-stock alerts (reorder level)
+- [x] R1 · Stock adjustments with reasons (damage, count, own use, opening)
+- [x] R1 · Opening stock on item creation
+- [x] R1 · Barcode labels: A4 sheets, 50×25 / 38×25 rolls, TSPL file for label printers; internal EAN-13 generator
+- [x] R1 · HSN search with GST 2.0 rates (0 / 5 / 18 / 40, plus special & legacy 0.25 / 3 / 12 / 28)
+- [x] R1 · Negative-stock billing allowed (configurable) so the counter never stops
+- [ ] R2 · Multiple godowns & stock transfers
+- [ ] R2 · Item variants (size / colour)
+- [ ] R2 · Physical stock count from the mobile app
+- [ ] R2 · Native TSPL / ZPL printing
+- [ ] R3 · Bill of materials & repacking (50 kg sack → 1 kg packs)
+- [ ] R3 · Serial / IMEI tracking
+- [ ] R3 · Dead-stock analysis
+
+## 4. Parties & accounting
+- [x] R1 · Customers & suppliers with GSTIN validation (check digit), state, price tier, credit limit
+- [x] R1 · Opening balances
+- [x] R1 · Khata / ledger statement with running balance, CSV export
+- [x] R1 · Money in (receipts), money out (supplier payments), expenses by category
+- [x] R1 · Cash book and bank/UPI book
+- [x] R1 · True double-entry posting for every voucher; books-health check (Σ debit = Σ credit)
+- [x] R1 · WhatsApp payment reminders
+- [x] R1 · Oldest-first knock-off of payments against unpaid bills
+- [ ] R2 · Bank reconciliation, cheque register
+- [ ] R2 · Scheduled WhatsApp / SMS reminders
+- [ ] R2 · Party-specific price lists
+- [ ] R3 · Full chart of accounts; journal & contra vouchers behind "Advanced"
+- [ ] R3 · Trial balance, P&L, balance sheet
+- [ ] R3 · Financial-year close & carry-forward
+- [ ] R3 · TDS / TCS
+- [ ] R3 · Tally XML export
+
+## 5. GST & compliance
+- [x] R1 · CGST + SGST vs IGST by place of supply; cess; tax-inclusive and exclusive prices
+- [x] R1 · Paise-exact line rounding (invariant: taxable + taxes = line total)
+- [x] R1 · GSTR-1 JSON: B2B, B2CL (> ₹1 lakh inter-state), B2CS, CDNR, HSN (B2B/B2C split), documents issued
+- [x] R1 · GSTR-3B JSON: 3.1 outward, 3.2 inter-state unregistered, 4 ITC
+- [x] R1 · Net tax payable summary; missing-HSN warnings
+- [x] R1 · e-Way Bill bulk JSON (NIC format)
+- [ ] R2 · GSTR-2B import & reconciliation
+- [ ] R2 · e-Invoice (IRN + signed QR) through a GSP
+- [ ] R2 · e-Way Bill generation via API
+- [ ] R3 · GSTR-9 annual summary; composition scheme (CMP-08)
+- [ ] R3 · Direct return filing through a GSP
+
+## 6. Insights
+- [x] R1 · Home dashboard: today's sales vs yesterday, money in/out, udhaar, payables, estimated profit
+- [x] R1 · 30-day sales chart, top items, running-low and expiring lists, recent bills
+- [x] R1 · Reports: sales & purchase registers, item profit (FIFO cost), bill profit, stock summary, expiry, day book, cash & bank book, outstanding — all CSV
+- [ ] R2 · Owner mobile dashboard; daily WhatsApp summary
+- [ ] R2 · Salesman performance
+- [ ] R3 · ABC / XYZ analysis, demand forecasting, margin-leak alerts
+- [ ] R3 · Ask questions in plain language ("what sold most last Diwali?")
+
+## 7. Cloud, sync & mobile
+- [x] R1 · Storage boundary (`StorageAdapter`) so engines can be swapped without UI changes
+- [ ] R2 · Go backend on Postgres (Mumbai): auth, tenants, sync API
+- [ ] R2 · PowerSync / ElectricSQL sync from the local SQLite; conflict rules
+- [ ] R2 · Encrypted automatic cloud backup
+- [ ] R2 · Expo owner app (live dashboard, stock, dues)
+- [ ] R2 · Expo salesman app (orders on the road, live stock, collections)
+- [ ] R3 · Multi-branch; customer self-ordering link / catalogue; B2B retailer ordering app
+
+## 8. Users & security
+- [x] R1 · Owner / Manager / Cashier roles enforced inside the database worker (not just hidden in the UI)
+- [x] R1 · PIN lock and quick user switch (Alt+L)
+- [x] R1 · Cost, margin and profit hidden from cashiers; discount cap; no back-dated bills for cashiers
+- [x] R1 · Audit log
+- [x] R1 · Backup to a `.hisaab` file and restore; erase-all
+- [x] R1 · Single-window lock so two tabs can't overwrite each other
+- [ ] R2 · Custom roles; cloud account login; device management
+- [ ] R2 · Hashed PINs + at-rest encryption of the local database (SQLCipher in the native shell)
+- [ ] R3 · Approval workflows (e.g. discount above a set % needs approval)
+
+## 9. Platform & UX
+- [x] R1 · 3-step onboarding with Kirana / Supermarket / Wholesaler templates and a month of sample data
+- [x] R1 · Ctrl+K command palette, `?` shortcut sheet, Alt-key navigation
+- [x] R1 · Light & dark themes; English & Hindi labels
+- [x] R1 · Plain-language UI (Money In / Out, Udhaar, Khata) with progressive disclosure
+- [x] R1 · Tauri v2 shell scaffold (`in.hisaab.desktop`)
+- [ ] R2 · Signed Windows / macOS installers, auto-update
+- [ ] R2 · Marathi, Gujarati, Tamil; full Hindi coverage
+- [ ] R2 · In-app help & short videos
+- [ ] R4 · Subscription billing & licensing; partner / CA portal; public API & webhooks
+- [ ] R4 · Payment gateway, UPI auto-reconciliation, payment links
+
+## 10. Quality gates (every release)
+- [x] Paise-exact unit tests + golden fixtures (`packages/core/fixtures`) shared with future backends
+- [x] Repository tests on real SQLite: ledger balance, FIFO, returns, cancel, RBAC, atomic rollback
+- [x] Playwright journeys for the core flows against the production build
+- [ ] Migration upgrade test (from R1 schema → each later version)
+- [ ] Performance budget: a bill saves in < 50 ms with 50k items and 100k invoices
+
+---
+
+## Phase plan for R2 (next)
+1. **Native shell** — Tauri SQL storage adapter, ESC/POS + TSPL printing, scale reader, drawer kick, installers, auto-update.
+2. **Backend (Go)** — auth, tenants, devices; Postgres schema mirroring SQLite; sync with PowerSync; run `packages/core/fixtures` in Go tests.
+3. **Mobile (Expo)** — owner dashboard and salesman order-taking, reusing `@hisaab/core`.
+4. **Compliance APIs** — e-Invoice IRN and e-Way Bill via a GSP; GSTR-2B reconciliation.
+5. **Security** — hashed PINs, encrypted local DB, cloud backups.

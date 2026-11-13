@@ -72,8 +72,8 @@ export function CustomerPicker({ open, onOpenChange, onPick, kind = 'customer' }
                   <span className="block text-xs text-muted">{p.phone ?? (p.is_walkin ? 'Pays at the counter' : 'No phone')}</span>
                 </span>
                 {p.balance !== 0 && (
-                  <span className={cn('text-right text-xs', p.balance > 0 ? 'text-bad' : 'text-good')}>
-                    {p.balance > 0 ? 'Due' : 'Advance'}
+                  <span className={cn('text-right text-xs', p.balance > 0 === (p.kind === 'customer') ? 'text-bad' : 'text-good')}>
+                    {p.kind === 'customer' ? (p.balance > 0 ? 'Due' : 'Advance') : p.balance < 0 ? 'To pay' : 'Advance paid'}
                     <span className="block text-sm font-semibold tnum">{inr(Math.abs(p.balance))}</span>
                   </span>
                 )}

@@ -62,7 +62,7 @@ export function GstPage() {
             <Stat
               label="Net GST payable (approx.)"
               value={inr(Math.max(0, g.net.payable.cgst + g.net.payable.sgst + g.net.payable.igst + g.net.payable.cess), false)}
-              sub={`CGST ${inr(g.net.payable.cgst, false)} · SGST ${inr(g.net.payable.sgst, false)} · IGST ${inr(g.net.payable.igst, false)}`}
+              sub={(['cgst', 'sgst', 'igst'] as const).map((h) => `${h.toUpperCase()} ${g.net.payable[h] < 0 ? `credit ${inr(-g.net.payable[h], false)}` : inr(g.net.payable[h], false)}`).join(' · ')}
               tone="saffron"
             />
             <Stat label="Taxable sales" value={inr(g.net.output.taxable, false)} sub={g.counts.cancelled ? `${g.counts.cancelled} cancelled documents excluded` : 'No cancelled documents'} />

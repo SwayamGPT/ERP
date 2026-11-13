@@ -87,7 +87,7 @@ export function InvoiceView() {
               <h3 className="mb-2 text-sm font-semibold">Payments</h3>
               {v.payments.map((p) => (
                 <div key={p.id} className="flex justify-between py-1 text-sm">
-                  <span className="capitalize text-muted">{p.mode} {p.cancelled ? '(void)' : ''}</span>
+                  <span className="text-muted">{p.mode === 'upi' ? 'UPI' : p.mode[0].toUpperCase() + p.mode.slice(1)} {p.cancelled ? '(void)' : ''}</span>
                   <span className="tnum">{inr(p.amount)}</span>
                 </div>
               ))}

@@ -357,7 +357,7 @@ export function PosPage() {
                       </td>
                       <td>
                         {l.units.length > 1 ? (
-                          <select value={l.unit} onChange={(e) => pos.setUnit(i, e.target.value)} className="input h-8 px-2 text-xs" data-testid="line-unit">
+                          <select value={l.unit} onChange={(e) => pos.setUnit(i, e.target.value)} className="input h-8 min-w-[96px] px-2 text-xs" data-testid="line-unit">
                             {l.units.map((u) => (
                               <option key={u.name} value={u.name}>{u.name}</option>
                             ))}

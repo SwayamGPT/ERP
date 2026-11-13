@@ -106,7 +106,7 @@ export function LockScreen({ users, company }: { users: Array<{ id: number; name
 
 function Key({ children, onClick, ...rest }: { children: React.ReactNode; onClick: () => void; 'aria-label'?: string }) {
   return (
-    <button type="button" onClick={onClick} className="h-14 rounded-xl bg-surface-2 text-lg font-medium transition hover:bg-border/70 active:scale-95" {...rest}>
+    <button type="button" onClick={onClick} className="grid h-14 place-items-center rounded-xl bg-surface-2 text-lg font-medium transition hover:bg-border/70 active:scale-95" {...rest}>
       {children}
     </button>
   );
