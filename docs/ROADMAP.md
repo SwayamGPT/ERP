@@ -85,6 +85,19 @@ release delivers each piece. Tick items as they ship.
 - [ ] R3 · TDS / TCS
 - [ ] R3 · Tally XML export
 
+## 4b. Expenses, staff & cash flow
+- [x] R1 · Expense categories (rent, utilities, staff, operations, finance, taxes…) with monthly budgets and over-budget warnings
+- [x] R1 · Expenses paid now (cash / UPI / bank) or recorded as bills to pay with due dates; part payments; cancel with full reversal
+- [x] R1 · GST expense bills with input tax credit flowing into GSTR-3B
+- [x] R1 · Recurring expenses (weekly / monthly / quarterly / yearly) — bills created a week ahead; auto-debits marked paid on the due date
+- [x] R1 · Staff records, monthly salary run (days worked, bonus, deductions), advances given/returned, advance adjusted from salary; salaries visible to the owner only
+- [x] R1 · Cash ↔ bank transfers, owner withdrawals & capital, other income, cash-drawer count with denomination helper and short/excess booking
+- [x] R1 · Money log: every cash/bank movement with who recorded it, when, and running balance (CSV)
+- [x] R1 · Cash-flow statement (grouped inflows/outflows, expense breakdown, month by month) and Profit & loss (sales − FIFO cost − expenses + other income)
+- [x] R1 · Plain-language activity log of every action, filterable by person, area and date
+- [ ] R2 · Attach bill photos to expenses; WhatsApp salary slips; staff attendance from the mobile app
+- [ ] R2 · Expense approvals above a set amount; petty-cash float per counter
+
 ## 5. GST & compliance
 - [x] R1 · CGST + SGST vs IGST by place of supply; cess; tax-inclusive and exclusive prices
 - [x] R1 · Paise-exact line rounding (invariant: taxable + taxes = line total)

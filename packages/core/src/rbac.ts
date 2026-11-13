@@ -17,6 +17,9 @@ export type Permission =
   | 'payment.in'
   | 'payment.out'
   | 'expense.create'
+  | 'expense.view' // expenses, bills to pay, cash flow
+  | 'payroll.manage' // staff salaries & advances (owner only by default)
+  | 'money.move' // cash↔bank transfers, owner withdrawals/capital, cash checks
   | 'report.view'
   | 'report.profit'
   | 'gst.view'
@@ -38,6 +41,8 @@ const MANAGER: Permission[] = [
   'cost.view',
   'payment.out',
   'expense.create',
+  'expense.view',
+  'money.move',
   'report.view',
   'report.profit',
   'gst.view',
@@ -57,7 +62,7 @@ export function can(role: Role | null | undefined, perm: Permission): boolean {
 
 export const ROLE_LABELS: Record<Role, { label: string; description: string }> = {
   owner: { label: 'Owner', description: 'Everything, including users, backups and settings' },
-  manager: { label: 'Manager', description: 'Billing, purchases, stock, reports and GST — no user management' },
+  manager: { label: 'Manager', description: 'Billing, purchases, stock, expenses, reports and GST — no salaries or user management' },
   cashier: { label: 'Cashier', description: 'Billing and collecting payments only. Cost & profit are hidden' },
 };
 

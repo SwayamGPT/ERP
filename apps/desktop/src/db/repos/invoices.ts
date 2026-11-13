@@ -13,6 +13,7 @@ import {
 import type { Batch, DraftInvoice, DraftPayment, Invoice, InvoiceKind, InvoiceLine, Payment } from '../types';
 import { AppError, allowed, audit, guard, modeAccount, postVoucher, reverseVoucher, stripCost, type Ctx, type Posting } from './base';
 import { mustCompany } from './company';
+import { cancelExpensePayment } from './expenses';
 import { getParty, walkinParty } from './parties';
 
 interface ItemMaster {
@@ -423,32 +424,16 @@ function allocateToBills(ctx: Ctx, partyId: number, kind: 'sale' | 'purchase') {
   }
 }
 
-export function recordExpense(ctx: Ctx, input: { amount: number; mode: DraftPayment['mode']; category: string; note?: string; date?: string; direction?: 'out' | 'in' }) {
-  guard(ctx, 'expense.create');
-  if (!(input.amount > 0)) throw new AppError('Enter an amount.');
-  if (!input.category?.trim()) throw new AppError('Pick a category.');
-  const direction = input.direction ?? 'out';
-  return ctx.db.transaction(() => {
-    const date = input.date ?? ctx.today();
-    const id = ctx.db.exec('INSERT INTO payments (direction, kind, amount, mode, category, note, date, created_by) VALUES (?,?,?,?,?,?,?,?)', [
-      direction, direction === 'out' ? 'expense' : 'income', input.amount, input.mode, input.category.trim(), input.note ?? null, date, ctx.session!.userId,
-    ]).lastId;
-    const sign = direction === 'out' ? 1 : -1;
-    postVoucher(ctx, direction === 'out' ? 'expense' : 'income', id, date, [
-      { account: direction === 'out' ? 'EXPENSE' : 'INCOME', amount: sign * input.amount, narration: input.category },
-      { account: modeAccount(input.mode), amount: -sign * input.amount, narration: input.note ?? input.category },
-    ]);
-    audit(ctx, direction === 'out' ? 'expense.create' : 'income.create', 'payment', id, { amount: input.amount, category: input.category });
-    return id;
-  });
-}
-
 export function cancelPayment(ctx: Ctx, id: number) {
   const p = ctx.db.get<Payment>('SELECT * FROM payments WHERE id = ?', [id]);
   if (!p) throw new AppError('Payment not found.');
   guard(ctx, p.kind === 'party' ? (p.direction === 'in' ? 'sale.cancel' : 'payment.out') : 'expense.create');
   if (p.cancelled) throw new AppError('Already cancelled.');
   if (p.invoice_id) throw new AppError('This payment belongs to a bill. Cancel the bill instead.');
+  if (p.kind === 'expense' && (p as Payment & { expense_id?: number | null }).expense_id) {
+    cancelExpensePayment(ctx, id);
+    return true;
+  }
   return ctx.db.transaction(() => {
     const type = p.kind === 'party' ? 'payment' : p.kind;
     reverseVoucher(ctx, type, id, ctx.today(), `cancel_${type}`);

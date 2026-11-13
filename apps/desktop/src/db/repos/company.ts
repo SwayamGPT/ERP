@@ -171,7 +171,7 @@ export function whoami(ctx: Ctx) {
   return ctx.session;
 }
 
-export function auditLog(ctx: Ctx, limit = 200) {
+export function auditLog(ctx: Ctx, limit = 2000) {
   guard(ctx, 'users.manage');
   requireSession(ctx);
   return ctx.db.query(

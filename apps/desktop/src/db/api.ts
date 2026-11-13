@@ -4,6 +4,9 @@ import * as invoices from './repos/invoices';
 import * as items from './repos/items';
 import * as parties from './repos/parties';
 import * as reports from './repos/reports';
+import * as expenses from './repos/expenses';
+import * as staff from './repos/staff';
+import * as money from './repos/money';
 import type { DraftInvoice } from './types';
 import { searchHsn } from '@hisaab/core';
 
@@ -53,9 +56,41 @@ export const api = {
 
   // money
   'payments.receive': (ctx: Ctx, a: Parameters<typeof invoices.receivePayment>[1]) => invoices.receivePayment(ctx, a),
-  'payments.expense': (ctx: Ctx, a: Parameters<typeof invoices.recordExpense>[1]) => invoices.recordExpense(ctx, a),
   'payments.cancel': (ctx: Ctx, a: { id: number }) => invoices.cancelPayment(ctx, a.id),
   'payments.list': (ctx: Ctx, a: Parameters<typeof invoices.listPayments>[1]) => invoices.listPayments(ctx, a),
+
+  // expenses
+  'expenses.sync': (ctx: Ctx) => expenses.syncRecurring(ctx),
+  'expenses.overview': (ctx: Ctx, a: { month?: string }) => money.expenseOverview(ctx, a?.month),
+  'expenses.list': (ctx: Ctx, a: Parameters<typeof expenses.listExpenses>[1]) => expenses.listExpenses(ctx, a),
+  'expenses.get': (ctx: Ctx, a: { id: number }) => expenses.getExpense(ctx, a.id),
+  'expenses.create': (ctx: Ctx, a: expenses.ExpenseInput) => expenses.createExpense(ctx, a),
+  'expenses.pay': (ctx: Ctx, a: Parameters<typeof expenses.payExpense>[1]) => expenses.payExpense(ctx, a),
+  'expenses.cancel': (ctx: Ctx, a: { id: number; reason: string }) => expenses.cancelExpense(ctx, a),
+  'expenses.cancelPayment': (ctx: Ctx, a: { paymentId: number }) => expenses.cancelExpensePayment(ctx, a.paymentId),
+  'expenses.categories': (ctx: Ctx, a: { month?: string }) => expenses.listCategories(ctx, a?.month),
+  'expenses.saveCategory': (ctx: Ctx, a: Parameters<typeof expenses.saveCategory>[1]) => expenses.saveCategory(ctx, a),
+  'expenses.payees': (ctx: Ctx) => expenses.payees(ctx),
+  'expenses.recurring': (ctx: Ctx) => expenses.listRecurring(ctx),
+  'expenses.saveRecurring': (ctx: Ctx, a: Parameters<typeof expenses.saveRecurring>[1]) => expenses.saveRecurring(ctx, a),
+
+  // staff & salary
+  'staff.list': (ctx: Ctx, a: { includeInactive?: boolean }) => staff.listEmployees(ctx, a ?? {}),
+  'staff.get': (ctx: Ctx, a: { id: number }) => staff.getEmployee(ctx, a.id),
+  'staff.save': (ctx: Ctx, a: Parameters<typeof staff.saveEmployee>[1]) => staff.saveEmployee(ctx, a),
+  'staff.salaryPreview': (ctx: Ctx, a: { period: string }) => staff.salaryPreview(ctx, a.period),
+  'staff.runSalary': (ctx: Ctx, a: Parameters<typeof staff.runSalary>[1]) => staff.runSalary(ctx, a),
+  'staff.paySalary': (ctx: Ctx, a: Parameters<typeof staff.paySalary>[1]) => staff.paySalary(ctx, a),
+  'staff.advance': (ctx: Ctx, a: Parameters<typeof staff.staffAdvance>[1]) => staff.staffAdvance(ctx, a),
+
+  // money movements
+  'money.move': (ctx: Ctx, a: Parameters<typeof money.recordMove>[1]) => money.recordMove(ctx, a),
+  'money.cashCheck': (ctx: Ctx, a: { counted: number; note?: string }) => money.cashCheck(ctx, a),
+  'money.cancelMove': (ctx: Ctx, a: { id: number }) => money.cancelMove(ctx, a.id),
+  'money.moves': (ctx: Ctx, a: Parameters<typeof money.listMoves>[1]) => money.listMoves(ctx, a),
+  'money.log': (ctx: Ctx, a: Parameters<typeof money.moneyLog>[1]) => money.moneyLog(ctx, a),
+  'reports.cashflow': (ctx: Ctx, a: { from: string; to: string }) => money.cashFlow(ctx, a),
+  'reports.pnl': (ctx: Ctx, a: { from: string; to: string }) => money.profitAndLoss(ctx, a),
 
   // reports
   'reports.dashboard': (ctx: Ctx) => reports.dashboard(ctx),

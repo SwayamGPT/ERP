@@ -15,6 +15,8 @@ keyboard-first counter, and GST returns in one click.
 | **Printing** | 5 templates — classic & big-print receipts, GST tax invoice, modern A4, half-page A5 — with live preview; choose full GST breakup, totals only, or none (B2B bills always keep tax totals) |
 | **Stock** | Multi-unit (piece / box / carton, kg & g), batches & expiry with FIFO, low-stock & expiry alerts, adjustments, barcode labels |
 | **Purchases** | Keyboard grid with batch, expiry, MRP, free qty; IGST input for other-state suppliers; debit notes |
+| **Expenses & staff** | Rent, electricity, salaries and every other cost — paid now or as bills with due dates · recurring bills · budgets · GST input credit · salary run with advances · cash ↔ bank, owner withdrawals, drawer count |
+| **Money trail** | Money log (who, when, running balance), cash-flow statement, profit & loss, plain-language activity log |
 | **Khata** | Customers & suppliers, credit limits, running statements, WhatsApp reminders, money in / out, expenses, cash & bank book |
 | **GST** | CGST/SGST/IGST/cess, GSTR-1 & GSTR-3B JSON (GSTN offline-tool format), HSN summary, e-Way Bill JSON, GST 2.0 slabs |
 | **Insights** | Live dashboard, 30-day trend, top items, item & bill profit (FIFO cost), registers, day book, outstanding — every report to CSV |

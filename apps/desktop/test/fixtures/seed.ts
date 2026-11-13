@@ -1,7 +1,8 @@
 import { gstinCheckChar, makeEan13, toPaise, type Scheme } from '@hisaab/core';
 import { addDays, audit, type Ctx } from '../../src/db/repos/base';
 import { mustCompany } from '../../src/db/repos/company';
-import { createInvoice, previewInvoice, receivePayment, recordExpense } from '../../src/db/repos/invoices';
+import { createInvoice, previewInvoice, receivePayment } from '../../src/db/repos/invoices';
+import { createExpense, listCategories } from '../../src/db/repos/expenses';
 import { saveItem, type ItemInput } from '../../src/db/repos/items';
 import { saveParty } from '../../src/db/repos/parties';
 
@@ -255,7 +256,10 @@ export function loadSample(ctx: Ctx, template: Template, opts: { history?: boole
         const bal = ctx.db.get<{ b: number }>("SELECT COALESCE(SUM(debit - credit),0) AS b FROM ledger_entries WHERE account='PARTY' AND party_id = ?", [c])!.b;
         if (bal > 10000) receivePayment(dctx, { direction: 'in', partyId: c, amount: Math.round(bal * 0.6 / 100) * 100, mode: rng.pick(['cash', 'upi', 'bank'] as const), note: 'Part payment' });
       }
-      if (d % 7 === 1) recordExpense(dctx, { amount: toPaise(rng.pick([350, 600, 1200, 180])), mode: 'cash', category: rng.pick(['Tea & snacks', 'Electricity', 'Transport', 'Shop rent', 'Packaging']) });
+      if (d % 7 === 1) {
+        const cats = listCategories(dctx).filter((c) => ['Staff tea & food', 'Transport & delivery', 'Packaging & carry bags'].includes(c.name));
+        createExpense(dctx, { categoryId: rng.pick(cats).id, amount: toPaise(rng.pick([350, 600, 1200, 180])), payNow: { mode: 'cash' } });
+      }
     }
     audit(ctx, 'sample.load', 'company', 1, { template });
   });

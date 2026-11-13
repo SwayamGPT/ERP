@@ -53,6 +53,13 @@ export function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** Local wall-clock time as 'YYYY-MM-DD HH:MM:SS' — what the shop sees on its clock. */
+export function localNow(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 export function addDays(iso: string, n: number): string {
   const d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)));
   d.setUTCDate(d.getUTCDate() + n);
@@ -64,6 +71,7 @@ export function addDays(iso: string, n: number): string {
 export interface Posting {
   account: string;
   partyId?: number | null;
+  employeeId?: number | null;
   /** positive = debit, negative = credit */
   amount: number;
   narration?: string;
@@ -77,16 +85,16 @@ export function postVoucher(ctx: Ctx, voucherType: string, voucherId: number, da
     if (!Number.isSafeInteger(p.amount)) throw new AppError(`Non-integer posting ${p.amount}`, 'UNBALANCED');
     if (p.amount === 0) continue;
     ctx.db.exec(
-      'INSERT INTO ledger_entries (voucher_type, voucher_id, date, account, party_id, debit, credit, narration) VALUES (?,?,?,?,?,?,?,?)',
-      [voucherType, voucherId, date, p.account, p.partyId ?? null, p.amount > 0 ? p.amount : 0, p.amount < 0 ? -p.amount : 0, p.narration ?? null],
+      'INSERT INTO ledger_entries (voucher_type, voucher_id, date, account, party_id, employee_id, debit, credit, narration, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+      [voucherType, voucherId, date, p.account, p.partyId ?? null, p.employeeId ?? null, p.amount > 0 ? p.amount : 0, p.amount < 0 ? -p.amount : 0, p.narration ?? null, ctx.session?.userId ?? null, localNow()],
     );
   }
 }
 
 /** Post exact reversals of an existing voucher (used for cancellation). */
 export function reverseVoucher(ctx: Ctx, voucherType: string, voucherId: number, date: string, newType: string) {
-  const rows = ctx.db.query<{ account: string; party_id: number | null; debit: number; credit: number }>(
-    'SELECT account, party_id, debit, credit FROM ledger_entries WHERE voucher_type = ? AND voucher_id = ?',
+  const rows = ctx.db.query<{ account: string; party_id: number | null; employee_id: number | null; debit: number; credit: number }>(
+    'SELECT account, party_id, employee_id, debit, credit FROM ledger_entries WHERE voucher_type = ? AND voucher_id = ?',
     [voucherType, voucherId],
   );
   postVoucher(
@@ -94,7 +102,7 @@ export function reverseVoucher(ctx: Ctx, voucherType: string, voucherId: number,
     newType,
     voucherId,
     date,
-    rows.map((r) => ({ account: r.account, partyId: r.party_id, amount: r.credit - r.debit, narration: 'Cancelled' })),
+    rows.map((r) => ({ account: r.account, partyId: r.party_id, employeeId: r.employee_id, amount: r.credit - r.debit, narration: 'Cancelled' })),
   );
 }
 
@@ -116,9 +124,13 @@ export const ACCOUNTS: Record<string, string> = {
   OTHER_INCOME: 'Other charges collected',
   FREIGHT: 'Freight & other charges',
   EXPENSE: 'Expenses',
+  EXPENSE_PAYABLE: 'Expense bills payable',
+  EMP_ADVANCE: 'Staff advances',
   INCOME: 'Other income',
   OPENING: 'Opening balance',
   CAPITAL: 'Owner capital',
+  DRAWINGS: 'Owner withdrawals',
+  CASH_DIFF: 'Cash short / excess',
 };
 
 export const modeAccount = (mode: string) => (mode === 'cash' ? 'CASH' : 'BANK');

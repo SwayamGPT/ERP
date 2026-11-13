@@ -58,7 +58,26 @@ export function dashboard(ctx: Ctx) {
     "SELECT id, number, party_name, total, payment_mode, created_at, kind FROM invoices WHERE kind IN ('sale','sale_return') AND status = 'final' ORDER BY id DESC LIMIT 6",
   );
   const canProfit = allowed(ctx, 'report.profit');
+  const month = today.slice(0, 7);
+  const canExpenses = allowed(ctx, 'expense.view');
+  const monthExpenses = canExpenses
+    ? db.get<{ s: number }>("SELECT COALESCE(SUM(amount - (cgst + sgst + igst) * itc), 0) AS s FROM expenses WHERE status <> 'cancelled' AND substr(date, 1, 7) = ?", [month])!.s
+    : null;
+  const monthGross = db.get<{ g: number }>(
+    `SELECT COALESCE(SUM(${sign} * (taxable - cost_total)), 0) AS g FROM invoices WHERE kind IN ('sale','sale_return') AND status = 'final' AND substr(date, 1, 7) = ?`,
+    [month],
+  )!.g;
+  const otherIncome = db.get<{ s: number }>("SELECT COALESCE(SUM(credit - debit), 0) AS s FROM ledger_entries WHERE account IN ('INCOME','CASH_DIFF') AND substr(date, 1, 7) = ?", [month])!.s;
+  const bills = canExpenses
+    ? db.get<{ n: number; due: number; overdue: number }>(
+        `SELECT COUNT(*) AS n, COALESCE(SUM(amount - paid), 0) AS due, COALESCE(SUM(CASE WHEN due_date < ? THEN 1 ELSE 0 END), 0) AS overdue FROM expenses
+         WHERE status IN ('unpaid','partial') AND (due_date IS NULL OR due_date <= ?) ${allowed(ctx, 'payroll.manage') ? '' : 'AND employee_id IS NULL'}`,
+        [today, addDays(today, 7)],
+      )!
+    : null;
   return {
+    month: { expenses: monthExpenses, netProfit: canProfit && monthExpenses !== null ? monthGross - monthExpenses + otherIncome : null },
+    billsDue: bills,
     today: { sales: t.total, bills: t.bills, avgBill: t.bills ? Math.round(t.total / t.bills) : 0, profit: canProfit ? t.taxable - t.cost : null },
     yesterday: { sales: y.total, bills: y.bills },
     moneyIn,
@@ -137,7 +156,7 @@ export function dayBook(ctx: Ctx, date: string) {
   guard(ctx, 'report.view');
   return ctx.db.query(
     `SELECT l.voucher_type, l.voucher_id, l.account, l.debit, l.credit, l.narration, p.name AS party_name,
-       CASE WHEN l.voucher_type NOT IN ('payment','expense','income','opening','cancel_payment','cancel_expense','cancel_income') THEN (SELECT number FROM invoices WHERE id = l.voucher_id) END AS number
+       CASE WHEN replace(l.voucher_type, 'cancel_', '') IN ('sale','purchase','sale_return','purchase_return') THEN (SELECT number FROM invoices WHERE id = l.voucher_id) END AS number
      FROM ledger_entries l LEFT JOIN parties p ON p.id = l.party_id WHERE l.date = ? ORDER BY l.id`,
     [date],
   );
@@ -186,13 +205,25 @@ export function gstDocs(ctx: Ctx, period: string): GstDoc[] {
     'SELECT id, kind, number, date, party_gstin, party_name, place_of_supply, inter_state, total, status FROM invoices WHERE date BETWEEN ? AND ? ORDER BY date, id',
     [from, to],
   );
-  if (!invs.length) return [];
+  // Expense bills with a supplier GSTIN give input credit too (rent, internet, CA fees…).
+  const expenseItc: GstDoc[] = ctx.db
+    .query<{ id: number; bill_no: string | null; date: string; payee: string | null; payee_gstin: string; amount: number; taxable: number; gst_rate: number; cgst: number; sgst: number; igst: number; category: string; status: string }>(
+      `SELECT e.id, e.bill_no, e.date, e.payee, e.payee_gstin, e.amount, e.taxable, e.gst_rate, e.cgst, e.sgst, e.igst, c.name AS category, e.status
+       FROM expenses e JOIN expense_categories c ON c.id = e.category_id WHERE e.itc = 1 AND e.date BETWEEN ? AND ?`,
+      [from, to],
+    )
+    .map((e) => ({
+      type: 'purchase' as const, number: e.bill_no ?? `EXP-${e.id}`, date: e.date, partyGstin: e.payee_gstin, partyName: e.payee ?? e.category,
+      placeOfSupply: e.payee_gstin.slice(0, 2), interState: e.igst > 0, total: e.amount, cancelled: e.status === 'cancelled',
+      lines: [{ hsn: '', description: e.category, uqc: 'OTH', qty: 1, gstRate: e.gst_rate, taxable: e.taxable, cgst: e.cgst, sgst: e.sgst, igst: e.igst, cess: 0 }],
+    }));
+  if (!invs.length) return expenseItc;
   const lines = ctx.db.query<{ invoice_id: number; hsn: string | null; name: string; qty: number; free_qty: number; factor: number; gst_rate: number; taxable: number; cgst: number; sgst: number; igst: number; cess: number; base_unit: string }>(
     `SELECT l.invoice_id, l.hsn, l.name, l.qty, l.free_qty, l.factor, l.gst_rate, l.taxable, l.cgst, l.sgst, l.igst, l.cess, it.base_unit
      FROM invoice_lines l JOIN items it ON it.id = l.item_id WHERE l.invoice_id IN (${invs.map(() => '?').join(',')})`,
     invs.map((i) => i.id),
   );
-  return invs.map((i) => ({
+  return [...expenseItc, ...invs.map((i) => ({
     type: i.kind,
     number: i.number,
     date: i.date,
@@ -216,7 +247,7 @@ export function gstDocs(ctx: Ctx, period: string): GstDoc[] {
         igst: l.igst,
         cess: l.cess,
       })),
-  }));
+  }))];
 }
 
 export function gstSummary(ctx: Ctx, period: string) {

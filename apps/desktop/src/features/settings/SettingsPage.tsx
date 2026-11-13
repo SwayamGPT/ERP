@@ -14,7 +14,7 @@ import { useCan } from '../../lib/perm';
 import { useUi } from '../../lib/store';
 import { useAction, useApi } from '../../lib/useApi';
 
-type Tab = 'business' | 'print' | 'billing' | 'users' | 'backup' | 'audit';
+type Tab = 'business' | 'print' | 'billing' | 'users' | 'backup';
 
 export function SettingsPage() {
   const canDo = useCan();
@@ -28,7 +28,6 @@ export function SettingsPage() {
     { value: 'billing' as const, label: 'Billing rules', show: canDo('settings.edit') },
     { value: 'users' as const, label: 'Users & PINs', show: canDo('users.manage') },
     { value: 'backup' as const, label: 'Backup & data', show: canDo('backup.manage') },
-    { value: 'audit' as const, label: 'Activity log', show: canDo('users.manage') },
   ].filter((t) => t.show);
   return (
     <div className="animate-slide-up">
@@ -40,7 +39,6 @@ export function SettingsPage() {
         {tab === 'billing' && <Billing c={company} />}
         {tab === 'users' && <UsersTab />}
         {tab === 'backup' && <Backup />}
-        {tab === 'audit' && <Audit />}
       </div>
     </div>
   );
@@ -216,27 +214,5 @@ function Backup() {
       <ConfirmDialog open={!!restoreFile} onOpenChange={(v) => !v && setRestoreFile(null)} title="Restore this backup?" body={`${company?.name} will be replaced with “${restoreFile?.name}”. Other enterprises are not touched. Take a backup first if unsure.`} danger confirmLabel="Restore" onConfirm={async () => { await db.importBytes(await restoreFile!.arrayBuffer(), false); useUi.getState().setSession(null); toast.success('Backup restored. Unlock with your PIN.'); }} />
       <ConfirmDialog open={wipe} onOpenChange={setWipe} title={`Delete ${company?.name}?`} body="Every bill, item and customer of this enterprise will be deleted from this computer. Download a backup first — this cannot be undone." danger confirmLabel="Delete enterprise" onConfirm={async () => { await db.deleteEnterprise(); useUi.getState().setSession(null); }} />
     </div>
-  );
-}
-
-function Audit() {
-  const q = useApi('audit.list');
-  return (
-    <Card padded={false} title="Recent activity">
-      <div className="max-h-[60vh] overflow-y-auto">
-        <table className="table-base">
-          <tbody>
-            {(q.data as Array<{ id: number; at: string; user_name: string | null; action: string; details: string | null }> | undefined)?.map((a) => (
-              <tr key={a.id}>
-                <td className="whitespace-nowrap text-xs text-muted">{a.at}</td>
-                <td className="text-sm">{a.user_name ?? 'System'}</td>
-                <td className="font-mono text-xs">{a.action}</td>
-                <td className="max-w-[320px] truncate text-xs text-faint">{a.details}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
   );
 }

@@ -1,0 +1,131 @@
+import { expect, test } from '@playwright/test';
+import { openShop, unlock } from './helpers';
+
+test('expenses: pay now, pay later, then pay the bill — linked to the money log', async ({ page }) => {
+  await openShop(page);
+  await page.goto('/#/expenses?new=1');
+  await page.getByTestId('expense-category').selectOption({ label: 'Staff tea & food' });
+  await page.getByTestId('expense-amount').fill('240');
+  await page.getByTestId('expense-mode-cash').click();
+  await page.getByTestId('expense-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Staff tea & food · ₹240.00 paid' })).toBeVisible();
+
+  // An electricity bill to pay later
+  await page.getByTestId('expense-new').click();
+  await page.getByTestId('expense-category').selectOption({ label: 'Electricity' });
+  await page.getByTestId('expense-amount').fill('4820');
+  await page.getByTestId('expense-payee').fill('MSEDCL');
+  await page.getByRole('button', { name: 'Pay later (bill)' }).click();
+  await page.getByTestId('expense-save').click();
+  await expect(page.getByTestId('bills-due')).toContainText('MSEDCL');
+  await expect(page.getByTestId('bills-due')).toContainText('₹4,820.00');
+
+  await page.getByTestId('bills-due').getByRole('button', { name: 'Pay' }).first().click();
+  await page.getByTestId('pay-expense-amount').fill('4820');
+  await page.getByRole('button', { name: 'Bank' }).click();
+  await page.getByTestId('pay-expense-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Payment recorded' })).toBeVisible();
+  await expect(page.getByTestId('bills-due')).toHaveCount(0);
+
+  await page.goto('/#/money?tab=log');
+  const log = page.getByTestId('money-log');
+  await expect(log).toContainText('Electricity');
+  await expect(log).toContainText('MSEDCL');
+  await expect(log).toContainText('Staff tea & food');
+  await expect(log.locator('tbody tr').first()).toContainText('Rakesh');
+});
+
+test('repeating rent creates its own bill', async ({ page }) => {
+  await openShop(page);
+  await page.goto('/#/expenses?tab=recurring');
+  await page.getByTestId('recurring-new').click();
+  await page.getByTestId('recurring-amount').fill('15000');
+  await page.getByTestId('recurring-payee').fill('Mr. Kulkarni');
+  const d = new Date();
+  await page.getByTestId('recurring-anchor').fill(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  await page.getByTestId('recurring-save').click();
+  await expect(page.getByTestId('recurring-table')).toContainText('Mr. Kulkarni');
+  await page.goto('/#/expenses?tab=due');
+  await expect(page.getByTestId('expense-table')).toContainText('Mr. Kulkarni');
+  await expect(page.getByTestId('expense-table')).toContainText('₹15,000.00');
+});
+
+test('staff: advance, salary run and payment with the advance adjusted', async ({ page }) => {
+  await openShop(page);
+  await page.goto('/#/staff');
+  await page.getByTestId('staff-new').click();
+  await page.getByTestId('staff-name').fill('Sunil');
+  await page.getByTestId('staff-salary').fill('12000');
+  await page.getByTestId('staff-save').click();
+  await expect(page.getByTestId('staff-table')).toContainText('Sunil');
+
+  await page.getByTestId('staff-table').getByRole('button', { name: 'Advance' }).click();
+  await page.getByTestId('advance-amount').fill('2000');
+  await page.getByTestId('advance-save').click();
+  await expect(page.getByTestId('staff-table')).toContainText('₹2,000.00');
+
+  await page.getByTestId('salary-run').click();
+  await page.getByTestId('salary-create').click();
+  await expect(page.getByTestId('toast').filter({ hasText: /1 salary bills created/ })).toBeVisible();
+  await expect(page.getByTestId('staff-table')).toContainText('₹12,000.00'); // salary due
+
+  await page.getByTestId('staff-table').getByText('Sunil').click();
+  await page.getByTestId('salary-pay').click();
+  await expect(page.getByTestId('pay-expense-amount')).toHaveValue('10000'); // 12,000 − 2,000 advance
+  await page.getByTestId('pay-expense-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Salary payment recorded' })).toBeVisible();
+  await expect(page.getByTestId('staff-timeline')).toContainText('Advance adjusted in salary');
+  await page.keyboard.press('Escape');
+  const row = page.getByTestId('staff-table').locator('tr', { hasText: 'Sunil' });
+  await expect(row).not.toContainText('₹2,000.00');
+  await expect(row).not.toContainText('₹12,000.00 ');
+});
+
+test('cash ↔ bank, owner withdrawal and drawer count flow into cash flow, P&L and activity', async ({ page }) => {
+  await openShop(page);
+  await page.goto('/#/money');
+  await page.getByTestId('money-transfer').click();
+  await page.getByTestId('move-amount').fill('10000');
+  await page.getByTestId('move-save').click();
+  await page.getByRole('button', { name: 'Owner took / added money' }).click();
+  await page.getByTestId('move-amount').fill('3000');
+  await page.getByTestId('move-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Recorded' }).first()).toBeVisible();
+
+  await page.getByTestId('cash-check').click();
+  const expectedText = await page.locator('text=Books say').locator('..').innerText();
+  const expected = Number(expectedText.replace(/[^\d.]/g, ''));
+  await page.getByTestId('check-total').fill(String(expected - 50));
+  await expect(page.getByTestId('check-diff')).toHaveText('₹50.00');
+  await page.getByTestId('check-note').fill('Change given wrongly');
+  await page.getByTestId('check-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'cash short by ₹50.00' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Cash flow' }).click();
+  const flow = page.getByTestId('cash-flow-body');
+  await expect(flow).toContainText('Owner withdrawals');
+  await expect(flow).toContainText('−₹3,000.00');
+  await expect(flow).toContainText('Cash short / excess');
+
+  await page.goto('/#/reports?tab=pnl');
+  await expect(page.getByTestId('pnl')).toContainText('Gross profit');
+  await expect(page.getByTestId('pnl')).not.toContainText('Owner'); // withdrawals aren't expenses
+
+  await page.goto('/#/activity');
+  const act = page.getByTestId('activity-table');
+  await expect(act).toContainText('Moved ₹10,000.00 from cash to bank');
+  await expect(act).toContainText('Owner took ₹3,000.00 out of the business');
+  await expect(act).toContainText('short ₹50.00');
+});
+
+test('a manager handles expenses but never sees salaries', async ({ page }) => {
+  await openShop(page);
+  await page.getByTestId('user-menu').click();
+  await unlock(page, /Priya/, '2222');
+  const nav = page.locator('nav');
+  await expect(nav.getByText('Expenses')).toBeVisible();
+  await expect(nav.getByText('Staff & salary')).toHaveCount(0);
+  await expect(nav.getByText('Activity log')).toHaveCount(0);
+  await page.goto('/#/expenses');
+  await expect(page.getByTestId('expense-new')).toBeVisible();
+});

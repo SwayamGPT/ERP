@@ -21,6 +21,9 @@ import { ReportsPage } from './features/reports/ReportsPage';
 import { InvoiceList } from './features/sales/InvoiceList';
 import { InvoiceView } from './features/sales/InvoiceView';
 import { SettingsPage } from './features/settings/SettingsPage';
+import { ExpensesPage } from './features/expenses/ExpensesPage';
+import { StaffPage } from './features/staff/StaffPage';
+import { ActivityPage } from './features/activity/ActivityPage';
 import { useApi } from './lib/useApi';
 import { useUi } from './lib/store';
 
@@ -77,6 +80,9 @@ function Boot() {
           <Route path="/parties" element={<PartiesPage />} />
           <Route path="/parties/:id" element={<PartyDetail />} />
           <Route path="/money" element={<MoneyPage />} />
+          <Route path="/expenses" element={<ExpensesPage />} />
+          <Route path="/staff" element={<StaffPage />} />
+          <Route path="/activity" element={<ActivityPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/gst" element={<GstPage />} />
           <Route path="/settings" element={<SettingsPage />} />

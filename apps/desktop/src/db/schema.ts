@@ -269,6 +269,127 @@ UPDATE company SET print_template = CASE print_format WHEN 'a4' THEN 'a4-classic
 UPDATE company SET pan = substr(gstin, 3, 10) WHERE gstin IS NOT NULL;
 `,
   },
+  {
+    version: 3,
+    name: 'expenses_staff_money_moves',
+    sql: /* sql */ `
+CREATE TABLE expense_categories (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  grp TEXT NOT NULL DEFAULT 'Other',
+  monthly_budget INTEGER NOT NULL DEFAULT 0,
+  is_salary INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT INTO expense_categories (name, grp, is_salary) VALUES
+  ('Shop rent', 'Rent & premises', 0), ('Maintenance & society charges', 'Rent & premises', 0),
+  ('Electricity', 'Utilities', 0), ('Water', 'Utilities', 0), ('Internet & phone', 'Utilities', 0),
+  ('Salaries & wages', 'Staff', 1), ('Staff tea & food', 'Staff', 0), ('Staff welfare & bonus', 'Staff', 0),
+  ('Transport & delivery', 'Operations', 0), ('Packaging & carry bags', 'Operations', 0), ('Repairs & maintenance', 'Operations', 0),
+  ('Cleaning & security', 'Operations', 0), ('Stationery & printing', 'Operations', 0), ('Software & subscriptions', 'Operations', 0),
+  ('Marketing & ads', 'Marketing', 0), ('Bank & UPI charges', 'Finance', 0), ('Loan interest & EMI', 'Finance', 0), ('Insurance', 'Finance', 0),
+  ('Licences, taxes & fees', 'Taxes & fees', 0), ('Accountant & legal', 'Professional', 0), ('Other', 'Other', 0);
+INSERT OR IGNORE INTO expense_categories (name, grp) SELECT DISTINCT category, 'Other' FROM payments WHERE kind = 'expense' AND category IS NOT NULL;
+
+CREATE TABLE employees (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT,
+  designation TEXT,
+  monthly_salary INTEGER NOT NULL DEFAULT 0,
+  joined_on TEXT,
+  pay_mode TEXT NOT NULL DEFAULT 'cash',
+  bank_account TEXT,
+  bank_ifsc TEXT,
+  user_id INTEGER REFERENCES users(id),
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE recurring_expenses (
+  id INTEGER PRIMARY KEY,
+  category_id INTEGER NOT NULL REFERENCES expense_categories(id),
+  payee TEXT,
+  description TEXT,
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  every TEXT NOT NULL CHECK (every IN ('week','month','quarter','year')),
+  anchor_date TEXT NOT NULL,
+  end_date TEXT,
+  auto_pay_mode TEXT,
+  gst_rate REAL NOT NULL DEFAULT 0,
+  payee_gstin TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE expenses (
+  id INTEGER PRIMARY KEY,
+  date TEXT NOT NULL,
+  category_id INTEGER NOT NULL REFERENCES expense_categories(id),
+  payee TEXT,
+  payee_gstin TEXT,
+  bill_no TEXT,
+  description TEXT,
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  taxable INTEGER NOT NULL,
+  gst_rate REAL NOT NULL DEFAULT 0,
+  cgst INTEGER NOT NULL DEFAULT 0,
+  sgst INTEGER NOT NULL DEFAULT 0,
+  igst INTEGER NOT NULL DEFAULT 0,
+  itc INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'unpaid' CHECK (status IN ('unpaid','partial','paid','cancelled')),
+  paid INTEGER NOT NULL DEFAULT 0,
+  due_date TEXT,
+  employee_id INTEGER REFERENCES employees(id),
+  salary_period TEXT,
+  salary_detail TEXT,
+  recurring_id INTEGER REFERENCES recurring_expenses(id),
+  recurring_key TEXT,
+  legacy_payment_id INTEGER,
+  cancel_reason TEXT,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_expenses_date ON expenses(date);
+CREATE INDEX idx_expenses_status ON expenses(status, due_date);
+CREATE UNIQUE INDEX idx_expenses_recurring ON expenses(recurring_id, recurring_key) WHERE recurring_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_expenses_salary ON expenses(employee_id, salary_period) WHERE employee_id IS NOT NULL AND status <> 'cancelled';
+
+INSERT INTO expenses (date, category_id, description, amount, taxable, status, paid, legacy_payment_id, created_by, created_at)
+  SELECT p.date, c.id, p.note, p.amount, p.amount, CASE WHEN p.cancelled = 1 THEN 'cancelled' ELSE 'paid' END, p.amount, p.id, p.created_by, p.created_at
+  FROM payments p JOIN expense_categories c ON c.name = p.category WHERE p.kind = 'expense';
+ALTER TABLE payments ADD COLUMN expense_id INTEGER REFERENCES expenses(id);
+UPDATE payments SET expense_id = (SELECT e.id FROM expenses e WHERE e.legacy_payment_id = payments.id) WHERE kind = 'expense';
+
+-- Money that moves without a customer, supplier or expense bill.
+CREATE TABLE money_moves (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('transfer','drawing','capital','income','advance','advance_return','advance_recovery','cash_check')),
+  amount INTEGER NOT NULL DEFAULT 0 CHECK (amount >= 0),
+  from_account TEXT,
+  to_account TEXT,
+  mode TEXT,
+  employee_id INTEGER REFERENCES employees(id),
+  expense_id INTEGER REFERENCES expenses(id),
+  category TEXT,
+  expected INTEGER,
+  counted INTEGER,
+  note TEXT,
+  date TEXT NOT NULL,
+  cancelled INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_moves_date ON money_moves(date);
+
+ALTER TABLE ledger_entries ADD COLUMN employee_id INTEGER;
+ALTER TABLE ledger_entries ADD COLUMN created_by INTEGER;
+ALTER TABLE ledger_entries ADD COLUMN created_at TEXT;
+CREATE INDEX idx_ledger_employee ON ledger_entries(employee_id);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

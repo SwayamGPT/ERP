@@ -1,4 +1,5 @@
 import { formatINRCompact } from '@hisaab/core';
+import { ReceiptText } from 'lucide-react';
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CalendarClock, Check, ChevronRight, Landmark, PackageX, Receipt, ShoppingCart, TrendingUp, Truck, Wallet } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link, useNavigate } from 'react-router-dom';
@@ -68,6 +69,8 @@ export function Dashboard() {
           <Stat label={t('dash.toPay')} value={inr(x.payable, false)} icon={<ArrowUpRight className="h-4 w-4" />} tone="bad" sub="Due to suppliers" />
         )}
       </div>
+
+      <MonthStrip />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2" title="Sales — last 30 days" action={<span className="text-sm font-semibold tnum">{inr(total30, false)}</span>}>
@@ -190,6 +193,33 @@ export function Dashboard() {
         )}
       </Card>
       {company && !company.gstin && <p className="text-center text-xs text-faint">Not GST registered? Bills print without tax breakup once you add your GSTIN in Settings.</p>}
+    </div>
+  );
+}
+
+function MonthStrip() {
+  const d = useApi('reports.dashboard').data;
+  const navigate = useNavigate();
+  if (!d || d.month.expenses === null) return null;
+  const bills = d.billsDue;
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      <button onClick={() => navigate('/expenses')} className="card flex items-center gap-3 p-4 text-left transition hover:shadow-pop" data-testid="dash-expenses">
+        <span className="grid h-10 w-10 place-items-center rounded-xl bg-bad-soft text-bad"><ReceiptText className="h-5 w-5" /></span>
+        <span><span className="block text-xs text-muted">Expenses this month</span><span className="text-lg font-semibold tnum">{inr(d.month.expenses, false)}</span></span>
+      </button>
+      {d.month.netProfit !== null && (
+        <button onClick={() => navigate('/reports?tab=pnl')} className="card flex items-center gap-3 p-4 text-left transition hover:shadow-pop" data-testid="dash-net-profit">
+          <span className={cn('grid h-10 w-10 place-items-center rounded-xl', d.month.netProfit >= 0 ? 'bg-good-soft text-good' : 'bg-bad-soft text-bad')}><TrendingUp className="h-5 w-5" /></span>
+          <span><span className="block text-xs text-muted">Net profit this month (after expenses)</span><span className={cn('text-lg font-semibold tnum', d.month.netProfit < 0 && 'text-bad')}>{inr(d.month.netProfit, false)}</span></span>
+        </button>
+      )}
+      {bills && (
+        <button onClick={() => navigate('/expenses?tab=due')} className={cn('card flex items-center gap-3 p-4 text-left transition hover:shadow-pop', bills.overdue > 0 && 'border-bad/40')} data-testid="dash-bills">
+          <span className={cn('grid h-10 w-10 place-items-center rounded-xl', bills.overdue > 0 ? 'bg-bad-soft text-bad' : 'bg-warn-soft text-warn')}><CalendarClock className="h-5 w-5" /></span>
+          <span><span className="block text-xs text-muted">{bills.n ? `${bills.n} bills due this week${bills.overdue ? ` · ${bills.overdue} overdue` : ''}` : 'No bills due this week'}</span><span className="text-lg font-semibold tnum">{inr(bills.due, false)}</span></span>
+        </button>
+      )}
     </div>
   );
 }

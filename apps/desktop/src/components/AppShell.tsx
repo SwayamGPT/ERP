@@ -4,6 +4,9 @@ import {
   Barcode,
   Check,
   ChevronsLeft,
+  Contact,
+  History,
+  ReceiptText,
   ChevronsUpDown,
   Plus,
   CloudOff,
@@ -34,6 +37,7 @@ import { useT } from '../lib/i18n';
 import { useCan } from '../lib/perm';
 import { useUi } from '../lib/store';
 import { CommandPalette } from './CommandPalette';
+import { toast } from './ui';
 import { ShortcutSheet } from './ShortcutSheet';
 import { Logo } from './Logo';
 import * as Popover from '@radix-ui/react-popover';
@@ -74,6 +78,8 @@ export function useNav(): Array<{ group: string; items: NavItem[] }> {
       items: [
         { to: '/parties', label: t('nav.parties'), icon: <Users />, perm: 'party.view', kbd: 'Alt+C' },
         { to: '/money', label: t('nav.moneyInOut'), icon: <Wallet />, perm: 'payment.in', kbd: 'Alt+M' },
+        { to: '/expenses', label: t('nav.expenses'), icon: <ReceiptText />, perm: 'expense.view', kbd: 'Alt+E' },
+        { to: '/staff', label: t('nav.staff'), icon: <Contact />, perm: 'payroll.manage' },
       ],
     },
     {
@@ -81,6 +87,7 @@ export function useNav(): Array<{ group: string; items: NavItem[] }> {
       items: [
         { to: '/reports', label: t('nav.reports'), icon: <BarChart3 />, perm: 'report.view', kbd: 'Alt+R' },
         { to: '/gst', label: t('nav.gst'), icon: <FileSpreadsheet />, perm: 'gst.view', kbd: 'Alt+G' },
+        { to: '/activity', label: t('nav.activity'), icon: <History />, perm: 'users.manage' },
       ],
     },
   ];
@@ -119,6 +126,7 @@ export function AppShell({ company, children }: { company: Company; children: Re
     'alt+i': go('/items', 'item.view'),
     'alt+c': go('/parties', 'party.view'),
     'alt+m': go('/money', 'payment.in'),
+    'alt+e': go('/expenses', 'expense.view'),
     'alt+r': go('/reports', 'report.view'),
     'alt+g': go('/gst', 'gst.view'),
     'alt+l': () => void lock(),
@@ -126,6 +134,10 @@ export function AppShell({ company, children }: { company: Company; children: Re
   });
 
   const enterpriseId = useApi('app.status').data?.enterpriseId ?? null;
+  useEffect(() => {
+    // Create due bills for repeating expenses (rent, EMIs…) whenever someone unlocks.
+    if (session) call('expenses.sync').then((n) => n > 0 && toast.info(`${n} repeating bill${n > 1 ? 's' : ''} added to Bills to pay`)).catch(() => {});
+  }, [session?.userId, enterpriseId]);
   useEffect(() => usePos.getState().attach(enterpriseId), [enterpriseId]);
   const openBills = usePos((s) => s.bills.filter((b) => b.lines.length > 0).length);
   const isPos = loc.pathname === '/pos';
