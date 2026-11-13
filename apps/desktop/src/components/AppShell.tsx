@@ -2,7 +2,10 @@ import type { Permission } from '@hisaab/core';
 import {
   BarChart3,
   Barcode,
+  Check,
   ChevronsLeft,
+  ChevronsUpDown,
+  Plus,
   CloudOff,
   Command,
   FileSpreadsheet,
@@ -33,6 +36,10 @@ import { useUi } from '../lib/store';
 import { CommandPalette } from './CommandPalette';
 import { ShortcutSheet } from './ShortcutSheet';
 import { Logo } from './Logo';
+import * as Popover from '@radix-ui/react-popover';
+import { db } from '../db/client';
+import { useApi } from '../lib/useApi';
+import { usePos } from '../features/pos/store';
 import { queryClient } from '../db/client';
 
 type NavItem = { to: string; label: string; icon: ReactNode; perm?: Permission; kbd?: string; end?: boolean };
@@ -118,23 +125,16 @@ export function AppShell({ company, children }: { company: Company; children: Re
     'mod+b': toggleSidebar,
   });
 
+  const enterpriseId = useApi('app.status').data?.enterpriseId ?? null;
+  useEffect(() => usePos.getState().attach(enterpriseId), [enterpriseId]);
+  const openBills = usePos((s) => s.bills.filter((b) => b.lines.length > 0).length);
   const isPos = loc.pathname === '/pos';
   const dark = document.documentElement.dataset.theme === 'dark';
 
   return (
     <div className="flex h-full">
       <aside className={cn('no-print flex shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200', sidebarCollapsed ? 'w-[60px]' : 'w-[232px]')}>
-        <div className={cn('flex h-14 items-center gap-2.5 px-4', sidebarCollapsed && 'justify-center px-0')}>
-          <Logo className="h-7 w-7 shrink-0" />
-          {!sidebarCollapsed && (
-            <div className="min-w-0">
-              <div className="text-[15px] font-semibold leading-tight tracking-tight">Hisaab</div>
-              <div className="truncate text-[11px] text-muted" title={company.name}>
-                {company.name}
-              </div>
-            </div>
-          )}
-        </div>
+        <EnterpriseSwitcher company={company} collapsed={sidebarCollapsed} />
         <nav className="flex-1 space-y-4 overflow-y-auto px-2.5 py-2">
           {nav.map((g) => {
             const items = g.items.filter((i) => !i.perm || canDo(i.perm));
@@ -158,7 +158,8 @@ export function AppShell({ company, children }: { company: Company; children: Re
                       }
                     >
                       {i.icon}
-                      {!sidebarCollapsed && <span className="truncate">{i.label}</span>}
+                      {!sidebarCollapsed && <span className="flex-1 truncate">{i.label}</span>}
+                      {!sidebarCollapsed && i.to === '/pos' && openBills > 0 && <span className="rounded-full bg-saffron px-1.5 text-[10px] font-semibold text-black/80" title="Bills in progress">{openBills}</span>}
                     </NavLink>
                   ))}
                 </div>
@@ -227,6 +228,57 @@ export function AppShell({ company, children }: { company: Company; children: Re
       <CommandPalette />
       <ShortcutSheet />
     </div>
+  );
+}
+
+function EnterpriseSwitcher({ company, collapsed }: { company: Company; collapsed: boolean }) {
+  const status = useApi('app.status');
+  const enterprises = status.data?.enterprises ?? [];
+  const current = status.data?.enterpriseId;
+  const [open, setOpen] = useState(false);
+  const go = async (fn: () => Promise<unknown>) => {
+    setOpen(false);
+    await db.flush();
+    usePos.getState().reset();
+    await fn();
+    useUi.getState().setSession(null);
+  };
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button className={cn('m-2 flex h-12 items-center gap-2.5 rounded-xl px-2 text-left transition hover:bg-surface-2', collapsed && 'justify-center')} title="Switch enterprise" data-testid="enterprise-switcher">
+          <Logo className="h-7 w-7 shrink-0" />
+          {!collapsed && (
+            <>
+              <div className="min-w-0 flex-1">
+                <div className="text-[15px] font-semibold leading-tight tracking-tight">Hisaab</div>
+                <div className="truncate text-[11px] text-muted" title={company.name}>{company.name}</div>
+              </div>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 text-faint" />
+            </>
+          )}
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content side="bottom" align="start" sideOffset={4} className="z-50 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-pop animate-pop">
+          <div className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-faint">Enterprises</div>
+          {enterprises.map((e) => (
+            <button key={e.id} disabled={e.id === current} onClick={() => go(() => db.openEnterprise(e.id))} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-surface-2 disabled:bg-primary-soft/60">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary-soft text-xs font-semibold text-primary">{e.name.slice(0, 1).toUpperCase()}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{e.name}</span>
+                <span className="block truncate font-mono text-[10px] text-muted">{e.gstin}</span>
+              </span>
+              {e.id === current && <Check className="h-4 w-4 text-primary" />}
+            </button>
+          ))}
+          <div className="my-1 h-px bg-border" />
+          <button onClick={() => go(() => db.createEnterprise())} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-primary hover:bg-surface-2" data-testid="enterprise-add">
+            <Plus className="h-4 w-4" /> Add new enterprise
+          </button>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 

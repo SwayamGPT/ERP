@@ -2,10 +2,11 @@ import { EWAY_LIMIT } from '@hisaab/core';
 import { ArrowLeft, Ban, FileJson, Printer, Receipt, RotateCcw, Send, Truck } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { A4Invoice, printInvoice, ThermalReceipt } from '../../components/print/PrintInvoice';
+import { printInvoice } from '../../components/print/PrintInvoice';
+import { InvoiceDocument, paperFor, PREVIEW_WIDTH, PRINT_TEMPLATES } from '../../components/print/templates';
 import { Badge, Button, ConfirmDialog, Dialog, Field, Input, Loading, Segmented, Select, toast } from '../../components/ui';
 import { call } from '../../db/client';
-import type { Company, Invoice } from '../../db/types';
+import type { Invoice, PrintTemplate } from '../../db/types';
 import { downloadJson } from '../../lib/download';
 import { fmtDate, fmtQty, inr } from '../../lib/format';
 import { useCan } from '../../lib/perm';
@@ -18,14 +19,15 @@ export function InvoiceView() {
   const canDo = useCan();
   const inv = useApi('invoices.get', { id: Number(id) });
   const company = useApi('app.status').data?.company;
-  const [format, setFormat] = useState<Company['print_format'] | null>(null);
+  const [template, setTemplate] = useState<PrintTemplate | null>(null);
   const [returnOpen, setReturnOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [ewayOpen, setEwayOpen] = useState(false);
   if (!inv.data || !company) return <Loading />;
   const v = inv.data;
-  const fmt = format ?? company.print_format;
+  const tpl = template ?? company.print_template;
+  const paper = paperFor(tpl, company);
   const isSale = v.kind === 'sale' || v.kind === 'sale_return';
   const due = v.total - v.paid;
   const canReturn = v.status === 'final' && (v.kind === 'sale' ? canDo('sale.return') : v.kind === 'purchase' && canDo('purchase.create'));
@@ -50,8 +52,10 @@ export function InvoiceView() {
             {v.ref_invoice_id && <> · against <Link className="text-primary hover:underline" to={`${isSale ? '/sales' : '/purchases'}/${v.ref_invoice_id}`}>original bill</Link></>}
           </p>
         </div>
-        <Segmented size="sm" value={fmt} onChange={(f) => setFormat(f)} options={[{ value: 'thermal80', label: '3" receipt' }, { value: 'thermal58', label: '2"' }, { value: 'a4', label: 'A4' }]} />
-        <Button variant="primary" icon={<Printer className="h-4 w-4" />} onClick={() => printInvoice(v, company, fmt)}>Print</Button>
+        <Select value={tpl} onChange={(e) => setTemplate(e.target.value as PrintTemplate)} className="w-52" aria-label="Print template" data-testid="invoice-template">
+          {PRINT_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </Select>
+        <Button variant="primary" icon={<Printer className="h-4 w-4" />} onClick={() => printInvoice(v, company, tpl)}>Print</Button>
         {v.party_phone && (
           <a
             className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface px-3.5 text-sm font-medium hover:bg-surface-2"
@@ -70,8 +74,10 @@ export function InvoiceView() {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
-        <div className="card overflow-auto bg-white p-4">
-          <div className={fmt === 'a4' ? '' : 'mx-auto w-[300px]'}>{fmt === 'a4' ? <A4Invoice invoice={v} company={company} /> : <ThermalReceipt invoice={v} company={company} narrow={fmt === 'thermal58'} />}</div>
+        <div className="card overflow-auto bg-[#e5e7eb] p-6" data-testid="invoice-preview">
+          <div className="mx-auto bg-white p-4 shadow-pop" style={{ width: PREVIEW_WIDTH[paper] + 32 }}>
+            <InvoiceDocument invoice={v} company={company} template={tpl} />
+          </div>
         </div>
         <div className="space-y-4">
           <div className="card space-y-2 p-4 text-sm">

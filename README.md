@@ -11,7 +11,8 @@ keyboard-first counter, and GST returns in one click.
 
 | | |
 |---|---|
-| **Counter billing** | One search box for name / code / barcode / weighing-scale stickers · Enter → qty → next · F2 hold, F3 resume, F4 cash, F5 UPI QR, F6 udhaar, F8 discount, F9 save & print · tier prices, schemes, FIFO batches, change calculator |
+| **Counter billing** | Several bills open at once (F2 new, F3 next, Alt+1…9) · one search box for name / code / barcode / weighing-scale stickers · F4 cash, F5 UPI QR, F6 udhaar, F8 discount, F9 save & print · GST breakup always visible · tier prices, schemes, FIFO batches |
+| **Printing** | 5 templates — classic & big-print receipts, GST tax invoice, modern A4, half-page A5 — with live preview; choose full GST breakup, totals only, or none (B2B bills always keep tax totals) |
 | **Stock** | Multi-unit (piece / box / carton, kg & g), batches & expiry with FIFO, low-stock & expiry alerts, adjustments, barcode labels |
 | **Purchases** | Keyboard grid with batch, expiry, MRP, free qty; IGST input for other-state suppliers; debit notes |
 | **Khata** | Customers & suppliers, credit limits, running statements, WhatsApp reminders, money in / out, expenses, cash & bank book |
@@ -54,9 +55,11 @@ npm run typecheck
 npm run build && npm run e2e   # Playwright journeys against the production build
 ```
 
-First launch opens a 3-step setup. Choose a template and keep **"Load sample items, customers & a
-month of bills"** on to explore immediately. Sample users: **Ravi** (cashier, PIN 1111) and
-**Priya** (manager, PIN 2222).
+First launch opens **Create enterprise**: business & contact details, GSTIN, FSSAI licence and the
+owner PIN are mandatory and validated (GSTIN check digit, 14-digit FSSAI, mobile, email, PIN code).
+Several enterprises can live on one computer, each with its own database, staff PINs and open bills —
+switch from the name at the top of the sidebar. The app ships with no sample data; the test suites
+build their own fixture shop.
 
 ### Desktop installer (Tauri)
 

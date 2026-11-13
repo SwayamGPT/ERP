@@ -43,6 +43,7 @@ export function Dashboard() {
         </div>
       </div>
 
+      <LicenceAlert />
       <Checklist />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -189,6 +190,22 @@ export function Dashboard() {
         )}
       </Card>
       {company && !company.gstin && <p className="text-center text-xs text-faint">Not GST registered? Bills print without tax breakup once you add your GSTIN in Settings.</p>}
+    </div>
+  );
+}
+
+function LicenceAlert() {
+  const c = useApi('app.status').data?.company;
+  if (!c?.fssai_expiry) return null;
+  const days = Math.round((Date.parse(c.fssai_expiry) - Date.parse(new Date().toISOString().slice(0, 10))) / 86400000);
+  if (days > 60) return null;
+  return (
+    <div className={cn('flex items-center gap-3 rounded-xl border p-3 text-sm', days < 0 ? 'border-bad/30 bg-bad-soft text-bad' : 'border-warn/30 bg-warn-soft text-warn')} data-testid="fssai-alert">
+      <AlertTriangle className="h-4 w-4 shrink-0" />
+      <span className="flex-1">
+        {days < 0 ? <>Your FSSAI licence <b>expired {-days} days ago</b> ({fmtDay(c.fssai_expiry)}). Selling food without a valid licence attracts penalties.</> : <>Your FSSAI licence expires in <b>{days} days</b> ({fmtDay(c.fssai_expiry)}). Apply for renewal on foscos.fssai.gov.in.</>}
+      </span>
+      <Link to="/settings" className="font-medium underline">Update</Link>
     </div>
   );
 }

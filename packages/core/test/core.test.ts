@@ -30,6 +30,9 @@ import {
   toPaise,
   toBaseQty,
   validateGstin,
+  validateEnterprise,
+  panFromGstin,
+  isPhone,
   weightedCost,
   type GstDoc,
 } from '../src';
@@ -271,5 +274,24 @@ describe('misc', () => {
   });
   it('writes CSV safely', () => {
     expect(toCsv([{ a: 'x,y', b: 'say "hi"' }])).toBe('﻿a,b\r\n"x,y","say ""hi"""');
+  });
+});
+
+describe('enterprise validation', () => {
+  const first = '27AAPFU0939F1Z';
+  const good = {
+    name: 'Sharma Store', businessType: 'kirana', gstin: first + gstinCheckChar(first), fssai: '11523999000123', phone: '98220 12345',
+    email: 'shop@example.in', address: 'Shop 4, Market Yard', city: 'Pune', pincode: '411037', stateCode: '27',
+  };
+  it('accepts complete details', () => {
+    expect(validateEnterprise(good)).toEqual({});
+    expect(panFromGstin(good.gstin)).toBe('AAPFU0939F');
+    expect(isPhone('+91 9822012345')).toBe(true);
+    expect(isPhone('02024567890')).toBe(true);
+  });
+  it('flags every missing or malformed mandatory field', () => {
+    const e = validateEnterprise({ ...good, gstin: '27AAPFU0939F1ZZ', fssai: '12345', phone: '12345', email: 'x@', pincode: '011001', bankIfsc: 'HDFC1234' });
+    expect(Object.keys(e).sort()).toEqual(['bankIfsc', 'email', 'fssai', 'gstin', 'phone', 'pincode']);
+    expect(Object.keys(validateEnterprise({})).length).toBeGreaterThanOrEqual(9);
   });
 });

@@ -1,12 +1,14 @@
 import { can, ForbiddenError, type Permission } from '@hisaab/core';
 import type { StorageAdapter } from '../adapter';
-import type { Session } from '../types';
+import type { EnterpriseEntry, Session } from '../types';
 
 export interface Ctx {
   db: StorageAdapter;
   session: Session | null;
   /** Injected clock for tests & seeding. Returns local yyyy-mm-dd. */
   today: () => string;
+  /** Set by the worker host: which enterprises exist and which one is open. */
+  meta?: { enterprises: EnterpriseEntry[]; enterpriseId: string | null };
 }
 
 export class AppError extends Error {

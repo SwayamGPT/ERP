@@ -1,18 +1,20 @@
-import { ROLE_LABELS, STATES, validateGstin, type Role } from '@hisaab/core';
-import { Database, Download, HeartPulse, Plus, Printer, Settings, ShieldCheck, Store, Trash2, Upload, Users } from 'lucide-react';
+import { panFromGstin, ROLE_LABELS, STATES, validateEnterprise, type Role } from '@hisaab/core';
+import { Building2, Database, Download, FileBadge, HeartPulse, Landmark, Plus, Settings, ShieldCheck, Store, Trash2, Upload, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, ConfirmDialog, Dialog, Field, Input, Loading, PageHeader, Segmented, Select, Switch, Tabs, toast } from '../../components/ui';
 import { db } from '../../db/client';
 import type { Company } from '../../db/types';
-import { TEMPLATES, type Template } from '../../db/templates';
+import { BUSINESS_TYPES } from '../../db/templates';
+import type { BusinessType } from '../../db/repos/company';
+import { PrintSetup } from './PrintSetup';
 import { downloadBlob } from '../../lib/download';
 import { fmtDate, today } from '../../lib/format';
 import { useCan } from '../../lib/perm';
 import { useUi } from '../../lib/store';
 import { useAction, useApi } from '../../lib/useApi';
 
-type Tab = 'business' | 'billing' | 'users' | 'backup' | 'audit';
+type Tab = 'business' | 'print' | 'billing' | 'users' | 'backup' | 'audit';
 
 export function SettingsPage() {
   const canDo = useCan();
@@ -22,7 +24,8 @@ export function SettingsPage() {
   if (!company) return <Loading />;
   const tabs = [
     { value: 'business' as const, label: 'Business', show: canDo('settings.edit') },
-    { value: 'billing' as const, label: 'Billing & printing', show: canDo('settings.edit') },
+    { value: 'print' as const, label: 'Print setup', show: canDo('settings.edit') },
+    { value: 'billing' as const, label: 'Billing rules', show: canDo('settings.edit') },
     { value: 'users' as const, label: 'Users & PINs', show: canDo('users.manage') },
     { value: 'backup' as const, label: 'Backup & data', show: canDo('backup.manage') },
     { value: 'audit' as const, label: 'Activity log', show: canDo('users.manage') },
@@ -31,6 +34,7 @@ export function SettingsPage() {
     <div className="animate-slide-up">
       <PageHeader icon={<Settings className="h-5 w-5" />} title="Settings" />
       <div className="mb-5"><Tabs value={tab} onChange={(t) => setParams({ tab: t })} tabs={tabs} /></div>
+      {tab === 'print' && <PrintSetup company={company} />}
       <div className="max-w-3xl">
         {tab === 'business' && <Business c={company} />}
         {tab === 'billing' && <Billing c={company} />}
@@ -51,23 +55,51 @@ function useForm(c: Company) {
 
 function Business({ c }: { c: Company }) {
   const { f, set, save } = useForm(c);
-  const gErr = f.gstin && !validateGstin(f.gstin) ? 'GSTIN looks wrong' : null;
+  const e = validateEnterprise({
+    name: f.name, businessType: f.template, gstin: f.gstin ?? '', fssai: f.fssai ?? '', fssaiExpiry: f.fssai_expiry, phone: f.phone ?? '', email: f.email ?? '',
+    address: f.address ?? '', city: f.city ?? '', pincode: f.pincode ?? '', stateCode: f.state_code, bankIfsc: f.bank_ifsc, bankAccount: f.bank_account,
+  });
+  const valid = Object.keys(e).length === 0;
+  const txt = (k: keyof Company) => (f[k] as string | null) ?? '';
   return (
-    <Card title={<span className="flex items-center gap-2"><Store className="h-4 w-4" /> Business details</span>}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Shop name" className="sm:col-span-2"><Input value={f.name ?? ''} onChange={(e) => set('name', e.target.value)} /></Field>
-        <Field label="Legal name (if different)"><Input value={f.legal_name ?? ''} onChange={(e) => set('legal_name', e.target.value)} /></Field>
-        <Field label="GSTIN" error={gErr}><Input className="font-mono" value={f.gstin ?? ''} onChange={(e) => set('gstin', e.target.value.toUpperCase().slice(0, 15) || null)} /></Field>
-        <Field label="State"><Select value={f.gstin && !gErr ? f.gstin.slice(0, 2) : f.state_code} disabled={!!f.gstin && !gErr} onChange={(e) => set('state_code', e.target.value)}>{Object.entries(STATES).map(([k, n]) => <option key={k} value={k}>{k} · {n}</option>)}</Select></Field>
-        <Field label="UPI ID" hint="For the payment QR on bills"><Input value={f.upi_id ?? ''} onChange={(e) => set('upi_id', e.target.value.trim() || null)} placeholder="shop@okhdfcbank" data-testid="set-upi" /></Field>
-        <Field label="Mobile"><Input value={f.phone ?? ''} onChange={(e) => set('phone', e.target.value)} /></Field>
-        <Field label="Email"><Input value={f.email ?? ''} onChange={(e) => set('email', e.target.value)} /></Field>
-        <Field label="Address" className="sm:col-span-2"><Input value={f.address ?? ''} onChange={(e) => set('address', e.target.value)} /></Field>
-        <Field label="City"><Input value={f.city ?? ''} onChange={(e) => set('city', e.target.value)} /></Field>
-        <Field label="PIN code"><Input value={f.pincode ?? ''} onChange={(e) => set('pincode', e.target.value)} /></Field>
-      </div>
-      <div className="mt-5 flex justify-end"><Button variant="primary" loading={save.isPending} disabled={!!gErr} onClick={() => save.mutate(f)} data-testid="set-save">Save</Button></div>
-    </Card>
+    <div className="space-y-4">
+      <Card title={<span className="flex items-center gap-2"><Store className="h-4 w-4" /> Business & contact</span>}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Shop / business name *" error={e.name} className="sm:col-span-2"><Input value={txt('name')} onChange={(x) => set('name', x.target.value)} /></Field>
+          <Field label="Type of business *" error={e.businessType}>
+            <Select value={f.template ?? ''} onChange={(x) => set('template', x.target.value)}>
+              {(Object.keys(BUSINESS_TYPES) as BusinessType[]).map((t) => <option key={t} value={t}>{BUSINESS_TYPES[t].label}</option>)}
+            </Select>
+          </Field>
+          <Field label="Tagline on bills"><Input value={txt('tagline')} onChange={(x) => set('tagline', x.target.value || null)} /></Field>
+          <Field label="Contact number *" error={e.phone}><Input value={txt('phone')} onChange={(x) => set('phone', x.target.value)} inputMode="tel" /></Field>
+          <Field label="Email *" error={e.email}><Input type="email" value={txt('email')} onChange={(x) => set('email', x.target.value.trim())} data-testid="set-email" /></Field>
+          <Field label="Address *" error={e.address} className="sm:col-span-2"><Input value={txt('address')} onChange={(x) => set('address', x.target.value)} /></Field>
+          <Field label="City *" error={e.city}><Input value={txt('city')} onChange={(x) => set('city', x.target.value)} /></Field>
+          <Field label="PIN code *" error={e.pincode}><Input value={txt('pincode')} onChange={(x) => set('pincode', x.target.value.replace(/\D/g, '').slice(0, 6))} /></Field>
+        </div>
+      </Card>
+      <Card title={<span className="flex items-center gap-2"><FileBadge className="h-4 w-4" /> GST & licences</span>}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="GSTIN *" error={e.gstin} hint={!e.gstin && f.gstin ? `${STATES[f.gstin.slice(0, 2)]} · PAN ${panFromGstin(f.gstin)}` : undefined}>
+            <Input className="font-mono" value={txt('gstin')} onChange={(x) => set('gstin', x.target.value.toUpperCase().slice(0, 15))} />
+          </Field>
+          <Field label="Legal name"><Input value={txt('legal_name')} onChange={(x) => set('legal_name', x.target.value || null)} /></Field>
+          <Field label="FSSAI licence no. *" error={e.fssai}><Input className="font-mono" value={txt('fssai')} onChange={(x) => set('fssai', x.target.value.replace(/\D/g, '').slice(0, 14))} data-testid="set-fssai" /></Field>
+          <Field label="FSSAI valid until" error={e.fssaiExpiry}><Input type="date" value={txt('fssai_expiry')} onChange={(x) => set('fssai_expiry', x.target.value || null)} /></Field>
+        </div>
+      </Card>
+      <Card title={<span className="flex items-center gap-2"><Landmark className="h-4 w-4" /> Payments</span>}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="UPI ID" hint="QR with the exact amount on screen and bills"><Input value={txt('upi_id')} onChange={(x) => set('upi_id', x.target.value.trim() || null)} placeholder="shop@okhdfcbank" data-testid="set-upi" /></Field>
+          <Field label="Bank name"><Input value={txt('bank_name')} onChange={(x) => set('bank_name', x.target.value || null)} /></Field>
+          <Field label="Account number" error={e.bankAccount}><Input value={txt('bank_account')} onChange={(x) => set('bank_account', x.target.value.replace(/\D/g, '') || null)} /></Field>
+          <Field label="IFSC" error={e.bankIfsc}><Input className="font-mono" value={txt('bank_ifsc')} onChange={(x) => set('bank_ifsc', x.target.value.toUpperCase() || null)} /></Field>
+          <Field label="Branch" className="sm:col-span-2"><Input value={txt('bank_branch')} onChange={(x) => set('bank_branch', x.target.value || null)} /></Field>
+        </div>
+      </Card>
+      <div className="flex justify-end"><Button variant="primary" loading={save.isPending} disabled={!valid} onClick={() => save.mutate(f)} data-testid="set-save">Save details</Button></div>
+    </div>
   );
 }
 
@@ -75,14 +107,6 @@ function Billing({ c }: { c: Company }) {
   const { f, set, save } = useForm(c);
   return (
     <div className="space-y-4">
-      <Card title={<span className="flex items-center gap-2"><Printer className="h-4 w-4" /> Printing</span>}>
-        <div className="space-y-4">
-          <Field label="Default print format">
-            <Segmented value={f.print_format ?? 'thermal80'} onChange={(v) => set('print_format', v)} options={[{ value: 'thermal80', label: '3-inch thermal (80mm)' }, { value: 'thermal58', label: '2-inch thermal (58mm)' }, { value: 'a4', label: 'A4 tax invoice' }]} />
-          </Field>
-          <Field label="Footer message"><Input value={f.print_footer ?? ''} onChange={(e) => set('print_footer', e.target.value)} /></Field>
-        </div>
-      </Card>
       <Card title="Numbering & rules">
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Invoice prefix"><Input value={f.invoice_prefix ?? ''} onChange={(e) => set('invoice_prefix', e.target.value)} /></Field>
@@ -151,8 +175,6 @@ function Backup() {
   const company = useApi('app.status').data?.company;
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [wipe, setWipe] = useState(false);
-  const [sample, setSample] = useState<Template>('kirana');
-  const loadSample = useAction('sample.load', { success: 'Sample data added' });
   const last = (() => { try { return localStorage.getItem('hisaab.lastBackup'); } catch { return null; } })();
 
   const backup = async () => {
@@ -185,16 +207,14 @@ function Backup() {
           </div>
         )}
       </Card>
-      <Card title="Sample data & reset">
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={sample} onChange={(e) => setSample(e.target.value as Template)} className="w-56">{(Object.keys(TEMPLATES) as Template[]).map((t) => <option key={t} value={t}>{TEMPLATES[t].label}</option>)}</Select>
-          <Button variant="outline" loading={loadSample.isPending} onClick={() => loadSample.mutate({ template: sample })}>Add sample items & bills</Button>
-          <span className="flex-1" />
-          <Button variant="danger" icon={<Trash2 className="h-4 w-4" />} onClick={() => setWipe(true)}>Erase everything</Button>
+      <Card title={<span className="flex items-center gap-2"><Building2 className="h-4 w-4" /> This enterprise</span>}>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="flex-1 text-sm text-muted">Deleting removes <b className="text-ink">{company?.name}</b> and all its bills, items and customers from this computer. Other enterprises are not affected.</p>
+          <Button variant="danger" icon={<Trash2 className="h-4 w-4" />} onClick={() => setWipe(true)}>Delete enterprise</Button>
         </div>
       </Card>
-      <ConfirmDialog open={!!restoreFile} onOpenChange={(v) => !v && setRestoreFile(null)} title="Restore this backup?" body={`Everything on this computer will be replaced with “${restoreFile?.name}”. Take a backup first if unsure.`} danger confirmLabel="Restore" onConfirm={async () => { await db.importBytes(await restoreFile!.arrayBuffer()); useUi.getState().setSession(null); toast.success('Backup restored. Unlock with your PIN.'); }} />
-      <ConfirmDialog open={wipe} onOpenChange={setWipe} title="Erase all data?" body="Every bill, item and customer on this computer will be deleted. This cannot be undone." danger confirmLabel="Erase everything" onConfirm={async () => { await db.reset(); useUi.getState().setSession(null); }} />
+      <ConfirmDialog open={!!restoreFile} onOpenChange={(v) => !v && setRestoreFile(null)} title="Restore this backup?" body={`${company?.name} will be replaced with “${restoreFile?.name}”. Other enterprises are not touched. Take a backup first if unsure.`} danger confirmLabel="Restore" onConfirm={async () => { await db.importBytes(await restoreFile!.arrayBuffer(), false); useUi.getState().setSession(null); toast.success('Backup restored. Unlock with your PIN.'); }} />
+      <ConfirmDialog open={wipe} onOpenChange={setWipe} title={`Delete ${company?.name}?`} body="Every bill, item and customer of this enterprise will be deleted from this computer. Download a backup first — this cannot be undone." danger confirmLabel="Delete enterprise" onConfirm={async () => { await db.deleteEnterprise(); useUi.getState().setSession(null); }} />
     </div>
   );
 }

@@ -4,8 +4,6 @@ import * as invoices from './repos/invoices';
 import * as items from './repos/items';
 import * as parties from './repos/parties';
 import * as reports from './repos/reports';
-import { loadSample } from './seeds';
-import type { Template } from './templates';
 import type { DraftInvoice } from './types';
 import { searchHsn } from '@hisaab/core';
 
@@ -16,14 +14,9 @@ import { searchHsn } from '@hisaab/core';
  */
 export const api = {
   // session & company
-  'app.status': (ctx: Ctx) => ({ company: company.getCompany(ctx), session: ctx.session, users: company.getCompany(ctx) ? company.listUsersForLogin(ctx) : [] }),
-  'company.setup': (ctx: Ctx, a: company.SetupInput & { loadSample?: boolean }) => {
-    const s = company.setupCompany(ctx, a);
-    if (a.loadSample) loadSample(ctx, a.template);
-    return s;
-  },
+  'app.status': (ctx: Ctx) => ({ company: company.getCompany(ctx), session: ctx.session, users: company.getCompany(ctx) ? company.listUsersForLogin(ctx) : [], ...ctx.meta }),
+  'company.setup': (ctx: Ctx, a: company.SetupInput) => company.setupCompany(ctx, a),
   'company.save': (ctx: Ctx, a: Parameters<typeof company.saveCompany>[1]) => company.saveCompany(ctx, a),
-  'sample.load': (ctx: Ctx, a: { template: Template }) => (company.getCompany(ctx) ? (loadSample(ctx, a.template), true) : false),
   'auth.login': (ctx: Ctx, a: { userId: number; pin: string }) => company.login(ctx, a.userId, a.pin),
   'auth.lock': (ctx: Ctx) => (company.lock(ctx), true),
   'users.list': (ctx: Ctx) => company.listUsers(ctx),
@@ -50,16 +43,13 @@ export const api = {
   // invoices
   'invoices.preview': (ctx: Ctx, a: DraftInvoice) => {
     const b = invoices.previewInvoice(ctx, a);
-    return { totals: b.totals, interState: b.interState, party: b.party, lines: b.lines.map((l) => ({ ...l.tax, freeQty: l.freeQty, discountPct: l.discountPct, scheme: l.schemeLabel })) };
+    return { totals: b.totals, interState: b.interState, party: b.party, lines: b.lines.map((l) => ({ ...l.tax, gstRate: l.item.gst_rate, cessRate: l.item.cess_rate, hsn: l.item.hsn, taxInclusive: l.taxInclusive, freeQty: l.freeQty, discountPct: l.discountPct, scheme: l.schemeLabel })) };
   },
   'invoices.create': (ctx: Ctx, a: DraftInvoice) => invoices.createInvoice(ctx, a),
   'invoices.get': (ctx: Ctx, a: { id: number }) => invoices.getInvoice(ctx, a.id),
   'invoices.list': (ctx: Ctx, a: Parameters<typeof invoices.listInvoices>[1]) => invoices.listInvoices(ctx, a),
   'invoices.return': (ctx: Ctx, a: Parameters<typeof invoices.createReturn>[1]) => invoices.createReturn(ctx, a),
   'invoices.cancel': (ctx: Ctx, a: { id: number; reason: string }) => invoices.cancelInvoice(ctx, a.id, a.reason),
-  'held.list': (ctx: Ctx) => invoices.listHeld(ctx),
-  'held.hold': (ctx: Ctx, a: { label: string; cart: unknown; total: number }) => invoices.holdBill(ctx, a),
-  'held.take': (ctx: Ctx, a: { id: number }) => invoices.takeHeld(ctx, a.id),
 
   // money
   'payments.receive': (ctx: Ctx, a: Parameters<typeof invoices.receivePayment>[1]) => invoices.receivePayment(ctx, a),

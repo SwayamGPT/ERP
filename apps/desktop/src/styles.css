@@ -147,13 +147,13 @@
     top: 0;
     display: block !important;
   }
-  .print-area.thermal80 {
+  .print-area.paper-thermal80 {
     width: 72mm;
   }
-  .print-area.thermal58 {
+  .print-area.paper-thermal58 {
     width: 48mm;
   }
-  .print-area.a4 {
+  .print-area.paper-a4, .print-area.paper-a5 {
     width: 100%;
   }
   .no-print {

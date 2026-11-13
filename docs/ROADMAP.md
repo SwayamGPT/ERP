@@ -16,14 +16,16 @@ release delivers each piece. Tick items as they ship.
 ## 1. Billing & POS
 - [x] R1 · Single omnibox: name, short code, barcode, unit barcode, EAN-13 weighing-scale (weight or price) codes
 - [x] R1 · Keyboard-first flow (Enter: item → qty → next) with on-screen shortcut badges (F1–F10, Esc)
-- [x] R1 · Hold / resume bills (F2 / F3), persisted across restarts
+- [x] R1 · Multiple bills open at once as tabs (F2 new, F3 next, Alt+1…9, Alt+X), persisted per enterprise across restarts
+- [x] R1 · GST breakup always shown while billing (per-line GST % and tax, rate-wise CGST/SGST/IGST table)
 - [x] R1 · Cash (with change calculator), UPI, card, udhaar (credit) with part-payment
 - [x] R1 · Dynamic UPI QR with the exact payable amount (screen + receipt)
 - [x] R1 · Price tiers auto-applied per customer (MRP / Retail / Wholesale / Super-stockist)
 - [x] R1 · Schemes: buy-X-get-Y free qty, quantity slab discounts; line and bill discounts (cashier cap 5%)
 - [x] R1 · Multi-unit selling (piece / box / carton / bag, kg & g) with per-unit prices
 - [x] R1 · Round-off to the rupee as an explicit, ledger-posted line
-- [x] R1 · Print: 80 mm & 58 mm thermal, A4 tax invoice (HSN summary, amount in words, UPI QR)
+- [x] R1 · Print templates with live preview: classic receipt, big & clear receipt, GST tax invoice (A4), modern invoice (A4), half-page bill (A5)
+- [x] R1 · Configurable tax on printed bills (full breakup / totals / none — B2B never below totals); HSN, savings, UPI QR, bank details, signature, terms toggles
 - [x] R1 · WhatsApp bill sharing (wa.me deep link)
 - [x] R1 · Sales returns (credit notes) — partial, refund or adjust in khata; bill cancellation with reversal
 - [x] R1 · Credit-limit check with owner/manager override; walk-in bills must be paid in full
@@ -126,7 +128,8 @@ release delivers each piece. Tick items as they ship.
 - [ ] R3 · Approval workflows (e.g. discount above a set % needs approval)
 
 ## 9. Platform & UX
-- [x] R1 · 3-step onboarding with Kirana / Supermarket / Wholesaler templates and a month of sample data
+- [x] R1 · Create-enterprise wizard with mandatory GSTIN, FSSAI, contact number, email and address (validated); FSSAI renewal reminder
+- [x] R1 · Multiple enterprises on one computer, each with its own database, staff and settings
 - [x] R1 · Ctrl+K command palette, `?` shortcut sheet, Alt-key navigation
 - [x] R1 · Light & dark themes; English & Hindi labels
 - [x] R1 · Plain-language UI (Money In / Out, Udhaar, Khata) with progressive disclosure
@@ -141,7 +144,7 @@ release delivers each piece. Tick items as they ship.
 - [x] Paise-exact unit tests + golden fixtures (`packages/core/fixtures`) shared with future backends
 - [x] Repository tests on real SQLite: ledger balance, FIFO, returns, cancel, RBAC, atomic rollback
 - [x] Playwright journeys for the core flows against the production build
-- [ ] Migration upgrade test (from R1 schema → each later version)
+- [x] Migration upgrade test (release-1 schema → current)
 - [ ] Performance budget: a bill saves in < 50 ms with 50k items and 100k invoices
 
 ---

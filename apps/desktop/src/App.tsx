@@ -11,6 +11,8 @@ import { ItemsPage } from './features/items/ItemsPage';
 import { LabelsPage } from './features/items/LabelsPage';
 import { MoneyPage } from './features/money/MoneyPage';
 import { Onboarding } from './features/onboarding/Onboarding';
+import { EnterprisePicker } from './features/enterprise/EnterprisePicker';
+import { db } from './db/client';
 import { PartiesPage } from './features/parties/PartiesPage';
 import { PartyDetail } from './features/parties/PartyDetail';
 import { PosPage } from './features/pos/PosPage';
@@ -53,8 +55,11 @@ function Boot() {
   }, [status.data, session?.userId, setSession]);
 
   if (status.isLoading || !status.data) return <Loading />;
-  if (!status.data.company) return <Onboarding />;
-  if (!status.data.session) return <LockScreen users={status.data.users} company={status.data.company} />;
+  const enterprises = status.data.enterprises ?? [];
+  const current = status.data.enterpriseId ?? null;
+  if (!current) return <EnterprisePicker enterprises={enterprises} />;
+  if (!status.data.company) return <Onboarding onCancel={enterprises.length ? () => void db.closeEnterprise() : undefined} />;
+  if (!status.data.session) return <LockScreen users={status.data.users} company={status.data.company} enterpriseCount={enterprises.length} />;
 
   return (
     <HashRouter>

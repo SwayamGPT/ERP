@@ -7,3 +7,4 @@ apps/desktop/src-tauri/target
 apps/desktop/src-tauri/gen
 *.log
 .DS_Store
+e2e/.data

@@ -33,6 +33,35 @@ export interface Company {
   print_footer: string | null;
   round_off: number;
   allow_negative_stock: number;
+  fssai: string | null;
+  fssai_expiry: string | null;
+  pan: string | null;
+  tagline: string | null;
+  bank_name: string | null;
+  bank_account: string | null;
+  bank_ifsc: string | null;
+  bank_branch: string | null;
+  print_template: PrintTemplate;
+  print_tax_detail: TaxDetail;
+  print_show_hsn: number;
+  print_show_savings: number;
+  print_show_qr: number;
+  print_show_bank: number;
+  print_show_signature: number;
+  print_terms: string | null;
+}
+
+export type PrintTemplate = 'receipt' | 'receipt-large' | 'a4-classic' | 'a4-modern' | 'a5-simple';
+/** How much GST detail a printed bill shows. B2B bills never drop below 'summary'. */
+export type TaxDetail = 'detailed' | 'summary' | 'none';
+
+export interface EnterpriseEntry {
+  id: string;
+  name: string;
+  gstin: string | null;
+  city: string | null;
+  createdAt: string;
+  openedAt: string | null;
 }
 
 export interface ItemUnit {

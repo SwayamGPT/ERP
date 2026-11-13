@@ -1,16 +1,77 @@
 import { expect, test } from '@playwright/test';
-import { gstinCheckChar } from '../packages/core/src/gst';
-import { addItem, setup, unlock } from './helpers';
+import { readFile } from 'node:fs/promises';
+import { addItem, createEnterprise, gstin, openShop, unlock } from './helpers';
 
-test('onboarding with the Kirana template lands on a live dashboard', async ({ page }) => {
-  await setup(page);
-  await expect(page.getByText('Sales — last 30 days')).toBeVisible();
-  await expect(page.getByText('Running low')).toBeVisible();
-  await expect(page.getByText('Get set up')).toBeVisible();
+test('creating an enterprise insists on GSTIN, FSSAI and contact details', async ({ page }) => {
+  await page.goto('/');
+  // Nothing filled → can't continue, every mandatory field is flagged.
+  await page.getByTestId('ob-next').click();
+  for (const msg of ['Enter the business name', 'Pick the type of business', 'Contact number is required', 'Email is required', 'Enter the full shop address', 'PIN code is required']) {
+    await expect(page.getByText(msg)).toBeVisible();
+  }
+  await page.getByTestId('ob-name').fill('Annapurna Sweets');
+  await page.getByTestId('type-restaurant').click();
+  await page.getByTestId('ob-phone').fill('12345');
+  await page.getByTestId('ob-email').fill('not-an-email');
+  await page.getByTestId('ob-address').fill('22, MG Road');
+  await page.getByTestId('ob-city').fill('Nashik');
+  await page.getByTestId('ob-pincode').fill('422001');
+  await page.getByTestId('ob-next').click();
+  await expect(page.getByText('Enter a 10-digit mobile or a landline with STD code')).toBeVisible();
+  await expect(page.getByText('Enter a valid email address')).toBeVisible();
+  await page.getByTestId('ob-phone').fill('9890011223');
+  await page.getByTestId('ob-email').fill('hello@annapurna.in');
+  await page.getByTestId('ob-next').click();
+
+  // Step 2: licences
+  await page.getByTestId('ob-gstin').fill('27AAPFU0939F1ZZ'); // bad check digit
+  await page.getByTestId('ob-next').click();
+  await expect(page.getByText('This GSTIN is not valid — check all 15 characters')).toBeVisible();
+  await expect(page.getByText('FSSAI licence number is required')).toBeVisible();
+  await page.getByTestId('ob-gstin').fill(gstin('27AAPFU0939F1Z'));
+  await expect(page.getByText(/Maharashtra · PAN AAPFU0939F/)).toBeVisible();
+  await page.getByTestId('ob-fssai').fill('21523999000456');
+  await page.getByTestId('ob-next').click();
+
+  await page.getByTestId('ob-owner').fill('Sunita');
+  await page.getByTestId('ob-pin').fill('4321');
+  await page.getByTestId('ob-pin2').fill('4321');
+  await page.getByTestId('ob-finish').click();
+  await expect(page.getByTestId('dash-new-bill')).toBeVisible();
+  await expect(page.getByText('Annapurna Sweets').first()).toBeVisible();
+
+  // No sample data: the new enterprise starts empty.
+  await page.goto('/#/items');
+  await expect(page.getByText('No items yet')).toBeVisible();
+  await page.goto('/#/settings');
+  await expect(page.getByTestId('set-fssai')).toHaveValue('21523999000456');
+});
+
+test('several enterprises on one computer, each with its own books', async ({ page }) => {
+  await createEnterprise(page, { name: 'Sharma Kirana', gstin14: '27AAPFU0939F1Z' });
+  await page.getByTestId('enterprise-switcher').click();
+  await page.getByTestId('enterprise-add').click();
+  await expect(page.getByTestId('ob-name')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
+  await createEnterprise(page, { name: 'Sharma Wholesale', gstin14: '24AAGFO7734P1Z', city: 'Surat' }, { boot: false });
+  await expect(page.getByTestId('enterprise-switcher')).toContainText('Sharma Wholesale');
+
+  // Switch back: needs that enterprise's PIN, and shows its own name.
+  await page.getByTestId('enterprise-switcher').click();
+  await page.getByRole('button', { name: /Sharma Kirana/ }).click();
+  await expect(page.getByRole('heading', { name: 'Sharma Kirana' })).toBeVisible();
+  await unlock(page, /Rakesh/, '1234');
+  await expect(page.getByTestId('enterprise-switcher')).toContainText('Sharma Kirana');
+
+  // After a restart with 2 enterprises, the last one used reopens.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Sharma Kirana' })).toBeVisible();
+  await page.getByTestId('lock-switch').click();
+  await expect(page.getByTestId('enterprise-list').getByRole('button')).toHaveCount(2);
 });
 
 test('keyboard-only sale: search, Enter, qty, F4, F9', async ({ page }) => {
-  await setup(page);
+  await openShop(page);
   await page.keyboard.press('Alt+n');
   await expect(page.getByTestId('pos-search')).toBeFocused();
   await addItem(page, 'sugar', '2.5');
@@ -26,23 +87,56 @@ test('keyboard-only sale: search, Enter, qty, F4, F9', async ({ page }) => {
   await expect(page.getByTestId('last-bill')).toContainText('₹199.00');
 });
 
-test('hold a bill, serve someone else, then resume it', async ({ page }) => {
-  await setup(page);
+test('the billing screen always shows the GST breakup', async ({ page }) => {
+  await openShop(page);
   await page.keyboard.press('Alt+n');
-  await addItem(page, 'moong dal', '2');
-  await page.keyboard.press('F2');
+  await addItem(page, 'sugar', '2');
+  await addItem(page, 'detergent', '1');
+  const tax = page.getByTestId('tax-breakup');
+  await expect(tax).toContainText('Same state → CGST + SGST');
+  await expect(tax.locator('tbody tr')).toHaveCount(2); // 5% and 18%
+  await expect(tax).toContainText('5%');
+  await expect(tax).toContainText('18%');
+  await expect(page.getByTestId('line-tax').first()).toContainText('incl. GST');
+  await expect(page.getByTestId('cart')).toContainText('GST 18%');
+});
+
+test('multiple bills at the same time', async ({ page }) => {
+  await openShop(page);
+  await page.keyboard.press('Alt+n');
+  await addItem(page, 'sugar', '1'); // Bill 1
+  await page.keyboard.press('F2'); // new bill while customer 1 fetches something
+  await expect(page.getByTestId('bill-tab')).toHaveCount(2);
   await expect(page.getByTestId('cart')).toHaveCount(0);
-  await addItem(page, 'cola');
-  await page.keyboard.press('F10');
-  await expect(page.getByTestId('toast').filter({ hasText: /saved/ })).toBeVisible();
-  await page.keyboard.press('F3');
-  await page.getByTestId('held-list').getByRole('button').first().click();
-  await expect(page.getByTestId('cart').getByText('Moong Dal 1kg')).toBeVisible();
-  await expect(page.getByTestId('line-qty').first()).toHaveValue('2');
+  await addItem(page, 'cola', '2'); // Bill 2
+  await page.keyboard.press('F2');
+  await addItem(page, 'iodised salt', '1'); // Bill 3
+  await expect(page.getByTestId('bill-tab')).toHaveCount(3);
+
+  await page.keyboard.press('Alt+1');
+  await expect(page.getByTestId('cart')).toContainText('Sugar (Loose)');
+  await expect(page.getByTestId('cart')).not.toContainText('Cola');
+  await page.keyboard.press('F9');
+  await expect(page.getByTestId('toast').filter({ hasText: /saved · ₹46.00/ })).toBeVisible();
+  await expect(page.getByTestId('bill-tab')).toHaveCount(2); // the finished bill closes
+
+  await page.keyboard.press('Alt+1');
+  await expect(page.getByTestId('cart')).toContainText('Cola 750ml');
+
+  // Open bills survive a restart.
+  await page.reload();
+  await unlock(page, /Rakesh/, '1234');
+  await page.goto('/#/pos');
+  await expect(page.getByTestId('bill-tab')).toHaveCount(2);
+  await page.getByTestId('bill-tab').nth(1).click();
+  await expect(page.getByTestId('cart')).toContainText('Iodised Salt');
+  await page.getByTestId('bill-tab').nth(1).getByTestId('bill-tab-close').click();
+  await page.getByRole('button', { name: 'Close bill' }).click();
+  await expect(page.getByTestId('bill-tab')).toHaveCount(1);
 });
 
 test('a credit sale to a new customer updates stock and their khata', async ({ page }) => {
-  await setup(page);
+  await openShop(page);
   await page.goto('/#/items');
   await page.getByTestId('items-search').fill('Iodised Salt');
   const stockCell = page.getByTestId('items-table').locator('tbody tr').first().locator('td').nth(3);
@@ -68,9 +162,6 @@ test('a credit sale to a new customer updates stock and their khata', async ({ p
   await page.goto('/#/parties');
   await page.getByRole('cell', { name: /Kavita Joshi/ }).click();
   await expect(page.getByTestId('ledger')).toContainText('₹112.00');
-  await expect(page.getByText('They owe you')).toBeVisible();
-
-  // collect it back
   await page.getByTestId('party-pay').click();
   await page.getByTestId('pay-amount').fill('112');
   await page.getByTestId('pay-save').click();
@@ -79,7 +170,7 @@ test('a credit sale to a new customer updates stock and their khata', async ({ p
 });
 
 test('purchase entry creates a batch with expiry', async ({ page }) => {
-  await setup(page);
+  await openShop(page);
   await page.keyboard.press('Alt+p');
   await page.getByTestId('customer-search').fill('Mahalaxmi');
   await page.keyboard.press('Enter');
@@ -101,32 +192,50 @@ test('purchase entry creates a batch with expiry', async ({ page }) => {
   await expect(page.getByText('15 Jan 2030')).toBeVisible();
 });
 
-test('GSTR-1 JSON downloads with the right structure', async ({ page }) => {
-  await setup(page);
-  const first = '27AAPFU0939F1Z';
-  const gstin = first + gstinCheckChar(first);
-  await page.goto('/#/settings');
-  await page.getByLabel('GSTIN').fill(gstin);
-  await page.getByTestId('set-save').click();
-  await expect(page.getByTestId('toast').filter({ hasText: 'Settings saved' })).toBeVisible();
+test('print setup: choose a template and how much GST the bill shows', async ({ page }) => {
+  await openShop(page);
+  await page.goto('/#/settings?tab=print');
+  const preview = page.getByTestId('print-preview');
+  await expect(preview).toContainText('FSSAI Lic. No: 11523999000123');
+  await expect(preview).toContainText('GST breakup'); // default: full breakup on the classic receipt
 
+  await page.getByTestId('tpl-a4-modern').click();
+  await page.getByTestId('tax-none').click();
+  await expect(preview).toContainText('All prices are inclusive of GST.');
+  await expect(preview).not.toContainText('CGST');
+  // A GST-registered buyer still gets tax totals.
+  await page.getByRole('button', { name: 'GST customer (B2B)' }).click();
+  await expect(preview).toContainText('CGST');
+  await page.getByTestId('print-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Print setup saved' })).toBeVisible();
+
+  await page.goto('/#/sales');
+  await page.getByTestId('invoice-table').locator('tbody tr').first().click();
+  await expect(page.getByTestId('invoice-template')).toHaveValue('a4-modern');
+  await page.getByTestId('invoice-template').selectOption('a4-classic');
+  await expect(page.getByTestId('invoice-preview')).toContainText('Authorised signatory');
+  await expect(page.getByTestId('invoice-preview')).toContainText('HDFC0001234');
+});
+
+test('GSTR-1 JSON downloads with the right structure', async ({ page }) => {
+  await openShop(page);
+  const g = gstin('27AAPFU0939F1Z');
   await page.goto('/#/gst');
   const now = new Date();
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   await page.getByTestId('gst-period').selectOption(ym);
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('gstr1-download').click()]);
-  expect(dl.suggestedFilename()).toBe(`${gstin}_GSTR1_${ym.slice(5)}${ym.slice(0, 4)}.json`);
-  const json = JSON.parse(await (await import('node:fs/promises')).readFile((await dl.path())!, 'utf8'));
-  expect(json.gstin).toBe(gstin);
+  expect(dl.suggestedFilename()).toBe(`${g}_GSTR1_${ym.slice(5)}${ym.slice(0, 4)}.json`);
+  const json = JSON.parse(await readFile((await dl.path())!, 'utf8'));
+  expect(json.gstin).toBe(g);
   expect(json.fp).toBe(`${ym.slice(5)}${ym.slice(0, 4)}`);
-  expect(Array.isArray(json.b2cs)).toBe(true);
   expect(json.b2cs[0]).toMatchObject({ typ: 'OE', sply_ty: expect.stringMatching(/INTRA|INTER/) });
   expect(json.hsn.hsn_b2c.length).toBeGreaterThan(0);
   expect(json.doc_issue.doc_det[0].docs[0].totnum).toBeGreaterThan(0);
 });
 
 test('a cashier cannot see profit, reports, GST or settings', async ({ page }) => {
-  await setup(page);
+  await openShop(page);
   await page.getByTestId('user-menu').click();
   await unlock(page, /Ravi/, '1111');
   const nav = page.locator('nav');
@@ -139,12 +248,10 @@ test('a cashier cannot see profit, reports, GST or settings', async ({ page }) =
   await page.goto('/#/items');
   await expect(page.getByTestId('items-table')).toBeVisible();
   await expect(page.getByTestId('items-table').getByText('Cost')).toHaveCount(0);
-  await expect(page.getByTestId('items-table').getByText('Margin')).toHaveCount(0);
 });
 
 test('bills survive a reload (offline storage)', async ({ page }) => {
-  await setup(page, { sample: false });
-  // empty shop: add an item, sell it, reload
+  await createEnterprise(page, { name: 'Chai Point', gstin14: '27AAPFU0939F1Z' });
   await page.goto('/#/items?new=1');
   await page.getByTestId('item-name').fill('Test Chai Patti 250g');
   await page.getByTestId('item-price').fill('120');

@@ -1,66 +1,79 @@
-import { STATES, validateGstin } from '@hisaab/core';
-import { ArrowLeft, ArrowRight, Check, Database, Sparkles, Upload } from 'lucide-react';
+import { isEmail, isPhone, panFromGstin, STATES, validateEnterprise, validateGstin, type EnterpriseDetails } from '@hisaab/core';
+import { ArrowLeft, ArrowRight, Building2, Check, FileBadge, Landmark, ShieldCheck, Upload, UserRound, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Logo } from '../../components/Logo';
-import { Button, Field, Input, MoneyInput, Select, Switch, toast } from '../../components/ui';
+import { Button, Field, Input, MoneyInput, toast } from '../../components/ui';
 import { call, db, queryClient } from '../../db/client';
-import { TEMPLATES, type Template } from '../../db/templates';
+import type { BusinessType } from '../../db/repos/company';
+import { BUSINESS_TYPES } from '../../db/templates';
 import { cn } from '../../lib/cn';
 import { useUi } from '../../lib/store';
 
-const STEPS = ['Your business', 'Type of shop', 'Owner PIN'];
+const STEPS = [
+  { title: 'Business & contact', icon: Building2 },
+  { title: 'GST & licences', icon: FileBadge },
+  { title: 'Owner login', icon: UserRound },
+];
 
-export function Onboarding() {
+type Form = {
+  name: string; businessType: BusinessType | ''; phone: string; email: string; address: string; city: string; pincode: string; tagline: string;
+  gstin: string; legalName: string; fssai: string; fssaiExpiry: string; upiId: string; bankName: string; bankAccount: string; bankIfsc: string; bankBranch: string;
+  ownerName: string; ownerPin: string; pin2: string; openingCash: number;
+};
+
+const STEP_FIELDS: Array<Array<keyof EnterpriseDetails>> = [
+  ['name', 'businessType', 'phone', 'email', 'address', 'city', 'pincode'],
+  ['gstin', 'fssai', 'fssaiExpiry', 'bankIfsc', 'bankAccount'],
+  [],
+];
+
+/** Create a new enterprise. `onCancel` is offered when other enterprises already exist. */
+export function Onboarding({ onCancel }: { onCancel?: () => void }) {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [f, setF] = useState({
-    name: '',
-    gstin: '',
-    stateCode: '27',
-    phone: '',
-    city: '',
-    address: '',
-    pincode: '',
-    upiId: '',
-    template: 'kirana' as Template,
-    ownerName: '',
-    ownerPin: '',
-    pin2: '',
-    loadSample: true,
-    openingCash: 0,
+  const [showErrors, setShowErrors] = useState<Record<number, boolean>>({});
+  const [f, setF] = useState<Form>({
+    name: '', businessType: '', phone: '', email: '', address: '', city: '', pincode: '', tagline: '',
+    gstin: '', legalName: '', fssai: '', fssaiExpiry: '', upiId: '', bankName: '', bankAccount: '', bankIfsc: '', bankBranch: '',
+    ownerName: '', ownerPin: '', pin2: '', openingCash: 0,
   });
-  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((s) => ({ ...s, [k]: v }));
-  const gstinErr = f.gstin && !validateGstin(f.gstin) ? 'This GSTIN does not look right — check the 15 characters.' : null;
+  const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((s) => ({ ...s, [k]: v }));
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const canNext = [
-    f.name.trim().length > 1 && !gstinErr,
-    true,
-    f.ownerName.trim().length > 0 && /^\d{4,6}$/.test(f.ownerPin) && f.ownerPin === f.pin2,
-  ][step];
+  const errors = validateEnterprise({ ...f, stateCode: f.gstin.slice(0, 2) || undefined, businessType: f.businessType || undefined, bankIfsc: f.bankIfsc || null, bankAccount: f.bankAccount || null, fssaiExpiry: f.fssaiExpiry || null });
+  const ownerErrors = {
+    ownerName: !f.ownerName.trim() ? "Enter the owner's name" : undefined,
+    ownerPin: !/^\d{4,6}$/.test(f.ownerPin) ? 'PIN must be 4 to 6 digits' : undefined,
+    pin2: f.pin2 !== f.ownerPin ? 'PINs do not match' : undefined,
+  };
+  const stepValid = (i: number) => (i === 2 ? !Object.values(ownerErrors).some(Boolean) : STEP_FIELDS[i].every((k) => !errors[k]));
+  const err = (k: keyof EnterpriseDetails) => (showErrors[step] ? errors[k] : undefined);
+  const oerr = (k: keyof typeof ownerErrors) => (showErrors[step] ? ownerErrors[k] : undefined);
+  const gstValid = validateGstin(f.gstin);
+
+  const next = () => {
+    if (!stepValid(step)) {
+      setShowErrors((s) => ({ ...s, [step]: true }));
+      toast.error(new Error('Please fill the highlighted details.'));
+      return;
+    }
+    if (step < 2) setStep(step + 1);
+    else void finish();
+  };
 
   const finish = async () => {
     setBusy(true);
     try {
       const s = await call('company.setup', {
-        name: f.name,
-        gstin: f.gstin || null,
-        stateCode: f.gstin ? f.gstin.slice(0, 2) : f.stateCode,
-        phone: f.phone,
-        city: f.city,
-        address: f.address,
-        pincode: f.pincode,
-        upiId: f.upiId,
-        template: f.template,
-        ownerName: f.ownerName,
-        ownerPin: f.ownerPin,
-        loadSample: f.loadSample,
-        openingCash: f.openingCash,
+        name: f.name, businessType: f.businessType as BusinessType, phone: f.phone, email: f.email, address: f.address, city: f.city, pincode: f.pincode,
+        tagline: f.tagline, gstin: f.gstin, legalName: f.legalName, fssai: f.fssai, fssaiExpiry: f.fssaiExpiry || null, upiId: f.upiId,
+        bankName: f.bankName, bankAccount: f.bankAccount, bankIfsc: f.bankIfsc, bankBranch: f.bankBranch,
+        ownerName: f.ownerName, ownerPin: f.ownerPin, openingCash: f.openingCash,
       });
       useUi.getState().setSession(s);
       await db.flush();
       await queryClient.invalidateQueries();
-      toast.success(`Welcome to Hisaab, ${s.name}!`, f.loadSample ? 'Sample items, customers and a month of bills are loaded so you can explore.' : undefined);
+      toast.success(`${f.name} is ready`, 'Add your items next, then make your first bill.');
     } catch (e) {
       toast.error(e);
     } finally {
@@ -70,15 +83,15 @@ export function Onboarding() {
 
   const restore = async (file: File) => {
     try {
-      await db.importBytes(await file.arrayBuffer());
-      toast.success('Backup restored. Unlock with your PIN.');
+      await db.importBytes(await file.arrayBuffer(), true);
+      toast.success('Backup restored', 'Unlock with your PIN.');
     } catch (e) {
       toast.error(e);
     }
   };
 
   return (
-    <div className="grid min-h-full lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+    <div className="grid min-h-full lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]">
       <aside className="relative hidden overflow-hidden bg-primary p-10 text-primary-fg lg:flex lg:flex-col">
         <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-2xl" />
         <div className="absolute -bottom-32 -left-16 h-96 w-96 rounded-full bg-saffron/30 blur-3xl" />
@@ -86,148 +99,155 @@ export function Onboarding() {
           <Logo className="h-10 w-10 [&_rect]:fill-white/15" />
           <span className="text-xl font-semibold tracking-tight">Hisaab</span>
         </div>
-        <div className="relative mt-auto max-w-md">
-          <h1 className="text-4xl font-semibold leading-tight tracking-tight">Billing, stock & GST that just works.</h1>
-          <p className="mt-4 text-base text-white/80">Fast counter billing that never stops when the internet does. Udhaar, schemes, batches and GST returns — in plain language.</p>
-          <ul className="mt-8 space-y-3 text-sm text-white/90">
-            {['Bill in seconds — scan, Enter, F9', 'Works fully offline on this PC', 'CGST / SGST / IGST done for you', 'GSTR-1 & 3B JSON in one click'].map((t) => (
-              <li key={t} className="flex items-center gap-2.5">
-                <span className="grid h-5 w-5 place-items-center rounded-full bg-white/20"><Check className="h-3 w-3" /></span>
-                {t}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <p className="relative mt-10 text-xs text-white/60">Setup takes under 2 minutes.</p>
-      </aside>
-
-      <main className="flex flex-col p-6 sm:p-10">
-        <div className="mb-8 flex items-center gap-2">
+        <div className="relative mt-16 space-y-2">
           {STEPS.map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
-              <span className={cn('grid h-6 w-6 place-items-center rounded-full text-xs font-semibold', i < step ? 'bg-good text-white' : i === step ? 'bg-primary text-primary-fg' : 'bg-surface-2 text-muted')}>
-                {i < step ? <Check className="h-3.5 w-3.5" /> : i + 1}
-              </span>
-              <span className={cn('text-sm', i === step ? 'font-medium' : 'text-muted')}>{s}</span>
-              {i < STEPS.length - 1 && <span className="mx-2 h-px w-8 bg-border" />}
+            <div key={s.title} className={cn('flex items-center gap-3 rounded-xl px-3 py-2.5 transition', i === step ? 'bg-white/15' : 'opacity-70')}>
+              <span className={cn('grid h-8 w-8 place-items-center rounded-lg', i < step ? 'bg-good text-white' : 'bg-white/15')}>{i < step ? <Check className="h-4 w-4" /> : <s.icon className="h-4 w-4" />}</span>
+              <span className="text-sm font-medium">{s.title}</span>
             </div>
           ))}
         </div>
+        <div className="relative mt-auto max-w-sm">
+          <h1 className="text-3xl font-semibold leading-tight tracking-tight">Set up your enterprise once. Bill in seconds forever.</h1>
+          <p className="mt-3 text-sm text-white/80">Your GSTIN, FSSAI licence and contact details print on every bill exactly as the law and your customers expect.</p>
+          <p className="mt-8 flex items-center gap-2 text-xs text-white/70"><ShieldCheck className="h-4 w-4" /> Everything is stored on this computer.</p>
+        </div>
+      </aside>
 
-        <div className="mx-auto w-full max-w-xl flex-1 animate-slide-up" key={step}>
+      <main className="flex flex-col p-6 sm:p-10">
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-primary">Step {step + 1} of 3</p>
+            <h2 className="text-2xl font-semibold tracking-tight">{['Tell us about your business', 'GST, FSSAI & payments', 'Who owns this business?'][step]}</h2>
+          </div>
+          {onCancel && (
+            <Button variant="ghost" icon={<X className="h-4 w-4" />} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+        </div>
+
+        <div className="w-full max-w-3xl flex-1 animate-slide-up" key={step}>
           {step === 0 && (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-2xl font-semibold tracking-tight">Tell us about your shop</h2>
-                <p className="mt-1 text-sm text-muted">This appears on your bills. You can change it any time in Settings.</p>
-              </div>
-              <Field label="Shop / business name *">
-                <Input className="input-lg" autoFocus value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Sharma General Store" data-testid="ob-name" />
-              </Field>
+            <div className="space-y-5">
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="GSTIN" hint="Leave empty if you are not GST registered" error={gstinErr}>
-                  <Input value={f.gstin} onChange={(e) => set('gstin', e.target.value.toUpperCase().slice(0, 15))} placeholder="27ABCDE1234F1Z5" className="font-mono" />
-                </Field>
-                <Field label="State" hint={f.gstin ? 'Taken from your GSTIN' : 'Decides CGST+SGST vs IGST'}>
-                  <Select value={f.gstin && validateGstin(f.gstin) ? f.gstin.slice(0, 2) : f.stateCode} disabled={!!f.gstin && validateGstin(f.gstin)} onChange={(e) => set('stateCode', e.target.value)}>
-                    {Object.entries(STATES).map(([c, n]) => (
-                      <option key={c} value={c}>{c} · {n}</option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Mobile">
-                  <Input value={f.phone} onChange={(e) => set('phone', e.target.value)} placeholder="98XXXXXXXX" inputMode="tel" />
-                </Field>
-                <Field label="UPI ID" hint="Shows a QR with the exact bill amount">
-                  <Input value={f.upiId} onChange={(e) => set('upiId', e.target.value.trim())} placeholder="shopname@okaxis" />
-                </Field>
-                <Field label="City">
-                  <Input value={f.city} onChange={(e) => set('city', e.target.value)} />
-                </Field>
-                <Field label="PIN code">
-                  <Input value={f.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" />
+                <Field label="Business / shop name *" error={err('name')} className="sm:col-span-2">
+                  <Input className="input-lg" autoFocus value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Sharma General Store" data-testid="ob-name" />
                 </Field>
               </div>
-              <Field label="Address">
-                <Input value={f.address} onChange={(e) => set('address', e.target.value)} placeholder="Shop no., street, area" />
-              </Field>
+              <div>
+                <span className="label">Type of business *</span>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {(Object.keys(BUSINESS_TYPES) as BusinessType[]).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => set('businessType', t)}
+                      data-testid={`type-${t}`}
+                      className={cn('flex items-start gap-2.5 rounded-xl border-2 p-3 text-left transition', f.businessType === t ? 'border-primary bg-primary-soft/60' : 'border-border hover:border-primary/40')}
+                    >
+                      <span className="text-xl leading-none">{BUSINESS_TYPES[t].emoji}</span>
+                      <span>
+                        <span className="block text-sm font-semibold leading-tight">{BUSINESS_TYPES[t].label}</span>
+                        <span className="mt-0.5 block text-[11px] leading-snug text-muted">{BUSINESS_TYPES[t].hint}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {err('businessType') && <p className="mt-1 text-xs text-bad">{err('businessType')}</p>}
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Contact number *" error={err('phone')} hint={f.phone && isPhone(f.phone) ? 'Printed on bills; used for WhatsApp' : 'Mobile or landline with STD code'}>
+                  <Input value={f.phone} onChange={(e) => set('phone', e.target.value.replace(/[^\d+ ]/g, '').slice(0, 15))} inputMode="tel" placeholder="98XXXXXXXX" data-testid="ob-phone" />
+                </Field>
+                <Field label="Email *" error={err('email')} hint={f.email && isEmail(f.email) ? undefined : 'For invoices and backups'}>
+                  <Input type="email" value={f.email} onChange={(e) => set('email', e.target.value.trim())} placeholder="accounts@yourshop.in" data-testid="ob-email" />
+                </Field>
+                <Field label="Shop address *" error={err('address')} className="sm:col-span-2">
+                  <Input value={f.address} onChange={(e) => set('address', e.target.value)} placeholder="Shop no., building, street, area" data-testid="ob-address" />
+                </Field>
+                <Field label="City / town *" error={err('city')}>
+                  <Input value={f.city} onChange={(e) => set('city', e.target.value)} data-testid="ob-city" />
+                </Field>
+                <Field label="PIN code *" error={err('pincode')}>
+                  <Input value={f.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" data-testid="ob-pincode" />
+                </Field>
+                <Field label="Tagline on bills" hint="Optional, e.g. 'Fresh groceries since 1998'" className="sm:col-span-2">
+                  <Input value={f.tagline} onChange={(e) => set('tagline', e.target.value)} />
+                </Field>
+              </div>
             </div>
           )}
 
           {step === 1 && (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-2xl font-semibold tracking-tight">What kind of business is it?</h2>
-                <p className="mt-1 text-sm text-muted">We'll set sensible defaults — units, price levels, print format — so you don't have to.</p>
-              </div>
-              <div className="grid gap-3">
-                {(Object.keys(TEMPLATES) as Template[]).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => set('template', t)}
-                    data-testid={`tpl-${t}`}
-                    className={cn('flex items-center gap-4 rounded-xl border-2 p-4 text-left transition-all', f.template === t ? 'border-primary bg-primary-soft/60' : 'border-border hover:border-primary/40')}
-                  >
-                    <span className="text-3xl">{TEMPLATES[t].emoji}</span>
-                    <span className="flex-1">
-                      <span className="block font-semibold">{TEMPLATES[t].label}</span>
-                      <span className="block text-sm text-muted">{TEMPLATES[t].hint}</span>
-                    </span>
-                    <span className={cn('grid h-5 w-5 place-items-center rounded-full border-2', f.template === t ? 'border-primary bg-primary text-white' : 'border-border')}>{f.template === t && <Check className="h-3 w-3" />}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="rounded-xl border border-border bg-surface p-4">
-                <Switch checked={f.loadSample} onChange={(v) => set('loadSample', v)} label="Load sample items, customers & a month of bills" hint="Best way to explore. You can erase sample data later in Settings → Backup." />
-              </div>
+            <div className="space-y-6">
+              <section className="grid gap-4 sm:grid-cols-2">
+                <Field label="GSTIN *" error={err('gstin')} hint={gstValid ? `State ${f.gstin.slice(0, 2)} · ${STATES[f.gstin.slice(0, 2)] ?? '—'} · PAN ${panFromGstin(f.gstin)}` : '15 characters, e.g. 27ABCDE1234F1Z5'}>
+                  <Input autoFocus value={f.gstin} onChange={(e) => set('gstin', e.target.value.toUpperCase().replace(/\s/g, '').slice(0, 15))} className="font-mono" placeholder="27ABCDE1234F1Z5" data-testid="ob-gstin" />
+                </Field>
+                <Field label="Legal name (as on GST certificate)" hint="Leave empty if same as the shop name">
+                  <Input value={f.legalName} onChange={(e) => set('legalName', e.target.value)} />
+                </Field>
+                <Field label="FSSAI licence / registration no. *" error={err('fssai')} hint="14 digits — printed on every food bill">
+                  <Input value={f.fssai} onChange={(e) => set('fssai', e.target.value.replace(/\D/g, '').slice(0, 14))} inputMode="numeric" className="font-mono" placeholder="11523999000123" data-testid="ob-fssai" />
+                </Field>
+                <Field label="FSSAI valid until" error={err('fssaiExpiry')} hint="We'll remind you 60 days before renewal">
+                  <Input type="date" value={f.fssaiExpiry} onChange={(e) => set('fssaiExpiry', e.target.value)} />
+                </Field>
+              </section>
+              <section className="rounded-xl border border-border p-4">
+                <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold"><Landmark className="h-4 w-4 text-primary" /> Payment details <span className="font-normal text-muted">— optional, shown on bills</span></h3>
+                <p className="mb-3 text-xs text-muted">UPI shows a QR with the exact bill amount. Bank details help wholesale customers pay by NEFT.</p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="UPI ID"><Input value={f.upiId} onChange={(e) => set('upiId', e.target.value.trim())} placeholder="shopname@okaxis" /></Field>
+                  <Field label="Bank name"><Input value={f.bankName} onChange={(e) => set('bankName', e.target.value)} placeholder="HDFC Bank" /></Field>
+                  <Field label="Account number" error={err('bankAccount')}><Input value={f.bankAccount} onChange={(e) => set('bankAccount', e.target.value.replace(/\D/g, '').slice(0, 18))} inputMode="numeric" /></Field>
+                  <Field label="IFSC" error={err('bankIfsc')}><Input value={f.bankIfsc} onChange={(e) => set('bankIfsc', e.target.value.toUpperCase().slice(0, 11))} className="font-mono" placeholder="HDFC0001234" /></Field>
+                </div>
+              </section>
             </div>
           )}
 
           {step === 2 && (
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-2xl font-semibold tracking-tight">Set the owner PIN</h2>
-                <p className="mt-1 text-sm text-muted">The owner sees everything — profit, purchase rates, reports. You can add cashiers with limited access later.</p>
-              </div>
-              <Field label="Your name *">
-                <Input className="input-lg" autoFocus value={f.ownerName} onChange={(e) => set('ownerName', e.target.value)} placeholder="e.g. Rakesh" data-testid="ob-owner" />
+            <div className="max-w-xl space-y-4">
+              <p className="text-sm text-muted">The owner sees everything — profit, purchase rates and reports — and can add staff with limited access later.</p>
+              <Field label="Owner name *" error={oerr('ownerName')}>
+                <Input className="input-lg" autoFocus value={f.ownerName} onChange={(e) => set('ownerName', e.target.value)} placeholder="e.g. Rakesh Sharma" data-testid="ob-owner" />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="PIN (4–6 digits) *">
+                <Field label="PIN (4–6 digits) *" error={oerr('ownerPin')}>
                   <Input type="password" inputMode="numeric" value={f.ownerPin} onChange={(e) => set('ownerPin', e.target.value.replace(/\D/g, '').slice(0, 6))} data-testid="ob-pin" />
                 </Field>
-                <Field label="Confirm PIN *" error={f.pin2 && f.pin2 !== f.ownerPin ? 'PINs do not match' : null}>
+                <Field label="Confirm PIN *" error={oerr('pin2')}>
                   <Input type="password" inputMode="numeric" value={f.pin2} onChange={(e) => set('pin2', e.target.value.replace(/\D/g, '').slice(0, 6))} data-testid="ob-pin2" />
                 </Field>
               </div>
               <Field label="Cash in the drawer right now" hint="Optional — starts your cash book">
                 <MoneyInput value={f.openingCash} onChange={(v) => set('openingCash', v)} />
               </Field>
+              <div className="rounded-xl bg-surface-2 p-4 text-sm">
+                <div className="font-semibold">{f.name}</div>
+                <div className="text-muted">{[f.address, f.city, f.pincode].filter(Boolean).join(', ')}</div>
+                <div className="mt-1 font-mono text-xs text-muted">GSTIN {f.gstin} · FSSAI {f.fssai}</div>
+                <div className="text-xs text-muted">{f.phone} · {f.email}</div>
+              </div>
             </div>
           )}
         </div>
 
-        <div className="mx-auto mt-8 flex w-full max-w-xl items-center justify-between">
+        <div className="mt-8 flex w-full max-w-3xl items-center justify-between">
           {step > 0 ? (
-            <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setStep(step - 1)}>
-              Back
-            </Button>
+            <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setStep(step - 1)}>Back</Button>
           ) : (
-            <button className="flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={() => fileRef.current?.click()}>
-              <Upload className="h-4 w-4" /> Restore a backup
+            <button className="flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={() => fileRef.current?.click()} data-testid="ob-restore">
+              <Upload className="h-4 w-4" /> Restore from a backup file
             </button>
           )}
-          {step < 2 ? (
-            <Button variant="primary" size="lg" disabled={!canNext} onClick={() => setStep(step + 1)} data-testid="ob-next">
-              Continue <ArrowRight className="h-4 w-4" />
-            </Button>
-          ) : (
-            <Button variant="primary" size="lg" disabled={!canNext} loading={busy} onClick={finish} icon={f.loadSample ? <Sparkles className="h-4 w-4" /> : <Database className="h-4 w-4" />} data-testid="ob-finish">
-              {busy && f.loadSample ? 'Setting up sample shop…' : 'Start billing'}
-            </Button>
-          )}
+          <Button variant="primary" size="lg" loading={busy} onClick={next} data-testid={step < 2 ? 'ob-next' : 'ob-finish'}>
+            {step < 2 ? 'Continue' : 'Create enterprise'} <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
-        <input ref={fileRef} type="file" accept=".hisaab,.sqlite,.db" className="hidden" onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
+        <input ref={fileRef} type="file" accept=".hisaab,.sqlite,.db" className="hidden" data-testid="ob-restore-file" onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
       </main>
     </div>
   );

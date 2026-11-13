@@ -1,12 +1,11 @@
 import { gstinCheckChar, makeEan13, toPaise, type Scheme } from '@hisaab/core';
-import { addDays, audit, type Ctx } from './repos/base';
-import { mustCompany } from './repos/company';
-import { createInvoice, previewInvoice, receivePayment, recordExpense } from './repos/invoices';
-import { saveItem, type ItemInput } from './repos/items';
-import { saveParty } from './repos/parties';
+import { addDays, audit, type Ctx } from '../../src/db/repos/base';
+import { mustCompany } from '../../src/db/repos/company';
+import { createInvoice, previewInvoice, receivePayment, recordExpense } from '../../src/db/repos/invoices';
+import { saveItem, type ItemInput } from '../../src/db/repos/items';
+import { saveParty } from '../../src/db/repos/parties';
 
-import type { Template } from './templates';
-export { TEMPLATES, type Template } from './templates';
+export type Template = 'kirana' | 'supermarket' | 'wholesaler';
 
 const gstin = (state: string, pan: string) => {
   const first = `${state}${pan}1Z`;
@@ -107,7 +106,8 @@ class Rng {
   }
 }
 
-/** Loads a template's catalogue, parties and ~30 days of realistic history through the real posting engine. */
+/**
+ * TEST-ONLY fixture (never bundled into the app): loads a template's catalogue, parties and ~30 days of realistic history through the real posting engine. */
 export function loadSample(ctx: Ctx, template: Template, opts: { history?: boolean } = {}) {
   const company = mustCompany(ctx);
   const st = company.state_code;

@@ -474,28 +474,6 @@ export function listPayments(ctx: Ctx, opts: { from?: string; to?: string; kind?
   );
 }
 
-/* ───────── Held bills ───────── */
-
-export function holdBill(ctx: Ctx, input: { label: string; cart: unknown; total: number }) {
-  guard(ctx, 'sale.create');
-  return ctx.db.exec('INSERT INTO held_bills (label, cart, total, created_by) VALUES (?,?,?,?)', [input.label, JSON.stringify(input.cart), input.total, ctx.session!.userId]).lastId;
-}
-
-export function listHeld(ctx: Ctx) {
-  guard(ctx, 'sale.create');
-  return ctx.db.query<{ id: number; label: string; cart: string; total: number; created_at: string }>('SELECT * FROM held_bills ORDER BY id');
-}
-
-export function takeHeld(ctx: Ctx, id: number) {
-  guard(ctx, 'sale.create');
-  return ctx.db.transaction(() => {
-    const h = ctx.db.get<{ cart: string }>('SELECT cart FROM held_bills WHERE id = ?', [id]);
-    if (!h) throw new AppError('Held bill not found.');
-    ctx.db.exec('DELETE FROM held_bills WHERE id = ?', [id]);
-    return JSON.parse(h.cart) as unknown;
-  });
-}
-
 export function batchesFor(ctx: Ctx, itemId: number): Batch[] {
   guard(ctx, 'item.view');
   return ctx.db

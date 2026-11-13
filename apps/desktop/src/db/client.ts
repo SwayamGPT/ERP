@@ -2,6 +2,7 @@ import wasmUrl from 'sql.js/dist/sql-wasm-browser.wasm?url';
 import { QueryClient } from '@tanstack/react-query';
 import type { ArgsOf, Method, ResultOf } from './api';
 import { isMutation } from './methods';
+import type { EnterpriseEntry } from './types';
 
 export class ApiError extends Error {
   constructor(message: string, public code: string) {
@@ -46,7 +47,25 @@ export const queryClient = new QueryClient({
   },
 });
 
-const ready = send<boolean>({ type: 'init', wasmUrl });
+type Meta = { enterprises: EnterpriseEntry[]; enterpriseId: string | null };
+const LAST = 'hisaab.enterprise';
+const remember = (m: Meta) => {
+  try {
+    if (m.enterpriseId && m.enterprises.some((e) => e.id === m.enterpriseId)) localStorage.setItem(LAST, m.enterpriseId);
+  } catch {
+    /* private mode */
+  }
+  return m;
+};
+const lastEnterprise = () => {
+  try {
+    return localStorage.getItem(LAST);
+  } catch {
+    return null;
+  }
+};
+
+const ready = send<Meta>({ type: 'init', wasmUrl, enterpriseId: lastEnterprise() }).then(remember);
 
 /** Typed call into the local database API. Mutations invalidate every cached query (local data is cheap to re-read). */
 export async function call<M extends Method>(method: M, ...args: ArgsOf<M> extends void ? [] : [ArgsOf<M>]): Promise<Awaited<ResultOf<M>>> {
@@ -56,18 +75,25 @@ export async function call<M extends Method>(method: M, ...args: ArgsOf<M> exten
   return result;
 }
 
+/** Enterprise switching resets every cached query — each enterprise is a separate database. */
+async function entOp(msg: Record<string, unknown>, transfer?: Transferable[]) {
+  await ready;
+  const m = remember(await send<Meta>(msg, transfer));
+  // reset (not clear) so every query on screen refetches from the newly opened database
+  await queryClient.resetQueries();
+  return m;
+}
+
 export const db = {
   ready,
   flush: () => send<boolean>({ type: 'flush' }),
   exportBytes: () => send<Uint8Array>({ type: 'export' }),
-  importBytes: async (buf: ArrayBuffer) => {
-    await send<boolean>({ type: 'import', bytes: buf }, [buf]);
-    queryClient.clear();
-  },
-  reset: async () => {
-    await send<boolean>({ type: 'reset' });
-    queryClient.clear();
-  },
+  /** Restore a backup. `asNew` adds it as another enterprise instead of replacing the open one. */
+  importBytes: (buf: ArrayBuffer, asNew = false) => entOp({ type: 'import', bytes: buf, asNew }, [buf]),
+  openEnterprise: (enterpriseId: string) => entOp({ type: 'ent.open', enterpriseId }),
+  createEnterprise: () => entOp({ type: 'ent.create' }),
+  closeEnterprise: () => entOp({ type: 'ent.close' }),
+  deleteEnterprise: () => entOp({ type: 'ent.delete' }),
   onSave: (l: SaveListener) => {
     saveListeners.add(l);
     return () => saveListeners.delete(l);

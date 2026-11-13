@@ -3,12 +3,10 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   Banknote,
   CircleUserRound,
-  ClipboardList,
   CreditCard,
   Minus,
   NotebookPen,
   PackageSearch,
-  PauseCircle,
   Percent,
   Plus,
   Printer,
@@ -22,24 +20,27 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { printInvoice } from '../../components/print/PrintInvoice';
 import { UpiQr } from '../../components/UpiQr';
-import { Badge, Button, ConfirmDialog, Dialog, Drawer, Input, Kbd, MoneyInput, toast } from '../../components/ui';
+import { Badge, Button, ConfirmDialog, Dialog, Input, Kbd, MoneyInput, toast } from '../../components/ui';
 import { ApiError, call } from '../../db/client';
 import type { DraftInvoice, Invoice, Item } from '../../db/types';
 import { cn } from '../../lib/cn';
-import { fmtQty, fmtTime, inr, today } from '../../lib/format';
+import { fmtQty, inr, today } from '../../lib/format';
 import { useHotkeys } from '../../lib/hotkeys';
 import { useT } from '../../lib/i18n';
 import { useCan } from '../../lib/perm';
 import { billMessage, upiLink, whatsappLink } from '../../lib/share';
 import { useApi } from '../../lib/useApi';
 import { CustomerPicker } from './CustomerPicker';
-import { usePos, type PayMode } from './store';
+import { MAX_BILLS, usePos, type CartLine, type PayMode } from './store';
+import { BillTabs } from './BillTabs';
+import { TaxBreakup } from './TaxBreakup';
 
 export function PosPage() {
   const t = useT();
   const canDo = useCan();
   const pos = usePos();
-  const { lines, party, mode, selected } = pos;
+  const bill = pos.bills[pos.active];
+  const { lines, party, mode, selected } = bill;
   const company = useApi('app.status').data?.company;
   const searchRef = useRef<HTMLInputElement>(null);
   const qtyRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -47,7 +48,7 @@ export function PosPage() {
   const [q, setQ] = useState('');
   const [hl, setHl] = useState(0);
   const [pickCustomer, setPickCustomer] = useState(false);
-  const [heldOpen, setHeldOpen] = useState(false);
+  const [closeAsk, setCloseAsk] = useState<number | null>(null);
   const [discOpen, setDiscOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -55,7 +56,7 @@ export function PosPage() {
   const [creditConfirm, setCreditConfirm] = useState<null | { print: boolean }>(null);
   const [last, setLast] = useState<Invoice | null>(null);
   const [flashKey, setFlashKey] = useState<string | null>(null);
-  const anyDialog = pickCustomer || heldOpen || discOpen || clearOpen || !!creditConfirm;
+  const anyDialog = pickCustomer || closeAsk !== null || discOpen || clearOpen || !!creditConfirm;
 
   const focusSearch = () => setTimeout(() => searchRef.current?.focus(), 0);
   useEffect(() => { focusSearch(); }, []);
@@ -75,18 +76,16 @@ export function PosPage() {
   const results = q.trim() ? search.data?.items ?? [] : [];
   useEffect(() => setHl(0), [dq]);
 
-  const held = useApi('held.list');
-
   // ── live, authoritative totals from the same engine that saves the bill
   const draft: DraftInvoice = useMemo(
     () => ({
       kind: 'sale',
       partyId: party?.id ?? null,
-      billDiscountPct: pos.billDiscountPct,
-      otherCharges: pos.otherCharges,
+      billDiscountPct: bill.billDiscountPct,
+      otherCharges: bill.otherCharges,
       lines: lines.filter((l) => l.qty > 0).map((l) => ({ itemId: l.itemId, unit: l.unit, factor: l.factor, qty: l.qty, rate: l.rate, discountPct: l.discountPct, batchId: l.batchId })),
     }),
-    [lines, party?.id, pos.billDiscountPct, pos.otherCharges],
+    [lines, party?.id, bill.billDiscountPct, bill.otherCharges],
   );
   const preview = useQuery({
     queryKey: ['invoices.preview', draft],
@@ -107,9 +106,8 @@ export function PosPage() {
   }, [lines, pv]);
 
   const addItem = (item: Item, opts: { qty?: number; amount?: number; fromScan?: boolean } = {}) => {
-    pos.add(item, { qty: opts.qty, amount: opts.amount });
+    const key = pos.add(item, { qty: opts.qty, amount: opts.amount });
     setQ('');
-    const key = usePos.getState().lines[0]?.key;
     setFlashKey(key);
     if (item.stock <= 0) toast.info(`${item.name} shows no stock`, 'Billing anyway — stock will go negative.');
     if (opts.fromScan || opts.qty || opts.amount) focusSearch();
@@ -150,18 +148,18 @@ export function PosPage() {
     }
     setSaving(true);
     try {
-      const amount = mode === 'credit' ? Math.min(pos.paidNow, payable) : payable;
+      const amount = mode === 'credit' ? Math.min(bill.paidNow, payable) : payable;
       const payMode = mode === 'credit' ? 'cash' : mode;
       const inv = await call('invoices.create', {
         ...draft,
-        notes: pos.notes || undefined,
+        notes: bill.notes || undefined,
         payments: amount > 0 ? [{ mode: payMode, amount }] : [],
         overrideCreditLimit: override,
       });
       setLast(inv);
-      pos.clear();
+      pos.completed();
       setAdvanced(false);
-      toast.success(`Bill ${inv.number} saved · ${formatINR(inv.total)}`, mode === 'cash' && pos.tendered > inv.total ? `Return change ${formatINR(pos.tendered - inv.total)}` : undefined);
+      toast.success(`Bill ${inv.number} saved · ${formatINR(inv.total)}`, mode === 'cash' && bill.tendered > inv.total ? `Return change ${formatINR(bill.tendered - inv.total)}` : undefined);
       if (print && company) printInvoice(inv, company);
       focusSearch();
     } catch (e) {
@@ -173,22 +171,18 @@ export function PosPage() {
     }
   };
 
-  const hold = async () => {
-    if (!lines.length) return toast.info('Nothing to hold');
-    const label = party && !party.is_walkin ? party.name : `Customer · ${fmtTime(new Date().toISOString())}`;
-    await call('held.hold', { label, cart: pos.snapshot(), total: payable });
-    pos.clear();
-    toast.success('Bill parked', 'Press F3 to bring it back.');
+  // ── multiple bills at once
+  const newBill = () => {
+    if (!pos.newBill()) return toast.info(`Up to ${MAX_BILLS} bills can be open at once`, 'Save or close one first.');
+    setQ('');
     focusSearch();
   };
-
-  const resume = async (id: number) => {
-    if (lines.length) await hold();
-    const snap = await call('held.take', { id });
-    pos.load(snap as ReturnType<typeof pos.snapshot>);
-    setHeldOpen(false);
+  const switchBill = (i: number) => {
+    pos.switchTo(i);
+    setQ('');
     focusSearch();
   };
+  const askClose = (i: number) => (pos.bills[i].lines.length ? setCloseAsk(i) : (pos.closeBill(i), focusSearch()));
 
   const setPay = (m: PayMode) => {
     pos.setMode(m);
@@ -200,8 +194,10 @@ export function PosPage() {
   useHotkeys(
     {
       F1: focusSearch,
-      F2: () => void hold(),
-      F3: () => setHeldOpen(true),
+      F2: newBill,
+      F3: () => (pos.bills.length > 1 ? switchBill((pos.active + 1) % pos.bills.length) : newBill()),
+      'alt+x': () => askClose(pos.active),
+      ...Object.fromEntries(Array.from({ length: MAX_BILLS }, (_, i) => [`alt+${i + 1}`, () => switchBill(i)])),
       F4: () => setPay('cash'),
       F5: () => setPay('upi'),
       F6: () => setPay('credit'),
@@ -219,15 +215,16 @@ export function PosPage() {
     !anyDialog,
   );
 
-  const change = mode === 'cash' && pos.tendered > payable ? pos.tendered - payable : 0;
+  const change = mode === 'cash' && bill.tendered > payable ? bill.tendered - payable : 0;
   const totalQty = lines.reduce((s, l) => s + (l.isLoose ? 1 : l.qty), 0);
   const balance = party && !party.is_walkin ? party.balance : 0;
-  const overLimit = party && party.credit_limit > 0 && mode === 'credit' && balance + payable - pos.paidNow > party.credit_limit;
+  const overLimit = party && party.credit_limit > 0 && mode === 'credit' && balance + payable - bill.paidNow > party.credit_limit;
 
   return (
     <div className="flex h-full">
       {/* ────────── Left: search + cart ────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
+        <BillTabs onNew={newBill} onSwitch={switchBill} onClose={askClose} />
         <div className="relative border-b border-border bg-surface px-5 py-3">
           <div className="flex gap-3">
             <div className="relative flex-1">
@@ -313,7 +310,7 @@ export function PosPage() {
               <p className="text-base font-medium">{t('pos.empty')}</p>
               <p className="mt-1 max-w-md text-sm text-muted">Type a few letters of the name, a short code like <span className="font-mono">SUG</span>, or scan the barcode. Weighing-scale stickers work too.</p>
               <div className="mt-6 flex flex-wrap justify-center gap-3 text-xs text-muted">
-                {[['Enter', 'add & set qty'], ['F2', 'hold'], ['F4', 'cash'], ['F5', 'UPI'], ['F9', 'save & print']].map(([k, d]) => (
+                {[['Enter', 'add & set qty'], ['F2', 'new bill'], ['F3', 'next bill'], ['F4', 'cash'], ['F5', 'UPI'], ['F9', 'save & print']].map(([k, d]) => (
                   <span key={k} className="flex items-center gap-1.5"><Kbd>{k}</Kbd> {d}</span>
                 ))}
               </div>
@@ -328,7 +325,7 @@ export function PosPage() {
                   <th className="whitespace-nowrap">Unit</th>
                   <th className="text-center">Qty</th>
                   <th className="text-right">Rate</th>
-                  <th className="whitespace-nowrap text-right">Disc %</th>
+                  <th className="whitespace-nowrap text-right">Disc%</th>
                   <th className="text-right">Amount</th>
                   <th className="w-10" />
                 </tr>
@@ -345,6 +342,7 @@ export function PosPage() {
                       <td>
                         <div className="font-medium">{l.name}</div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
+                          <Badge tone="primary" className="tnum">GST {c?.gstRate ?? l.gstRate}%</Badge>
                           {l.mrp > 0 && <span>MRP {inr(l.mrp * l.factor)}</span>}
                           {batch?.batch_no && (
                             <BatchChip line={l} index={i} bucket={bucket} />
@@ -368,7 +366,7 @@ export function PosPage() {
                       </td>
                       <td>
                         <div className="flex items-center justify-center gap-1">
-                          <button className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-surface-2" onClick={() => l.qty > (l.isLoose ? 0.05 : 1) && pos.update(i, { qty: +(l.qty - (l.isLoose ? 0.25 : 1)).toFixed(3) })} tabIndex={-1} aria-label="Less">
+                          <button className="hidden h-7 w-7 place-items-center rounded-md text-muted hover:bg-surface-2 2xl:grid" onClick={() => l.qty > (l.isLoose ? 0.05 : 1) && pos.update(i, { qty: +(l.qty - (l.isLoose ? 0.25 : 1)).toFixed(3) })} tabIndex={-1} aria-label="Less">
                             <Minus className="h-3.5 w-3.5" />
                           </button>
                           <QtyInput
@@ -378,7 +376,7 @@ export function PosPage() {
                             onFocus={() => pos.select(i)}
                             onEnter={focusSearch}
                           />
-                          <button className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-surface-2" onClick={() => pos.update(i, { qty: +(l.qty + (l.isLoose ? 0.25 : 1)).toFixed(3) })} tabIndex={-1} aria-label="More">
+                          <button className="hidden h-7 w-7 place-items-center rounded-md text-muted hover:bg-surface-2 2xl:grid" onClick={() => pos.update(i, { qty: +(l.qty + (l.isLoose ? 0.25 : 1)).toFixed(3) })} tabIndex={-1} aria-label="More">
                             <Plus className="h-3.5 w-3.5" />
                           </button>
                         </div>
@@ -393,10 +391,13 @@ export function PosPage() {
                           onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), focusSearch())}
                           placeholder="0"
                           inputMode="decimal"
-                          className="input h-8 w-16 px-2 text-right tnum"
+                          className="input h-8 w-12 px-1.5 text-right tnum"
                         />
                       </td>
-                      <td className="whitespace-nowrap text-right font-semibold tnum">{c ? inr(c.total) : '—'}</td>
+                      <td className="whitespace-nowrap text-right tnum">
+                        <div className="font-semibold">{c ? inr(c.total) : '—'}</div>
+                        {c && <div className="text-[11px] text-muted" data-testid="line-tax">{c.taxInclusive ? 'incl.' : '+'} GST {inr(c.tax)}</div>}
+                      </td>
                       <td>
                         <button onClick={() => pos.remove(i)} className="grid h-7 w-7 place-items-center rounded-md text-faint hover:bg-bad-soft hover:text-bad" tabIndex={-1} aria-label="Remove">
                           <X className="h-4 w-4" />
@@ -420,17 +421,11 @@ export function PosPage() {
           {advanced && (
             <div className="flex flex-1 items-center gap-2">
               <span>Other charges</span>
-              <MoneyInput className="w-28" value={pos.otherCharges} onChange={(v) => pos.set({ otherCharges: v })} />
-              <Input className="flex-1" placeholder="Note on bill (e.g. home delivery)" value={pos.notes} onChange={(e) => pos.set({ notes: e.target.value })} />
+              <MoneyInput className="w-28" value={bill.otherCharges} onChange={(v) => pos.set({ otherCharges: v })} />
+              <Input className="flex-1" placeholder="Note on bill (e.g. home delivery)" value={bill.notes} onChange={(e) => pos.set({ notes: e.target.value })} />
             </div>
           )}
           <span className="flex-1" />
-          <Button size="sm" variant="ghost" kbd="F2" icon={<PauseCircle className="h-4 w-4" />} onClick={hold} disabled={!lines.length} data-testid="pos-hold">
-            {t('pos.hold')}
-          </Button>
-          <Button size="sm" variant="ghost" kbd="F3" icon={<ClipboardList className="h-4 w-4" />} onClick={() => setHeldOpen(true)} data-testid="pos-held">
-            {t('pos.resume')} {!!held.data?.length && <Badge tone="saffron">{held.data.length}</Badge>}
-          </Button>
           <Button size="sm" variant="ghost" kbd="Esc" icon={<Trash2 className="h-4 w-4" />} onClick={() => setClearOpen(true)} disabled={!lines.length}>
             {t('pos.clear')}
           </Button>
@@ -442,20 +437,13 @@ export function PosPage() {
         <div className="flex-1 overflow-y-auto p-5">
           <div className="space-y-1.5 text-sm">
             <Line k="Items total" v={inr(totals?.gross ?? 0)} />
-            {!!totals?.discount && <Line k={`Discount${pos.billDiscountPct ? ` (bill ${pos.billDiscountPct}%)` : ''}`} v={`−${inr(totals.discount)}`} tone="good" />}
+            {!!totals?.discount && <Line k={`Discount${bill.billDiscountPct ? ` (bill ${bill.billDiscountPct}%)` : ''}`} v={`−${inr(totals.discount)}`} tone="good" />}
             <Line k="Taxable value" v={inr(totals?.taxable ?? 0)} muted />
-            {pv?.interState ? (
-              <Line k="IGST" v={inr(totals?.igst ?? 0)} muted />
-            ) : (
-              <>
-                <Line k="CGST" v={inr(totals?.cgst ?? 0)} muted />
-                <Line k="SGST" v={inr(totals?.sgst ?? 0)} muted />
-              </>
-            )}
-            {!!totals?.cess && <Line k="Cess" v={inr(totals.cess)} muted />}
-            {!!pos.otherCharges && <Line k="Other charges" v={inr(pos.otherCharges)} />}
+            <Line k="Total GST" v={inr(totals?.tax ?? 0)} />
+            {!!bill.otherCharges && <Line k="Other charges" v={inr(bill.otherCharges)} />}
             {!!totals?.roundOff && <Line k="Round off" v={inr(totals.roundOff)} muted />}
           </div>
+          <TaxBreakup lines={pv?.lines ?? []} interState={!!pv?.interState} />
           <div className="mt-4 rounded-2xl bg-primary p-4 text-primary-fg">
             <div className="flex items-center justify-between text-xs uppercase tracking-wider text-white/70">
               <span>{t('pos.total')}</span>
@@ -481,7 +469,7 @@ export function PosPage() {
                 <label className="label">Cash received</label>
                 <MoneyInput
                   ref={tenderRef}
-                  value={pos.tendered}
+                  value={bill.tendered}
                   onChange={(v) => pos.set({ tendered: v })}
                   onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), void save(true))}
                   placeholder={payable ? (payable / 100).toFixed(0) : '0'}
@@ -527,7 +515,7 @@ export function PosPage() {
                     <>
                       Adding to <b>{party.name}</b>'s khata.
                       <div className="mt-1 text-xs text-muted">
-                        Now due {inr(balance)} → after this bill <b className="text-ink">{inr(balance + payable - pos.paidNow)}</b>
+                        Now due {inr(balance)} → after this bill <b className="text-ink">{inr(balance + payable - bill.paidNow)}</b>
                         {party.credit_limit > 0 && ` · limit ${inr(party.credit_limit)}`}
                       </div>
                     </>
@@ -537,7 +525,7 @@ export function PosPage() {
                 </div>
                 {overLimit && <Badge tone="bad">Over credit limit</Badge>}
                 <label className="label mt-2">Paid now (optional, cash)</label>
-                <MoneyInput value={pos.paidNow} onChange={(v) => pos.set({ paidNow: v })} />
+                <MoneyInput value={bill.paidNow} onChange={(v) => pos.set({ paidNow: v })} />
               </div>
             )}
           </div>
@@ -564,32 +552,24 @@ export function PosPage() {
         }}
       />
 
-      <Drawer open={heldOpen} onOpenChange={(v) => (setHeldOpen(v), !v && focusSearch())} title="Held bills" width="max-w-md">
-        {!held.data?.length ? (
-          <p className="py-10 text-center text-sm text-muted">No parked bills. Press <Kbd>F2</Kbd> on a bill to park it while you serve someone else.</p>
-        ) : (
-          <div className="space-y-2" data-testid="held-list">
-            {held.data.map((h, i) => {
-              const snap = JSON.parse(h.cart) as { lines: unknown[] };
-              return (
-                <button key={h.id} autoFocus={i === 0} onClick={() => resume(h.id)} className="flex w-full items-center gap-3 rounded-xl border border-border p-3 text-left transition hover:border-primary hover:bg-primary-soft/40 focus:border-primary">
-                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-saffron-soft text-saffron-ink"><PauseCircle className="h-4 w-4" /></span>
-                  <span className="flex-1">
-                    <span className="block text-sm font-medium">{h.label}</span>
-                    <span className="block text-xs text-muted">{snap.lines.length} items · parked {fmtTime(h.created_at.replace(' ', 'T') + 'Z')}</span>
-                  </span>
-                  <span className="font-semibold tnum">{inr(h.total)}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </Drawer>
+      <ConfirmDialog
+        open={closeAsk !== null}
+        onOpenChange={(v) => !v && (setCloseAsk(null), focusSearch())}
+        title={`Close Bill ${closeAsk !== null ? pos.bills[closeAsk]?.no : ''}?`}
+        body="This bill has items that haven't been saved. Closing it removes them."
+        confirmLabel="Close bill"
+        danger
+        onConfirm={() => {
+          if (closeAsk !== null) pos.closeBill(closeAsk);
+          setCloseAsk(null);
+          focusSearch();
+        }}
+      />
 
       <DiscountDialog
         open={discOpen}
         onOpenChange={(v) => (setDiscOpen(v), !v && focusSearch())}
-        value={pos.billDiscountPct}
+        value={bill.billDiscountPct}
         cap={canDo('discount.any') ? 100 : CASHIER_DISCOUNT_CAP}
         onSave={(v) => (pos.set({ billDiscountPct: v }), setDiscOpen(false), focusSearch())}
       />
@@ -608,7 +588,7 @@ export function PosPage() {
   );
 }
 
-function BatchChip({ line, index, bucket }: { line: ReturnType<typeof usePos.getState>['lines'][number]; index: number; bucket: string }) {
+function BatchChip({ line, index, bucket }: { line: CartLine; index: number; bucket: string }) {
   const [open, setOpen] = useState(false);
   const update = usePos((s) => s.update);
   const batch = line.batches.find((b) => b.id === line.batchId) ?? line.batches.find((b) => b.qty > 0 && (!b.expiry || b.expiry >= today())) ?? line.batches.find((b) => b.qty > 0);
@@ -677,7 +657,7 @@ function RateInput({ value, onChange, onEnter }: { value: number; onChange: (p: 
       }}
       onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), onEnter())}
       inputMode="decimal"
-      className="input h-8 w-24 px-2 text-right tnum"
+      className="input h-8 w-20 px-2 text-right tnum"
       data-testid="line-rate"
     />
   );

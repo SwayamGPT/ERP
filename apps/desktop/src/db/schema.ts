@@ -245,6 +245,30 @@ CREATE TABLE audit_log (
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 `,
   },
+  {
+    version: 2,
+    name: 'enterprise_details_and_print_setup',
+    sql: /* sql */ `
+ALTER TABLE company ADD COLUMN fssai TEXT;
+ALTER TABLE company ADD COLUMN fssai_expiry TEXT;
+ALTER TABLE company ADD COLUMN pan TEXT;
+ALTER TABLE company ADD COLUMN tagline TEXT;
+ALTER TABLE company ADD COLUMN bank_name TEXT;
+ALTER TABLE company ADD COLUMN bank_account TEXT;
+ALTER TABLE company ADD COLUMN bank_ifsc TEXT;
+ALTER TABLE company ADD COLUMN bank_branch TEXT;
+ALTER TABLE company ADD COLUMN print_template TEXT NOT NULL DEFAULT 'receipt';
+ALTER TABLE company ADD COLUMN print_tax_detail TEXT NOT NULL DEFAULT 'detailed';
+ALTER TABLE company ADD COLUMN print_show_hsn INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE company ADD COLUMN print_show_savings INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE company ADD COLUMN print_show_qr INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE company ADD COLUMN print_show_bank INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE company ADD COLUMN print_show_signature INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE company ADD COLUMN print_terms TEXT;
+UPDATE company SET print_template = CASE print_format WHEN 'a4' THEN 'a4-classic' ELSE 'receipt' END;
+UPDATE company SET pan = substr(gstin, 3, 10) WHERE gstin IS NOT NULL;
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

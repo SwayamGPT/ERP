@@ -4,7 +4,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { SqlJsAdapter } from '../src/db/adapter';
 import { api, isMutation } from '../src/db/api';
 import type { Ctx } from '../src/db/repos/base';
-import { migrate } from '../src/db/schema';
+import { migrate, MIGRATIONS } from '../src/db/schema';
+import { loadSample } from './fixtures/seed';
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>>;
 beforeAll(async () => {
@@ -19,11 +20,16 @@ function freshCtx(): Ctx {
   return { db, session: null, today: () => TODAY };
 }
 
+const G = (first: string) => first + gstinCheckChar(first);
+export const ENTERPRISE = {
+  name: 'Test Store', businessType: 'kirana' as const, gstin: G('27AAPFU0939F1Z'), fssai: '11523999000123', phone: '9822012345',
+  email: 'owner@teststore.in', address: 'Shop 4, Market Yard', city: 'Pune', pincode: '411037', ownerName: 'Owner', ownerPin: '1234',
+};
+
 function setup(template: 'kirana' | 'supermarket' | 'wholesaler' = 'kirana', sample = true) {
   const ctx = freshCtx();
-  api['company.setup'](ctx, {
-    name: 'Test Store', stateCode: '27', template, ownerName: 'Owner', ownerPin: '1234', loadSample: sample, gstin: null, openingCash: 500000,
-  });
+  api['company.setup'](ctx, { ...ENTERPRISE, businessType: template, openingCash: 500000 });
+  if (sample) loadSample(ctx, template);
   return ctx;
 }
 
@@ -102,8 +108,7 @@ describe('database & posting engine', () => {
     const found = api['items.search'](ctx, { q: buildWeightBarcode('7', 750) });
     expect(found.items[0]?.id).toBe(itemId);
     expect(found.scale).toEqual({ itemId, qty: 0.75 });
-    const gst = '24AAGFO7734P1Z';
-    const party = api['parties.save'](ctx, { kind: 'customer', name: 'Guj Buyer', gstin: gst + gstinCheckChar(gst) });
+    const party = api['parties.save'](ctx, { kind: 'customer', name: 'Guj Buyer', gstin: G('24AAGFO7734P1Z') });
     const inv = api['invoices.create'](ctx, { kind: 'sale', partyId: party, lines: [{ itemId, unit: 'Kg', factor: 1, qty: 0.75, rate: 4600 }] });
     expect(inv.inter_state).toBe(1);
     expect(inv.igst).toBeGreaterThan(0);
@@ -166,10 +171,36 @@ describe('database & posting engine', () => {
     expect(ctx.db.get<{ n: number }>('SELECT next_invoice_no AS n FROM company')!.n).toBe(nextNo);
   });
 
+  it('requires complete enterprise details and keeps them on edit', () => {
+    const ctx = freshCtx();
+    expect(() => api['company.setup'](ctx, { ...ENTERPRISE, fssai: '' })).toThrow(/FSSAI/);
+    expect(() => api['company.setup'](ctx, { ...ENTERPRISE, gstin: '27AAPFU0939F1ZZ' })).toThrow(/GSTIN/);
+    expect(() => api['company.setup'](ctx, { ...ENTERPRISE, email: 'nope' })).toThrow(/email/);
+    expect(() => api['company.setup'](ctx, { ...ENTERPRISE, phone: '123' })).toThrow(/mobile/);
+    api['company.setup'](ctx, { ...ENTERPRISE, phone: '+91 98220 12345', bankIfsc: 'hdfc0001234', bankAccount: '50100012345678' });
+    const c = api['app.status'](ctx).company!;
+    expect(c).toMatchObject({ phone: '9822012345', pan: 'AAPFU0939F', state_code: '27', fssai: '11523999000123', bank_ifsc: 'HDFC0001234', print_template: 'receipt', print_tax_detail: 'detailed' });
+    expect(() => api['company.save'](ctx, { fssai: '' })).toThrow(/FSSAI/);
+    expect(api['company.save'](ctx, { print_template: 'a4-modern', print_tax_detail: 'summary', email: 'new@shop.in' })).toMatchObject({ print_template: 'a4-modern', email: 'new@shop.in' });
+    expect(() => api['company.save'](ctx, { print_template: 'fancy' as never })).toThrow(/template/);
+  });
+
+  it('upgrades a release-1 database in place', () => {
+    const db = new SqlJsAdapter(new SQL.Database());
+    db.exec('CREATE TABLE _migrations (version INTEGER PRIMARY KEY, name TEXT, applied_at TEXT)');
+    for (const stmt of MIGRATIONS[0].sql.split(/;\s*\n/).map((x) => x.replace(/^\s*--.*$/gm, '').trim()).filter(Boolean)) db.exec(stmt);
+    db.exec("INSERT INTO _migrations VALUES (1, 'init', '2026-11-01')");
+    db.exec("INSERT INTO company (id, name, gstin, state_code, print_format) VALUES (1, 'Old Shop', '27AAPFU0939F1ZV', '27', 'a4')");
+    migrate(db);
+    expect(db.get('SELECT print_template, print_tax_detail, pan FROM company')).toEqual({ print_template: 'a4-classic', print_tax_detail: 'detailed', pan: 'AAPFU0939F' });
+    expect(db.get<{ v: number }>('SELECT MAX(version) AS v FROM _migrations')!.v).toBe(MIGRATIONS.length);
+  });
+
   it('classifies mutations', () => {
     expect(isMutation('invoices.create')).toBe(true);
     expect(isMutation('invoices.list')).toBe(false);
     expect(isMutation('reports.dashboard')).toBe(false);
     expect(isMutation('auth.login')).toBe(true);
+    expect(isMutation('company.setup')).toBe(true);
   });
 });

@@ -1,13 +1,13 @@
 import type { Role } from '@hisaab/core';
-import { Delete, ShieldCheck } from 'lucide-react';
+import { Building2, Delete, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { call, queryClient } from '../db/client';
+import { call, db, queryClient } from '../db/client';
 import type { Company } from '../db/types';
 import { cn } from '../lib/cn';
 import { useUi } from '../lib/store';
 import { Logo } from './Logo';
 
-export function LockScreen({ users, company }: { users: Array<{ id: number; name: string; role: Role }>; company: Company }) {
+export function LockScreen({ users, company, enterpriseCount = 1 }: { users: Array<{ id: number; name: string; role: Role }>; company: Company; enterpriseCount?: number }) {
   const [userId, setUserId] = useState(users[0]?.id);
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -44,7 +44,8 @@ export function LockScreen({ users, company }: { users: Array<{ id: number; name
         <div className="mb-6 flex flex-col items-center text-center">
           <Logo className="mb-3 h-12 w-12" />
           <h1 className="text-xl font-semibold tracking-tight">{company.name}</h1>
-          <p className="text-sm text-muted">Who's at the counter?</p>
+          {company.gstin && <p className="font-mono text-[11px] text-faint">GSTIN {company.gstin}</p>}
+          <p className="mt-1 text-sm text-muted">Who's at the counter?</p>
         </div>
         <div className="card p-5">
           <div className="mb-4 flex flex-wrap justify-center gap-2">
@@ -96,9 +97,12 @@ export function LockScreen({ users, company }: { users: Array<{ id: number; name
             </div>
           </form>
         </div>
-        <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-faint">
-          <ShieldCheck className="h-3.5 w-3.5" /> Your data stays on this computer
-        </p>
+        <div className="mt-4 flex items-center justify-between text-xs text-faint">
+          <span className="flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Your data stays on this computer</span>
+          <button className="flex items-center gap-1 font-medium text-muted hover:text-primary" onClick={() => void (enterpriseCount > 1 ? db.closeEnterprise() : db.createEnterprise())} data-testid="lock-switch">
+            <Building2 className="h-3.5 w-3.5" /> {enterpriseCount > 1 ? 'Switch enterprise' : 'Add another enterprise'}
+          </button>
+        </div>
       </div>
     </div>
   );

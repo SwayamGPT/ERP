@@ -1,4 +1,4 @@
-import { validateGstin, type Role } from '@hisaab/core';
+import { normalizePhone, panFromGstin, validateEnterprise, type Role } from '@hisaab/core';
 import type { Company, Session } from '../types';
 import { AppError, audit, guard, postVoucher, requireSession, type Ctx } from './base';
 
@@ -13,59 +13,104 @@ export function mustCompany(ctx: Ctx): Company {
 }
 
 const EDITABLE: Array<keyof Company> = [
-  'name', 'legal_name', 'gstin', 'state_code', 'address', 'city', 'pincode', 'phone', 'email', 'upi_id',
+  'name', 'legal_name', 'gstin', 'state_code', 'address', 'city', 'pincode', 'phone', 'email', 'upi_id', 'template',
+  'fssai', 'fssai_expiry', 'tagline', 'bank_name', 'bank_account', 'bank_ifsc', 'bank_branch',
   'invoice_prefix', 'next_invoice_no', 'return_prefix', 'purchase_prefix', 'weight_barcode_mode', 'print_format',
-  'print_footer', 'round_off', 'allow_negative_stock',
+  'print_footer', 'round_off', 'allow_negative_stock', 'print_template', 'print_tax_detail', 'print_show_hsn',
+  'print_show_savings', 'print_show_qr', 'print_show_bank', 'print_show_signature', 'print_terms',
 ];
 
-export function saveCompany(ctx: Ctx, patch: Partial<Company>) {
+const TEMPLATES: Company['print_template'][] = ['receipt', 'receipt-large', 'a4-classic', 'a4-modern', 'a5-simple'];
+
+function clean<T extends Partial<Company>>(c: T): T {
+  const out = { ...c };
+  for (const k of Object.keys(out) as Array<keyof T>) if (typeof out[k] === 'string') (out[k] as unknown as string) = (out[k] as unknown as string).trim();
+  if (out.gstin) out.gstin = out.gstin.toUpperCase();
+  if (out.bank_ifsc) out.bank_ifsc = out.bank_ifsc.toUpperCase();
+  if (out.phone) out.phone = normalizePhone(out.phone);
+  return out;
+}
+
+function check(c: Partial<Company>) {
+  const errors = validateEnterprise({
+    name: c.name, businessType: c.template, gstin: c.gstin ?? '', fssai: c.fssai ?? '', fssaiExpiry: c.fssai_expiry, phone: c.phone ?? '',
+    email: c.email ?? '', address: c.address ?? '', city: c.city ?? '', pincode: c.pincode ?? '', stateCode: c.state_code,
+    bankIfsc: c.bank_ifsc, bankAccount: c.bank_account,
+  });
+  const first = Object.values(errors)[0];
+  if (first) throw new AppError(first, 'INVALID');
+  if (c.print_template && !TEMPLATES.includes(c.print_template)) throw new AppError('Unknown print template.');
+  if (c.print_tax_detail && !['detailed', 'summary', 'none'].includes(c.print_tax_detail)) throw new AppError('Unknown tax display option.');
+}
+
+export function saveCompany(ctx: Ctx, input: Partial<Company>) {
   guard(ctx, 'settings.edit');
-  if (patch.gstin && !validateGstin(patch.gstin)) throw new AppError('That GSTIN does not look right. Please check it.');
-  if (patch.gstin) patch.state_code = patch.gstin.slice(0, 2);
-  const keys = EDITABLE.filter((k) => k in patch);
+  const patch = clean(input);
+  if (patch.gstin) {
+    patch.state_code = patch.gstin.slice(0, 2);
+    patch.pan = panFromGstin(patch.gstin);
+  }
+  // Mandatory details can be changed but never removed: validate the merged result.
+  const merged = { ...mustCompany(ctx), ...patch };
+  check(merged);
+  const keys = [...EDITABLE.filter((k) => k in patch), ...(patch.pan ? (['pan'] as const) : [])];
   if (!keys.length) return mustCompany(ctx);
   ctx.db.transaction(() => {
     ctx.db.exec(`UPDATE company SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = 1`, keys.map((k) => (patch[k] ?? null) as never));
-    audit(ctx, 'company.update', 'company', 1, patch);
+    audit(ctx, 'company.update', 'company', 1, Object.fromEntries(keys.map((k) => [k, patch[k]])));
   });
   return mustCompany(ctx);
 }
 
+export type BusinessType = 'kirana' | 'supermarket' | 'wholesaler' | 'distributor' | 'restaurant' | 'other';
+
 export interface SetupInput {
   name: string;
-  gstin?: string | null;
-  stateCode: string;
-  phone?: string;
-  address?: string;
-  city?: string;
-  pincode?: string;
+  legalName?: string;
+  businessType: BusinessType;
+  gstin: string;
+  fssai: string;
+  fssaiExpiry?: string | null;
+  phone: string;
+  email: string;
+  address: string;
+  city: string;
+  pincode: string;
+  stateCode?: string;
+  tagline?: string;
   upiId?: string;
-  template: 'kirana' | 'supermarket' | 'wholesaler';
+  bankName?: string;
+  bankAccount?: string;
+  bankIfsc?: string;
+  bankBranch?: string;
   ownerName: string;
   ownerPin: string;
   openingCash?: number;
 }
 
-/** First-run. Creates company, owner, walk-in party and opening cash. Returns the owner session. */
+/** Creates the enterprise: company profile, owner, walk-in party and opening cash. Returns the owner session. */
 export function setupCompany(ctx: Ctx, input: SetupInput): Session {
-  if (getCompany(ctx)) throw new AppError('Business is already set up.');
-  if (!input.name.trim()) throw new AppError('Please enter your business name.');
-  if (!/^\d{4,6}$/.test(input.ownerPin)) throw new AppError('PIN must be 4 to 6 digits.');
-  const gstin = input.gstin?.trim().toUpperCase() || null;
-  if (gstin && !validateGstin(gstin)) throw new AppError('That GSTIN does not look right. Please check it.');
-  const stateCode = gstin ? gstin.slice(0, 2) : input.stateCode;
+  if (getCompany(ctx)) throw new AppError('This enterprise is already set up.');
+  if (!input.ownerName?.trim()) throw new AppError("Enter the owner's name.");
+  if (!/^\d{4,6}$/.test(input.ownerPin ?? '')) throw new AppError('PIN must be 4 to 6 digits.');
+  const wholesale = input.businessType === 'wholesaler' || input.businessType === 'distributor';
+  const c = clean<Partial<Company>>({
+    name: input.name, legal_name: input.legalName || null, template: input.businessType, gstin: input.gstin, fssai: input.fssai,
+    fssai_expiry: input.fssaiExpiry || null, phone: input.phone, email: input.email, address: input.address, city: input.city,
+    pincode: input.pincode, tagline: input.tagline || null, upi_id: input.upiId || null, bank_name: input.bankName || null,
+    bank_account: input.bankAccount || null, bank_ifsc: input.bankIfsc || null, bank_branch: input.bankBranch || null,
+  });
+  c.state_code = c.gstin ? c.gstin.slice(0, 2) : input.stateCode;
+  c.pan = panFromGstin(c.gstin ?? '');
+  c.print_template = wholesale ? 'a4-classic' : 'receipt';
+  c.print_format = wholesale ? 'a4' : 'thermal80';
+  check(c);
+  const keys = Object.keys(c) as Array<keyof Company>;
   return ctx.db.transaction(() => {
-    ctx.db.exec(
-      `INSERT INTO company (id, name, gstin, state_code, phone, address, city, pincode, upi_id, template, print_format)
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        input.name.trim(), gstin, stateCode, input.phone ?? null, input.address ?? null, input.city ?? null,
-        input.pincode ?? null, input.upiId ?? null, input.template, input.template === 'wholesaler' ? 'a4' : 'thermal80',
-      ],
-    );
-    const { lastId } = ctx.db.exec('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)', [input.ownerName.trim() || 'Owner', 'owner', input.ownerPin]);
-    ctx.db.exec("INSERT INTO parties (kind, name, is_walkin, state_code) VALUES ('customer', 'Walk-in Customer', 1, ?)", [stateCode]);
-    const session: Session = { userId: lastId, name: input.ownerName.trim() || 'Owner', role: 'owner' };
+    ctx.db.exec(`INSERT INTO company (id, ${keys.join(', ')}) VALUES (1, ${keys.map(() => '?').join(', ')})`, keys.map((k) => (c[k] ?? null) as never));
+    const { lastId } = ctx.db.exec('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)', [input.ownerName.trim(), 'owner', input.ownerPin]);
+    ctx.db.exec("INSERT INTO parties (kind, name, is_walkin, state_code) VALUES ('customer', 'Walk-in Customer', 1, ?)", [c.state_code!]);
+    const session: Session = { userId: lastId, name: input.ownerName.trim(), role: 'owner' };
     ctx.session = session;
     if (input.openingCash && input.openingCash > 0) {
       postVoucher(ctx, 'opening', 0, ctx.today(), [
@@ -73,7 +118,7 @@ export function setupCompany(ctx: Ctx, input: SetupInput): Session {
         { account: 'OPENING', amount: -input.openingCash, narration: 'Opening cash' },
       ]);
     }
-    audit(ctx, 'company.setup', 'company', 1, { template: input.template });
+    audit(ctx, 'company.setup', 'company', 1, { businessType: input.businessType });
     return session;
   });
 }
