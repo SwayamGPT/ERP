@@ -62,13 +62,21 @@ month of bills"** on to explore immediately. Sample users: **Ravi** (cashier, PI
 
 Needs Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS.
 
+**From GitHub (recommended):** the `Desktop build` workflow (`.github/workflows/desktop-build.yml`)
+builds the Windows `.exe` setup + `.msi` and a universal macOS `.dmg`. Run it from the Actions tab
+(*Run workflow*) and download the `hisaab-windows` / `hisaab-macos` artifacts, or push a tag such as
+`v0.1.0` to get a draft GitHub Release with the installers attached.
+
+**Locally:**
+
 ```bash
 cd apps/desktop
-npx tauri icon src-tauri/icons/icon.svg   # once, generates platform icons
-npm run tauri build                        # → src-tauri/target/release/bundle
+npm run tauri build      # → src-tauri/target/release/bundle
 ```
 
-The native shell has not been built in CI yet; the same web build runs inside it unchanged.
+Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper will warn on first launch (on a Mac:
+right-click → Open). Code signing can be added to the workflow later with a certificate and Apple
+Developer account.
 
 ## Keyboard map
 
