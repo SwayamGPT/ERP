@@ -36,6 +36,7 @@ describe('database & posting engine', () => {
       const h = api['reports.health'](ctx);
       expect(h.balanced).toBe(true);
       expect(h.totals.dr).toBeGreaterThan(0);
+      expect(h.negativeStockItems).toBe(0);
       const sales = ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM invoices WHERE kind = 'sale'")!.n;
       expect(sales).toBeGreaterThan(t === 'wholesaler' ? 40 : 150);
       const d = api['reports.dashboard'](ctx);

@@ -1,0 +1,162 @@
+@import '@fontsource-variable/inter';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design tokens (RGB triplets so Tailwind alpha works) ─── */
+:root {
+  --bg: 246 247 251;
+  --surface: 255 255 255;
+  --surface-2: 241 243 248;
+  --border: 226 229 238;
+  --ink: 17 24 39;
+  --muted: 92 100 120;
+  --faint: 148 155 172;
+  --primary: 67 56 202; /* deep indigo */
+  --primary-fg: 255 255 255;
+  --primary-soft: 238 237 254;
+  --saffron: 245 158 11; /* money in */
+  --saffron-soft: 255 244 219;
+  --saffron-ink: 146 84 4;
+  --good: 5 150 105;
+  --good-soft: 220 252 238;
+  --bad: 225 29 72;
+  --bad-soft: 255 228 233;
+  --warn: 217 119 6;
+  --warn-soft: 254 243 199;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: 11 13 20;
+  --surface: 19 22 32;
+  --surface-2: 27 31 44;
+  --border: 40 45 62;
+  --ink: 236 238 245;
+  --muted: 160 166 186;
+  --faint: 104 111 132;
+  --primary: 129 120 255;
+  --primary-fg: 255 255 255;
+  --primary-soft: 36 34 74;
+  --saffron: 251 182 52;
+  --saffron-soft: 58 42 12;
+  --saffron-ink: 252 211 120;
+  --good: 52 211 153;
+  --good-soft: 14 50 40;
+  --bad: 251 113 133;
+  --bad-soft: 66 20 32;
+  --warn: 251 191 36;
+  --warn-soft: 60 44 10;
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+    font-size: 14px;
+  }
+  .tnum,
+  td,
+  .money {
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    background: rgb(var(--primary) / 0.2);
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--primary));
+    outline-offset: 2px;
+  }
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--border)) transparent;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-border bg-surface shadow-card;
+  }
+  .input {
+    @apply h-9 w-full rounded-lg border border-border bg-surface px-3 text-sm text-ink placeholder:text-faint
+      transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60;
+  }
+  .input-lg {
+    @apply h-11 text-base;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-muted;
+  }
+  .kbd {
+    @apply inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded border border-border bg-surface-2 px-1
+      font-mono text-[10px] font-semibold leading-none text-muted;
+  }
+  .table-base {
+    @apply w-full text-sm;
+  }
+  .table-base th {
+    @apply sticky top-0 z-[1] border-b border-border bg-surface-2/80 px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted backdrop-blur;
+  }
+  .table-base td {
+    @apply border-b border-border/70 px-3 py-2.5;
+  }
+  .table-base tbody tr {
+    @apply transition-colors hover:bg-surface-2/60;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium;
+  }
+}
+
+/* ─── Printing ─── */
+.print-only {
+  display: none;
+}
+@media print {
+  @page {
+    margin: 6mm;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: block !important;
+  }
+  .print-area.thermal80 {
+    width: 72mm;
+  }
+  .print-area.thermal58 {
+    width: 48mm;
+  }
+  .print-area.a4 {
+    width: 100%;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

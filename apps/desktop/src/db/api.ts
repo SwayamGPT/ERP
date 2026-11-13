@@ -4,7 +4,8 @@ import * as invoices from './repos/invoices';
 import * as items from './repos/items';
 import * as parties from './repos/parties';
 import * as reports from './repos/reports';
-import { loadSample, type Template } from './seeds';
+import { loadSample } from './seeds';
+import type { Template } from './templates';
 import type { DraftInvoice } from './types';
 import { searchHsn } from '@hisaab/core';
 
@@ -86,5 +87,4 @@ export type Method = keyof Api;
 export type ArgsOf<M extends Method> = Parameters<Api[M]> extends [Ctx, infer A] ? A : void;
 export type ResultOf<M extends Method> = ReturnType<Api[M]>;
 
-const READ = /\.(status|list|get|search|categories|nextPlu|batches|preview|ledger|dashboard|register|itemProfit|billProfit|stock|expiry|daybook|cashbook|outstanding|health|summary|eway)$/;
-export const isMutation = (m: string) => !READ.test(m) && !m.startsWith('reports.') && m !== 'hsn.search';
+export { isMutation } from './methods';

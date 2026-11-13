@@ -5,13 +5,8 @@ import { createInvoice, previewInvoice, receivePayment, recordExpense } from './
 import { saveItem, type ItemInput } from './repos/items';
 import { saveParty } from './repos/parties';
 
-export type Template = 'kirana' | 'supermarket' | 'wholesaler';
-
-export const TEMPLATES: Record<Template, { label: string; hint: string; emoji: string }> = {
-  kirana: { label: 'Kirana / General Store', hint: 'Loose grains by weight, packed goods, udhaar for regulars', emoji: '🛒' },
-  supermarket: { label: 'Supermarket', hint: 'Fast barcode billing, many categories, weighing scale', emoji: '🏬' },
-  wholesaler: { label: 'Wholesaler / Distributor', hint: 'Cartons & boxes, wholesale rates, schemes, credit', emoji: '🚚' },
-};
+import type { Template } from './templates';
+export { TEMPLATES, type Template } from './templates';
 
 const gstin = (state: string, pan: string) => {
   const first = `${state}${pan}1Z`;
@@ -179,7 +174,7 @@ export function loadSample(ctx: Ctx, template: Template, opts: { history?: boole
         .filter((_, i) => filter(i))
         .map(({ id, seed }) => {
           const [, , , , , mrp, , cost, x = {}] = seed;
-          const qty = Math.round((x.stock ?? 20) * part);
+          const qty = Math.round((x.stock ?? 20) * part * (template === 'wholesaler' ? 1.5 : 3));
           return {
             itemId: id,
             unit: seed[4],
@@ -188,7 +183,7 @@ export function loadSample(ctx: Ctx, template: Template, opts: { history?: boole
             rate: toPaise(cost),
             taxInclusive: false,
             batchNo: x.track ? `B${String(rng.int(1000, 9999))}` : null,
-            expiry: x.track && x.expiryDays ? addDays(today, x.expiryDays + (part < 1 ? -20 : 0)) : null,
+            expiry: x.track && x.expiryDays ? addDays(today, x.expiryDays + (part < 1 ? 15 : 0)) : null,
             mrp: mrp ? toPaise(mrp) : null,
           };
         });
@@ -232,12 +227,13 @@ export function loadSample(ctx: Ctx, template: Template, opts: { history?: boole
           const [, , , , unit, , retail, , x = {}] = it.seed;
           const tier = template === 'wholesaler' ? x.wholesale ?? retail : retail;
           const big = x.units?.[0];
-          if (template === 'wholesaler' && big && rng.next() < 0.7) {
-            lines.push({ itemId: it.id, unit: big[0], factor: big[1], qty: rng.int(1, 4), rate: big[2] ? toPaise(big[2]) : Math.round(toPaise(tier) * big[1]) });
-          } else {
-            const qty = x.loose ? rng.pick([0.5, 1, 1, 2, 5, 0.25, 1.5]) : rng.int(1, template === 'wholesaler' ? 24 : 3);
-            lines.push({ itemId: it.id, unit, factor: 1, qty, rate: toPaise(tier) });
-          }
+          const avail = ctx.db.get<{ q: number }>('SELECT COALESCE(SUM(qty), 0) AS q FROM batches WHERE item_id = ? AND qty > 0 AND (expiry IS NULL OR expiry >= ?)', [it.id, date])!.q;
+          const line =
+            template === 'wholesaler' && big && rng.next() < 0.7
+              ? { itemId: it.id, unit: big[0], factor: big[1], qty: rng.int(1, 4), rate: big[2] ? toPaise(big[2]) : Math.round(toPaise(tier) * big[1]) }
+              : { itemId: it.id, unit, factor: 1, qty: x.loose ? rng.pick([0.5, 1, 1, 2, 5, 0.25, 1.5]) : rng.int(1, template === 'wholesaler' ? 24 : 3), rate: toPaise(tier) };
+          const scheme = x.scheme?.type === 'bxgy' ? Math.floor(line.qty / x.scheme.buy) * x.scheme.free : 0;
+          if ((line.qty + scheme) * line.factor <= avail) lines.push(line);
         }
         if (!lines.length) continue;
         try {
@@ -252,7 +248,7 @@ export function loadSample(ctx: Ctx, template: Template, opts: { history?: boole
         }
       }
       if (d === 18) {
-        createInvoice(dctx, { kind: 'purchase', partyId: supplierA, lines: purchaseLines(0.4, () => true), supplierBillNo: 'MD/2290' });
+        createInvoice(dctx, { kind: 'purchase', partyId: supplierA, lines: purchaseLines(0.6, () => true), supplierBillNo: 'MD/2290' });
       }
       if (d % 6 === 0) {
         const c = rng.pick(customers);

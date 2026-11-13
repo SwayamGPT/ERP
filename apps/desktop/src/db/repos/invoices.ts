@@ -189,7 +189,7 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
         const r = allocateFifo(
           batches.map((x) => ({ id: x.id, qty: x.qty, expiry: x.expiry, receivedAt: x.received_at, cost: x.cost })),
           baseQty,
-          { preferBatchId: l.draft.batchId },
+          { preferBatchId: l.draft.batchId, skipExpired: true, today: date },
         );
         allocations = r.allocations;
         if (r.shortfall > 0) {
