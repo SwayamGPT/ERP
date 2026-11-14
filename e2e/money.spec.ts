@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openShop, unlock } from './helpers';
+import { addItem, openShop, unlock } from './helpers';
 
 test('expenses: pay now, pay later, then pay the bill — linked to the money log', async ({ page }) => {
   await openShop(page);
@@ -59,7 +59,7 @@ test('staff: advance, salary run and payment with the advance adjusted', async (
   await page.getByTestId('staff-save').click();
   await expect(page.getByTestId('staff-table')).toContainText('Sunil');
 
-  await page.getByTestId('staff-table').getByRole('button', { name: 'Advance' }).click();
+  await page.getByTestId('staff-table').getByRole('button', { name: 'Give money' }).click();
   await page.getByTestId('advance-amount').fill('2000');
   await page.getByTestId('advance-save').click();
   await expect(page.getByTestId('staff-table')).toContainText('₹2,000.00');
@@ -128,4 +128,103 @@ test('a manager handles expenses but never sees salaries', async ({ page }) => {
   await expect(nav.getByText('Activity log')).toHaveCount(0);
   await page.goto('/#/expenses');
   await expect(page.getByTestId('expense-new')).toBeVisible();
+});
+
+test('staff ask for money from their own PIN; the owner approves and pays', async ({ page }) => {
+  await openShop(page);
+  // Owner links the existing counter login to a new staff record.
+  await page.goto('/#/staff');
+  await page.getByTestId('staff-new').click();
+  await page.getByTestId('staff-name').fill('Ravi');
+  await page.getByTestId('staff-salary').fill('12000');
+  await page.getByRole('button', { name: 'Use an existing login' }).click();
+  await page.getByTestId('staff-login').selectOption({ label: 'Ravi (Counter 1) (cashier)' });
+  await page.getByTestId('staff-save').click();
+  await expect(page.getByTestId('staff-table')).toContainText('login: Ravi (Counter 1)');
+
+  // Ravi asks.
+  await page.getByTestId('user-menu').click();
+  await unlock(page, /Ravi/, '1111');
+  await page.locator('nav').getByText('My pay').click();
+  await page.getByTestId('request-amount').fill('500');
+  await page.getByTestId('request-reason').fill('Medical');
+  await page.getByTestId('request-send').click();
+  await expect(page.getByTestId('my-requests')).toContainText('Waiting for owner');
+
+  // Owner sees it and pays.
+  await page.getByTestId('user-menu').click();
+  await unlock(page, /Rakesh/, '1234');
+  await page.goto('/#/');
+  await expect(page.getByTestId('staff-request-alert')).toContainText('1 money request');
+  await expect(page.getByTestId('nav-badge')).toHaveText('1');
+  await page.getByTestId('staff-request-alert').click();
+  await expect(page.getByTestId('staff-requests')).toContainText('Ravi asked for ₹500.00');
+  await page.getByTestId('request-approve').click();
+  await page.getByTestId('decide-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Paid ₹500.00 to Ravi' })).toBeVisible();
+  await expect(page.getByTestId('staff-requests')).toHaveCount(0);
+  await expect(page.getByTestId('staff-table')).toContainText('taken this month ₹500');
+
+  // Ravi sees it approved.
+  await page.getByTestId('user-menu').click();
+  await unlock(page, /Ravi/, '1111');
+  await page.goto('/#/me');
+  await expect(page.getByTestId('my-advance')).toHaveText('₹500');
+  await expect(page.getByTestId('my-requests')).toContainText('Approved');
+});
+
+test('festival bonus for everyone, paid now', async ({ page }) => {
+  await openShop(page);
+  await page.goto('/#/staff');
+  for (const [n, s] of [['Sunil', '12000'], ['Ganesh', '10000']]) {
+    await page.getByTestId('staff-new').click();
+    await page.getByTestId('staff-name').fill(n);
+    await page.getByTestId('staff-salary').fill(s);
+    await page.getByTestId('staff-save').click();
+    await expect(page.getByTestId('staff-table')).toContainText(n);
+  }
+  await page.getByTestId('bonus-open').click();
+  await page.getByTestId('fest-Diwali').click();
+  await page.getByRole('button', { name: '% of monthly salary' }).click();
+  await page.getByTestId('bonus-percent').fill('50');
+  await page.getByTestId('bonus-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Diwali bonus for 2 people · ₹11,000.00 paid' })).toBeVisible();
+  await page.goto('/#/money?tab=log');
+  await expect(page.getByTestId('money-log').getByText('Festival bonus & incentives')).toHaveCount(2);
+});
+
+test('optional "served by" on bills feeds sales-by-staff and the incentive in salary', async ({ page }) => {
+  await openShop(page);
+  await page.goto('/#/staff');
+  await page.getByTestId('staff-new').click();
+  await page.getByTestId('staff-name').fill('Sunil');
+  await page.getByTestId('staff-salary').fill('12000');
+  await page.getByTestId('staff-incentive').fill('2');
+  await page.getByTestId('staff-save').click();
+
+  await page.goto('/#/pos');
+  await expect(page.getByTestId('pos-served-by')).toHaveCount(0); // off by default
+  await page.goto('/#/settings?tab=billing');
+  await page.locator('label', { hasText: 'Ask who served the customer' }).getByRole('switch').click();
+  await page.getByTestId('billing-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Settings saved' })).toBeVisible();
+
+  await page.goto('/#/pos');
+  await page.getByTestId('pos-served-by').click();
+  await page.getByTestId('served-by-list').getByRole('button', { name: /Sunil/ }).click();
+  await expect(page.getByTestId('pos-served-by')).toContainText('Sunil');
+  await addItem(page, 'basmati', '2');
+  await page.keyboard.press('F10');
+  await expect(page.getByTestId('toast').filter({ hasText: /saved · ₹1,370.00/ })).toBeVisible();
+  // The counter remembers Sunil for the next bill.
+  await expect(page.getByTestId('pos-served-by')).toContainText('Sunil');
+
+  await page.goto('/#/reports?tab=staff');
+  const rep = page.getByTestId('report-sales-by-staff');
+  await expect(rep.locator('tr', { hasText: 'Sunil' })).toContainText('₹1,304.76'); // 1,370 incl. 5% GST
+  await expect(rep).toContainText('Not assigned');
+
+  await page.goto('/#/staff');
+  await page.getByTestId('salary-run').click();
+  await expect(page.getByTestId('salary-incentive')).toHaveValue('26.1'); // 2% of ₹1,304.76
 });

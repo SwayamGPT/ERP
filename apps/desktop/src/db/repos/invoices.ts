@@ -172,6 +172,12 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
         s.userId, `${date} ${nowTime()}`,
       ],
     ).lastId;
+    if (draft.servedBy) {
+      if (kind !== 'sale') throw new AppError('Only sales bills have a "served by" staff member.');
+      const emp = ctx.db.get('SELECT 1 FROM employees WHERE id = ? AND active = 1', [draft.servedBy]);
+      if (!emp) throw new AppError('That staff member is no longer active. Pick someone else.');
+      ctx.db.exec('UPDATE invoices SET served_by = ? WHERE id = ?', [draft.servedBy, invoiceId]);
+    }
 
     let costTotal = 0;
     for (const l of b.lines) {
@@ -255,7 +261,7 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
 }
 
 export function getInvoice(ctx: Ctx, id: number): Invoice {
-  const inv = ctx.db.get<Invoice>('SELECT i.*, u.name AS cashier FROM invoices i LEFT JOIN users u ON u.id = i.created_by WHERE i.id = ?', [id]);
+  const inv = ctx.db.get<Invoice>('SELECT i.*, u.name AS cashier, sb.name AS served_by_name FROM invoices i LEFT JOIN users u ON u.id = i.created_by LEFT JOIN employees sb ON sb.id = i.served_by WHERE i.id = ?', [id]);
   if (!inv) throw new AppError('Bill not found.', 'NOT_FOUND');
   guard(ctx, inv.kind === 'sale' || inv.kind === 'sale_return' ? 'sale.view' : 'purchase.view');
   inv.lines = ctx.db.query<InvoiceLine>(
@@ -282,7 +288,7 @@ export function listInvoices(
   if (opts.q?.trim()) where.push('(i.number LIKE ? OR i.party_name LIKE ? OR i.party_phone LIKE ? OR i.supplier_bill_no LIKE ?)'), params.push(...Array(4).fill(`%${opts.q.trim()}%`));
   if (opts.status === 'unpaid') where.push("i.paid < i.total AND i.status = 'final'");
   const rows = ctx.db.query<Invoice>(
-    `SELECT i.*, u.name AS cashier FROM invoices i LEFT JOIN users u ON u.id = i.created_by WHERE ${where.join(' AND ')} ORDER BY i.date DESC, i.id DESC LIMIT ?`,
+    `SELECT i.*, u.name AS cashier, sb.name AS served_by_name FROM invoices i LEFT JOIN users u ON u.id = i.created_by LEFT JOIN employees sb ON sb.id = i.served_by WHERE ${where.join(' AND ')} ORDER BY i.date DESC, i.id DESC LIMIT ?`,
     [...params, opts.limit ?? 300] as never,
   );
   return rows.map((r) => stripCost(ctx, r));
@@ -322,6 +328,8 @@ export function createReturn(
         t.taxable, t.cgst, t.sgst, t.igst, t.cess, t.roundOff, t.payable, 0, input.refundMode ?? 'adjust', orig.id, input.notes ?? null, s.userId, `${date} ${nowTime()}`,
       ],
     ).lastId;
+    // A return reduces the sales of whoever served the original bill.
+    ctx.db.exec('UPDATE invoices SET served_by = (SELECT served_by FROM invoices WHERE id = ?) WHERE id = ?', [orig.id, id]);
 
     let costTotal = 0;
     for (const l of lines) {

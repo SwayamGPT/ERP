@@ -109,7 +109,7 @@ function Receipt({ x, narrow }: { x: Ctx; narrow: boolean }) {
       </div>
       <Dash />
       <Row k={`Bill: ${inv.number}`} v={fmtDate(inv.date)} />
-      <Row k={inv.cashier ? `By: ${inv.cashier}` : ''} v={fmtTime(inv.created_at)} />
+      <Row k={inv.served_by_name ? `Served by: ${inv.served_by_name}` : inv.cashier ? `By: ${inv.cashier}` : ''} v={fmtTime(inv.created_at)} />
       {!walkIn(inv) && (
         <div>
           To: {inv.party_name}
@@ -214,6 +214,7 @@ function ReceiptLarge({ x }: { x: Ctx }) {
         <span>{fmtDate(inv.date)} {fmtTime(inv.created_at)}</span>
       </div>
       {!walkIn(inv) && <div style={{ fontSize: 13 }}>Customer: <b>{inv.party_name}</b></div>}
+      {inv.served_by_name && <div style={{ fontSize: 13 }}>Served by: <b>{inv.served_by_name}</b></div>}
       <div style={line} />
       {x.lines.map((l, i) => (
         <div key={l.id} style={{ padding: '4px 0', borderBottom: i < x.lines.length - 1 ? '1px dotted #000' : undefined }}>

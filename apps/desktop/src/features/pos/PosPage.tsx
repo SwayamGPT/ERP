@@ -34,6 +34,7 @@ import { CustomerPicker } from './CustomerPicker';
 import { MAX_BILLS, usePos, type CartLine, type PayMode } from './store';
 import { BillTabs } from './BillTabs';
 import { TaxBreakup } from './TaxBreakup';
+import { ServedBy } from './ServedBy';
 
 export function PosPage() {
   const t = useT();
@@ -153,6 +154,7 @@ export function PosPage() {
       const inv = await call('invoices.create', {
         ...draft,
         notes: bill.notes || undefined,
+        servedBy: company?.billing_staff_mode === 'optional' ? bill.servedBy?.id ?? null : null,
         payments: amount > 0 ? [{ mode: payMode, amount }] : [],
         overrideCreditLimit: override,
       });
@@ -297,6 +299,7 @@ export function PosPage() {
               </span>
               <Kbd>F7</Kbd>
             </button>
+            {company?.billing_staff_mode === 'optional' && <ServedBy />}
           </div>
         </div>
 

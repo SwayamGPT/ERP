@@ -3,6 +3,7 @@ import { addDays, allowed, AppError, guard, stripCost, type Ctx } from './base';
 import { mustCompany } from './company';
 import { getInvoice } from './invoices';
 import { getParty } from './parties';
+import { pendingRequestCount } from './staff';
 
 const sign = `CASE WHEN kind IN ('sale_return','purchase_return') THEN -1 ELSE 1 END`;
 
@@ -76,6 +77,7 @@ export function dashboard(ctx: Ctx) {
       )!
     : null;
   return {
+    staffRequests: pendingRequestCount(ctx),
     month: { expenses: monthExpenses, netProfit: canProfit && monthExpenses !== null ? monthGross - monthExpenses + otherIncome : null },
     billsDue: bills,
     today: { sales: t.total, bills: t.bills, avgBill: t.bills ? Math.round(t.total / t.bills) : 0, profit: canProfit ? t.taxable - t.cost : null },
@@ -291,4 +293,31 @@ export function ledgerHealth(ctx: Ctx) {
   const totals = ctx.db.get<{ dr: number; cr: number }>('SELECT COALESCE(SUM(debit),0) AS dr, COALESCE(SUM(credit),0) AS cr FROM ledger_entries')!;
   const negStock = ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM (SELECT item_id, SUM(qty) AS q FROM batches GROUP BY item_id HAVING q < 0)')!.n;
   return { balanced: unbalanced.length === 0 && totals.dr === totals.cr, unbalanced, totals, negativeStockItems: negStock };
+}
+
+/** Bills and sales per staff member who served the customer, with incentive earned. */
+export function salesByStaff(ctx: Ctx, opts: { from: string; to: string }) {
+  guard(ctx, 'report.view');
+  const rows = ctx.db.query<{ employee_id: number | null; name: string | null; incentive_pct: number | null; bills: number; returns: number; sales: number; total: number }>(
+    `SELECT i.served_by AS employee_id, e.name, e.incentive_pct,
+       SUM(CASE WHEN i.kind = 'sale' THEN 1 ELSE 0 END) AS bills,
+       SUM(CASE WHEN i.kind = 'sale_return' THEN 1 ELSE 0 END) AS returns,
+       SUM(CASE WHEN i.kind = 'sale' THEN i.taxable ELSE -i.taxable END) AS sales,
+       SUM(CASE WHEN i.kind = 'sale' THEN i.total ELSE -i.total END) AS total
+     FROM invoices i LEFT JOIN employees e ON e.id = i.served_by
+     WHERE i.kind IN ('sale','sale_return') AND i.status = 'final' AND i.date BETWEEN ? AND ?
+     GROUP BY i.served_by ORDER BY i.served_by IS NULL, total DESC`,
+    [opts.from, opts.to],
+  );
+  const showPay = allowed(ctx, 'payroll.manage');
+  return rows.map((r) => ({
+    employeeId: r.employee_id,
+    name: r.name ?? 'Not assigned',
+    bills: r.bills,
+    returns: r.returns,
+    sales: r.sales,
+    total: r.total,
+    avgBill: r.bills ? Math.round(r.total / r.bills) : 0,
+    ...(showPay && r.employee_id ? { incentivePct: r.incentive_pct ?? 0, incentive: Math.max(0, Math.round((r.sales * (r.incentive_pct ?? 0)) / 100)) } : {}),
+  }));
 }

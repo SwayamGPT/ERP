@@ -38,6 +38,8 @@ export interface Bill {
   tendered: number;
   paidNow: number;
   billDiscountPct: number;
+  /** Optional staff member who served; undefined = not decided yet (use the counter's default). */
+  servedBy?: { id: number; name: string } | null;
   otherCharges: number;
   notes: string;
   openedAt: number;
@@ -103,7 +105,7 @@ interface PosState {
   select: (i: number) => void;
   setParty: (p: Party | null) => void;
   setMode: (m: PayMode) => void;
-  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'billDiscountPct' | 'otherCharges' | 'notes'>>) => void;
+  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'billDiscountPct' | 'otherCharges' | 'notes' | 'servedBy'>>) => void;
   clear: () => void;
   /** After a bill is saved: close its tab if others are open, otherwise start fresh. */
   completed: () => void;

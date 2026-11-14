@@ -48,7 +48,7 @@ export function InvoiceView() {
             {v.status === 'final' && !v.kind.endsWith('return') && (due > 0 ? <Badge tone="warn">Unpaid {inr(due)}</Badge> : <Badge tone="good">Paid</Badge>)}
           </h1>
           <p className="text-sm text-muted">
-            {fmtDate(v.date)} · <Link className="hover:underline" to={`/parties/${v.party_id}`}>{v.party_name}</Link> · by {v.cashier ?? '—'}
+            {fmtDate(v.date)} · <Link className="hover:underline" to={`/parties/${v.party_id}`}>{v.party_name}</Link> · by {v.cashier ?? '—'}{v.served_by_name && <> · served by <b className="text-ink" data-testid="invoice-served-by">{v.served_by_name}</b></>}
             {v.ref_invoice_id && <> · against <Link className="text-primary hover:underline" to={`${isSale ? '/sales' : '/purchases'}/${v.ref_invoice_id}`}>original bill</Link></>}
           </p>
         </div>

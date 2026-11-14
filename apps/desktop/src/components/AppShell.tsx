@@ -4,6 +4,7 @@ import {
   Barcode,
   Check,
   ChevronsLeft,
+  HandCoins,
   Contact,
   History,
   ReceiptText,
@@ -46,10 +47,11 @@ import { useApi } from '../lib/useApi';
 import { usePos } from '../features/pos/store';
 import { queryClient } from '../db/client';
 
-type NavItem = { to: string; label: string; icon: ReactNode; perm?: Permission; kbd?: string; end?: boolean };
+type NavItem = { to: string; label: string; icon: ReactNode; perm?: Permission; kbd?: string; end?: boolean; badge?: number };
 
 export function useNav(): Array<{ group: string; items: NavItem[] }> {
   const t = useT();
+  const status = useApi('app.status').data;
   return [
     { group: '', items: [{ to: '/', label: t('nav.home'), icon: <Home />, end: true, kbd: 'Alt+H' }] },
     {
@@ -79,7 +81,8 @@ export function useNav(): Array<{ group: string; items: NavItem[] }> {
         { to: '/parties', label: t('nav.parties'), icon: <Users />, perm: 'party.view', kbd: 'Alt+C' },
         { to: '/money', label: t('nav.moneyInOut'), icon: <Wallet />, perm: 'payment.in', kbd: 'Alt+M' },
         { to: '/expenses', label: t('nav.expenses'), icon: <ReceiptText />, perm: 'expense.view', kbd: 'Alt+E' },
-        { to: '/staff', label: t('nav.staff'), icon: <Contact />, perm: 'payroll.manage' },
+        { to: '/staff', label: t('nav.staff'), icon: <Contact />, perm: 'payroll.manage', badge: status?.pendingRequests || undefined },
+        ...(status?.me ? [{ to: '/me', label: t('nav.myPay'), icon: <HandCoins /> }] : []),
       ],
     },
     {
@@ -171,6 +174,7 @@ export function AppShell({ company, children }: { company: Company; children: Re
                     >
                       {i.icon}
                       {!sidebarCollapsed && <span className="flex-1 truncate">{i.label}</span>}
+                      {!sidebarCollapsed && !!i.badge && <span className="rounded-full bg-saffron px-1.5 text-[10px] font-semibold text-black/80" title="Waiting for you" data-testid="nav-badge">{i.badge}</span>}
                       {!sidebarCollapsed && i.to === '/pos' && openBills > 0 && <span className="rounded-full bg-saffron px-1.5 text-[10px] font-semibold text-black/80" title="Bills in progress">{openBills}</span>}
                     </NavLink>
                   ))}

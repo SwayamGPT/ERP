@@ -1,5 +1,5 @@
 import { formatINRCompact } from '@hisaab/core';
-import { ReceiptText } from 'lucide-react';
+import { HandCoins, ReceiptText } from 'lucide-react';
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CalendarClock, Check, ChevronRight, Landmark, PackageX, Receipt, ShoppingCart, TrendingUp, Truck, Wallet } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link, useNavigate } from 'react-router-dom';
@@ -44,6 +44,7 @@ export function Dashboard() {
         </div>
       </div>
 
+      <StaffRequestAlert />
       <LicenceAlert />
       <Checklist />
 
@@ -221,6 +222,18 @@ function MonthStrip() {
         </button>
       )}
     </div>
+  );
+}
+
+function StaffRequestAlert() {
+  const n = useApi('reports.dashboard').data?.staffRequests ?? 0;
+  if (!n) return null;
+  return (
+    <Link to="/staff" className="flex items-center gap-3 rounded-xl border border-saffron/40 bg-saffron-soft p-3 text-sm text-saffron-ink hover:shadow-pop" data-testid="staff-request-alert">
+      <HandCoins className="h-4 w-4 shrink-0" />
+      <span className="flex-1"><b>{n} money request{n > 1 ? 's' : ''}</b> from staff waiting for you.</span>
+      <span className="font-medium underline">Review</span>
+    </Link>
   );
 }
 

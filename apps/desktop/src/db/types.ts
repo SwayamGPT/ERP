@@ -49,6 +49,7 @@ export interface Company {
   print_show_bank: number;
   print_show_signature: number;
   print_terms: string | null;
+  billing_staff_mode: 'off' | 'optional';
 }
 
 export type PrintTemplate = 'receipt' | 'receipt-large' | 'a4-classic' | 'a4-modern' | 'a5-simple';
@@ -166,6 +167,8 @@ export interface DraftInvoice {
   payments?: DraftPayment[];
   supplierBillNo?: string;
   overrideCreditLimit?: boolean;
+  /** Optional: employee who served the customer (for sales-by-staff and incentives). */
+  servedBy?: number | null;
 }
 
 export interface InvoiceLine {
@@ -231,6 +234,8 @@ export interface Invoice {
   lines?: InvoiceLine[];
   payments?: Payment[];
   cashier?: string | null;
+  served_by?: number | null;
+  served_by_name?: string | null;
 }
 
 export interface Payment {

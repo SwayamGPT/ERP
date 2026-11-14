@@ -113,13 +113,14 @@ function Billing({ c }: { c: Company }) {
         </div>
         <div className="mt-5 space-y-4">
           <Switch checked={!!f.round_off} onChange={(v) => set('round_off', v ? 1 : 0)} label="Round bills to the nearest rupee" hint="Shown as a separate Round off line" />
+          <Switch checked={f.billing_staff_mode === 'optional'} onChange={(v) => set('billing_staff_mode', v ? 'optional' : 'off')} label="Ask who served the customer" hint="Adds an optional “Served by” on the billing screen — for sales-by-staff reports and incentives." />
           <Switch checked={!!f.allow_negative_stock} onChange={(v) => set('allow_negative_stock', v ? 1 : 0)} label="Allow billing when stock shows zero" hint="Recommended — counters shouldn't stop because stock wasn't entered" />
           <Field label="Weighing-scale barcode contains">
             <Segmented value={f.weight_barcode_mode ?? 'weight'} onChange={(v) => set('weight_barcode_mode', v)} options={[{ value: 'weight', label: 'Weight in grams' }, { value: 'price', label: 'Price in paise' }]} />
           </Field>
         </div>
       </Card>
-      <div className="flex justify-end"><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(f)}>Save</Button></div>
+      <div className="flex justify-end"><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(f)} data-testid="billing-save">Save</Button></div>
     </div>
   );
 }

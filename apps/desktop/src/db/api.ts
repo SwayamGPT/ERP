@@ -17,7 +17,10 @@ import { searchHsn } from '@hisaab/core';
  */
 export const api = {
   // session & company
-  'app.status': (ctx: Ctx) => ({ company: company.getCompany(ctx), session: ctx.session, users: company.getCompany(ctx) ? company.listUsersForLogin(ctx) : [], ...ctx.meta }),
+  'app.status': (ctx: Ctx) => {
+    const c = company.getCompany(ctx);
+    return { company: c, session: ctx.session, users: c ? company.listUsersForLogin(ctx) : [], me: c ? staff.myEmployee(ctx) : null, pendingRequests: c ? staff.pendingRequestCount(ctx) : 0, ...ctx.meta };
+  },
   'company.setup': (ctx: Ctx, a: company.SetupInput) => company.setupCompany(ctx, a),
   'company.save': (ctx: Ctx, a: Parameters<typeof company.saveCompany>[1]) => company.saveCompany(ctx, a),
   'auth.login': (ctx: Ctx, a: { userId: number; pin: string }) => company.login(ctx, a.userId, a.pin),
@@ -82,6 +85,14 @@ export const api = {
   'staff.runSalary': (ctx: Ctx, a: Parameters<typeof staff.runSalary>[1]) => staff.runSalary(ctx, a),
   'staff.paySalary': (ctx: Ctx, a: Parameters<typeof staff.paySalary>[1]) => staff.paySalary(ctx, a),
   'staff.advance': (ctx: Ctx, a: Parameters<typeof staff.staffAdvance>[1]) => staff.staffAdvance(ctx, a),
+  'staff.request': (ctx: Ctx, a: { amount: number; reason?: string }) => staff.requestAdvance(ctx, a),
+  'staff.withdrawRequest': (ctx: Ctx, a: { id: number }) => staff.withdrawRequest(ctx, a.id),
+  'staff.myPay': (ctx: Ctx) => staff.myPay(ctx),
+  'staff.requests': (ctx: Ctx, a: { status?: staff.StaffRequest['status'] | 'all' }) => staff.listRequests(ctx, a ?? {}),
+  'staff.decide': (ctx: Ctx, a: Parameters<typeof staff.decideRequest>[1]) => staff.decideRequest(ctx, a),
+  'staff.bonus': (ctx: Ctx, a: Parameters<typeof staff.giveBonus>[1]) => staff.giveBonus(ctx, a),
+  'staff.billers': (ctx: Ctx) => staff.billers(ctx),
+  'reports.salesByStaff': (ctx: Ctx, a: { from: string; to: string }) => reports.salesByStaff(ctx, a),
 
   // money movements
   'money.move': (ctx: Ctx, a: Parameters<typeof money.recordMove>[1]) => money.recordMove(ctx, a),

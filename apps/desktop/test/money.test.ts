@@ -180,3 +180,108 @@ describe('money movements, cash flow and profit', () => {
     });
   });
 });
+
+describe('staff requests, festival bonus and staff on bills', () => {
+  function withStaff() {
+    const s = shop('2026-11-20');
+    const { ctx } = s;
+    const ravi = api['staff.save'](ctx, { name: 'Ravi', monthlySalary: 1200000, newLoginPin: '1111', incentivePct: 1 });
+    const sunil = api['staff.save'](ctx, { name: 'Sunil', monthlySalary: 1000000 });
+    const owner = ctx.session!;
+    const users = api['app.status'](ctx).users;
+    const login = (name: string, pin: string) => api['auth.login'](ctx, { userId: users.find((u) => u.name === name)!.id, pin });
+    return { ...s, ravi, sunil, owner, login };
+  }
+
+  it('lets a linked staff member ask; only the owner approves or declines', () => {
+    const { ctx, ravi, login, bal } = withStaff();
+    login('Ravi', '1111');
+    expect(api['app.status'](ctx).me).toEqual({ id: ravi, name: 'Ravi' });
+    expect(() => api['staff.request'](ctx, { amount: 50000 })).toThrow(/what it is for/);
+    const reqId = api['staff.request'](ctx, { amount: 80000, reason: 'Medical' });
+    expect(() => api['staff.request'](ctx, { amount: 10000, reason: 'More' })).toThrow(/already have a request/);
+    expect(() => api['staff.requests'](ctx, {})).toThrow(/permission/);
+    const mine = api['staff.myPay'](ctx);
+    expect(mine).toMatchObject({ name: 'Ravi', advance: 0, requests: [{ amount: 80000, status: 'pending' }] });
+    expect(JSON.stringify(mine)).not.toContain('Sunil');
+
+    // A manager runs the shop but can't approve staff money.
+    api['users.save'] && login('Owner', '1234');
+    expect(api['app.status'](ctx).pendingRequests).toBe(1);
+    expect(() => api['staff.decide'](ctx, { id: reqId, approve: false })).toThrow(/note/);
+    api['staff.decide'](ctx, { id: reqId, approve: true, amount: 50000, mode: 'cash' }); // gives part of what was asked
+    expect(() => api['staff.decide'](ctx, { id: reqId, approve: true })).toThrow(/already been decided/);
+    expect(api['staff.list'](ctx, {}).find((e) => e.id === ravi)).toMatchObject({ advance: 50000, taken_this_month: 50000 });
+    expect(bal('CASH')).toBe(5000000 - 50000);
+    expect(api['reports.dashboard'](ctx).staffRequests).toBe(0);
+
+    login('Ravi', '1111');
+    expect(api['staff.myPay'](ctx).requests[0]).toMatchObject({ status: 'approved', paid_amount: 50000 });
+    const second = api['staff.request'](ctx, { amount: 20000, reason: 'Travel home' });
+    api['staff.withdrawRequest'](ctx, { id: second });
+    expect(api['staff.myPay'](ctx).requests[0].status).toBe('withdrawn');
+    balanced(ctx);
+  });
+
+  it('refuses requests from logins not linked to staff, and odd links', () => {
+    const { ctx, sunil } = withStaff();
+    expect(() => api['staff.request'](ctx, { amount: 100, reason: 'x' })).toThrow(/not linked/); // owner has no staff record
+    const ownerId = ctx.session!.userId;
+    expect(() => api['staff.save'](ctx, { id: sunil, name: 'Sunil', monthlySalary: 1000000, userId: ownerId })).toThrow(/owner/);
+    const raviUser = api['app.status'](ctx).users.find((u) => u.name === 'Ravi')!.id;
+    expect(() => api['staff.save'](ctx, { id: sunil, name: 'Sunil', monthlySalary: 1000000, userId: raviUser })).toThrow(/already linked to Ravi/);
+    expect(() => api['staff.save'](ctx, { name: 'X', monthlySalary: 1, incentivePct: 50 })).toThrow(/0% and 20%/);
+  });
+
+  it('pays festival bonuses now or at payday, privately, and shows them in P&L', () => {
+    const { ctx, ravi, sunil, bal } = withStaff();
+    api['staff.bonus'](ctx, { occasion: 'Diwali', rows: [{ employeeId: ravi, amount: 600000 }, { employeeId: sunil, amount: 500000 }], payNow: { mode: 'cash' } });
+    expect(bal('CASH')).toBe(5000000 - 1100000);
+    api['staff.bonus'](ctx, { occasion: 'Onam', rows: [{ employeeId: sunil, amount: 200000 }], payNow: null });
+    expect(api['staff.list'](ctx, {}).find((e) => e.id === sunil)!.salary_due).toBe(200000);
+    const due = api['expenses.list'](ctx, { employeeId: sunil, status: 'due' });
+    expect(due[0].description).toBe('Onam bonus 2026');
+    api['staff.paySalary'](ctx, { expenseId: due[0].id, amount: 200000, mode: 'upi' });
+    expect(api['staff.get'](ctx, { id: sunil }).timeline.map((t) => t.kind)).toEqual(expect.arrayContaining(['bonus', 'bonus_paid']));
+    const pnl = api['reports.pnl'](ctx, { from: '2026-11-01', to: '2026-11-30' });
+    expect(pnl.expenses.find((e) => e.category === 'Festival bonus & incentives')!.amount).toBe(1300000);
+    expect(() => api['staff.bonus'](ctx, { occasion: '', rows: [{ employeeId: sunil, amount: 1 }] })).toThrow(/occasion/);
+    balanced(ctx);
+  });
+
+  it('records who served each bill, reports sales by staff and adds incentive to salary', () => {
+    const { ctx, cat, ravi, sunil } = withStaff();
+    void cat;
+    const item = api['items.save'](ctx, { name: 'Ghee 1L', gst_rate: 5, base_unit: 'Pcs', mrp: 63000, retail_price: 63000, opening: { qty: 50, cost: 50000 } });
+    const sell = (servedBy: number | null, qty: number) =>
+      api['invoices.create'](ctx, { kind: 'sale', servedBy, lines: [{ itemId: item, unit: 'Pcs', factor: 1, qty, rate: 63000 }], payments: [{ mode: 'cash', amount: api['invoices.preview'](ctx, { kind: 'sale', lines: [{ itemId: item, unit: 'Pcs', factor: 1, qty, rate: 63000 }] }).totals.payable }] });
+    const a = sell(ravi, 10);
+    sell(ravi, 2);
+    sell(sunil, 3);
+    sell(null, 1);
+    expect(api['invoices.get'](ctx, { id: a.id }).served_by_name).toBe('Ravi');
+    api['invoices.return'](ctx, { invoiceId: a.id, lines: [{ lineId: a.lines![0].id, qty: 2 }], refundMode: 'cash' });
+
+    const rep = api['reports.salesByStaff'](ctx, { from: '2026-11-01', to: '2026-11-30' });
+    const r = rep.find((x) => x.name === 'Ravi')!;
+    expect(r).toMatchObject({ bills: 2, returns: 1 });
+    expect(r.sales).toBe(10 * 60000); // 12 sold − 2 returned, ₹600 before GST each
+    expect(r.incentive).toBe(6000); // 1%
+    expect(rep.map((x) => x.name)).toEqual(['Ravi', 'Sunil', 'Not assigned']);
+    const totalSales = api['reports.pnl'](ctx, { from: '2026-11-01', to: '2026-11-30' }).sales;
+    expect(rep.reduce((s, x) => s + x.sales, 0)).toBe(totalSales);
+
+    const prev = api['staff.salaryPreview'](ctx, { period: '2026-11' });
+    expect(prev.find((p) => p.employeeId === ravi)).toMatchObject({ salesServed: 600000, incentive: 6000, net: 1200000 + 6000 });
+    const [billId] = api['staff.runSalary'](ctx, { period: '2026-11', rows: [{ employeeId: ravi, paidDays: 30, incentive: 6000 }] });
+    expect(api['expenses.get'](ctx, { id: billId })).toMatchObject({ amount: 1206000, description: 'Salary Nov 2026 (incl. incentive ₹60)' });
+
+    expect(() => api['invoices.create'](ctx, { kind: 'sale', servedBy: 9999, lines: [{ itemId: item, unit: 'Pcs', factor: 1, qty: 1, rate: 63000 }], payments: [{ mode: 'cash', amount: 63000 }] })).toThrow(/no longer active/);
+    // Cashiers can list who to pick, without seeing salaries.
+    api['users.save'](ctx, { name: 'Counter 2', role: 'cashier', pin: '3333' });
+    api['auth.login'](ctx, { userId: api['app.status'](ctx).users.find((u) => u.name === 'Counter 2')!.id, pin: '3333' });
+    expect(api['staff.billers'](ctx)[0]).toEqual({ id: ravi, name: 'Ravi', designation: null });
+    expect(() => api['reports.salesByStaff'](ctx, { from: '2026-11-01', to: '2026-11-30' })).toThrow(/permission/);
+    balanced(ctx);
+  });
+});

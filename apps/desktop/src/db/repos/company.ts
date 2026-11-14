@@ -17,7 +17,7 @@ const EDITABLE: Array<keyof Company> = [
   'fssai', 'fssai_expiry', 'tagline', 'bank_name', 'bank_account', 'bank_ifsc', 'bank_branch',
   'invoice_prefix', 'next_invoice_no', 'return_prefix', 'purchase_prefix', 'weight_barcode_mode', 'print_format',
   'print_footer', 'round_off', 'allow_negative_stock', 'print_template', 'print_tax_detail', 'print_show_hsn',
-  'print_show_savings', 'print_show_qr', 'print_show_bank', 'print_show_signature', 'print_terms',
+  'print_show_savings', 'print_show_qr', 'print_show_bank', 'print_show_signature', 'print_terms', 'billing_staff_mode',
 ];
 
 const TEMPLATES: Company['print_template'][] = ['receipt', 'receipt-large', 'a4-classic', 'a4-modern', 'a5-simple'];
@@ -41,6 +41,7 @@ function check(c: Partial<Company>) {
   if (first) throw new AppError(first, 'INVALID');
   if (c.print_template && !TEMPLATES.includes(c.print_template)) throw new AppError('Unknown print template.');
   if (c.print_tax_detail && !['detailed', 'summary', 'none'].includes(c.print_tax_detail)) throw new AppError('Unknown tax display option.');
+  if (c.billing_staff_mode && !['off', 'optional'].includes(c.billing_staff_mode)) throw new AppError('Unknown billing staff option.');
 }
 
 export function saveCompany(ctx: Ctx, input: Partial<Company>) {

@@ -8,7 +8,7 @@ import { fmtDate, fmtQty, inr, monthStart, shiftDate, today } from '../../lib/fo
 import { useCan } from '../../lib/perm';
 import { useApi } from '../../lib/useApi';
 
-type Tab = 'pnl' | 'sales' | 'purchases' | 'profit' | 'bills' | 'stock' | 'expiry' | 'daybook' | 'cashbook' | 'outstanding';
+type Tab = 'staff' | 'pnl' | 'sales' | 'purchases' | 'profit' | 'bills' | 'stock' | 'expiry' | 'daybook' | 'cashbook' | 'outstanding';
 const TABS: Array<{ value: Tab; label: string; perm: Permission }> = [
   { value: 'pnl', label: 'Profit & loss', perm: 'report.profit' },
   { value: 'sales', label: 'Sales register', perm: 'report.view' },
@@ -20,6 +20,7 @@ const TABS: Array<{ value: Tab; label: string; perm: Permission }> = [
   { value: 'daybook', label: 'Day book', perm: 'report.view' },
   { value: 'cashbook', label: 'Cash & bank book', perm: 'report.view' },
   { value: 'outstanding', label: 'Outstanding', perm: 'party.view' },
+  { value: 'staff', label: 'Sales by staff', perm: 'report.view' },
 ];
 
 interface Col<T> {
@@ -52,7 +53,7 @@ export function ReportsPage() {
             <p className="text-sm text-muted">Every report exports to CSV for Excel or your CA.</p>
           </div>
         </div>
-        {['pnl', 'sales', 'purchases', 'profit', 'bills', 'cashbook'].includes(tab) && (
+        {['pnl', 'staff', 'sales', 'purchases', 'profit', 'bills', 'cashbook'].includes(tab) && (
           <div className="flex items-center gap-2">
             <Segmented size="sm" value="" onChange={(v) => { if (v === 'today') (setFrom(today()), setTo(today())); if (v === 'month') (setFrom(monthStart()), setTo(today())); if (v === '30') (setFrom(shiftDate(today(), -29)), setTo(today())); }} options={[{ value: 'today', label: 'Today' }, { value: 'month', label: 'This month' }, { value: '30', label: '30 days' }]} />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
@@ -64,6 +65,7 @@ export function ReportsPage() {
       </div>
       <div className="mb-4"><Tabs value={tab} onChange={(t) => setParams({ tab: t })} tabs={tabs} /></div>
       {tab === 'pnl' && <ProfitLoss from={from} to={to} />}
+      {tab === 'staff' && <SalesByStaff from={from} to={to} />}
       {tab === 'sales' && <Register kind="sale" from={from} to={to} />}
       {tab === 'purchases' && <Register kind="purchase" from={from} to={to} />}
       {tab === 'profit' && <ItemProfit from={from} to={to} />}
@@ -319,6 +321,36 @@ function ProfitLoss({ from, to }: { from: string; to: string }) {
         <Card><p>This is your <b className="text-ink">earning</b> for the period: what you sold minus what those goods cost you and what it took to run the shop. Unpaid bills count when they're incurred, not when paid.</p></Card>
         <Card><p>Money the owner takes home is <b className="text-ink">not</b> an expense and isn't shown here. To see actual money movement, open <a className="text-primary hover:underline" href="#/money?tab=flow">Cash flow</a>.</p></Card>
       </div>
+    </div>
+  );
+}
+
+function SalesByStaff({ from, to }: { from: string; to: string }) {
+  const canDo = useCan();
+  const q = useApi('reports.salesByStaff', { from, to });
+  const showPay = canDo('payroll.manage');
+  return (
+    <div className="space-y-3">
+      <ReportTable
+        name="sales-by-staff"
+        rows={q.data as R[] | undefined}
+        totals={['bills', 'returns', 'sales', 'total', ...(showPay ? ['incentive'] : [])]}
+        cols={[
+          { key: 'name', label: 'Served by', render: (r) => <span className={r.employeeId ? 'font-medium' : 'text-muted'}>{String(r.name)}</span>, csv: (r) => r.name },
+          { key: 'bills', label: 'Bills', right: true },
+          { key: 'returns', label: 'Returns', right: true },
+          { key: 'sales', label: 'Sales (before GST)', money: true },
+          { key: 'total', label: 'Sales (with GST)', money: true },
+          { key: 'avgBill', label: 'Average bill', money: true },
+          ...(showPay
+            ? ([
+                { key: 'incentivePct', label: 'Incentive %', right: true, render: (r) => (r.incentivePct ? `${r.incentivePct}%` : '—'), csv: (r) => r.incentivePct ?? '' },
+                { key: 'incentive', label: 'Incentive earned', money: true },
+              ] as Col<R>[])
+            : []),
+        ]}
+      />
+      <p className="text-xs text-muted">Turn on “Ask who served the customer” in Settings → Billing rules to fill this in. Returns count against whoever served the original bill. Incentive is added in the salary run.</p>
     </div>
   );
 }

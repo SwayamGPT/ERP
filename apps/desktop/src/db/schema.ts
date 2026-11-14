@@ -390,6 +390,34 @@ ALTER TABLE ledger_entries ADD COLUMN created_at TEXT;
 CREATE INDEX idx_ledger_employee ON ledger_entries(employee_id);
 `,
   },
+  {
+    version: 4,
+    name: 'staff_requests_bonus_served_by',
+    sql: /* sql */ `
+ALTER TABLE employees ADD COLUMN incentive_pct REAL NOT NULL DEFAULT 0;
+ALTER TABLE invoices ADD COLUMN served_by INTEGER REFERENCES employees(id);
+CREATE INDEX idx_invoices_served ON invoices(served_by, date);
+ALTER TABLE expenses ADD COLUMN staff_pay_kind TEXT;
+UPDATE expenses SET staff_pay_kind = 'salary' WHERE employee_id IS NOT NULL;
+INSERT OR IGNORE INTO expense_categories (name, grp) VALUES ('Festival bonus & incentives', 'Staff');
+ALTER TABLE company ADD COLUMN billing_staff_mode TEXT NOT NULL DEFAULT 'off';
+CREATE TABLE staff_requests (
+  id INTEGER PRIMARY KEY,
+  employee_id INTEGER NOT NULL REFERENCES employees(id),
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','declined','withdrawn')),
+  requested_by INTEGER REFERENCES users(id),
+  requested_at TEXT NOT NULL,
+  decided_by INTEGER REFERENCES users(id),
+  decided_at TEXT,
+  decision_note TEXT,
+  paid_amount INTEGER,
+  move_id INTEGER REFERENCES money_moves(id)
+);
+CREATE INDEX idx_staff_requests_status ON staff_requests(status, employee_id);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

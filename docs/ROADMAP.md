@@ -95,6 +95,10 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · Money log: every cash/bank movement with who recorded it, when, and running balance (CSV)
 - [x] R1 · Cash-flow statement (grouped inflows/outflows, expense breakdown, month by month) and Profit & loss (sales − FIFO cost − expenses + other income)
 - [x] R1 · Plain-language activity log of every action, filterable by person, area and date
+- [x] R1 · Staff ask for money from their own PIN login ("My pay"); owner approves (full or part, cash/UPI/bank) or declines with a note; dashboard alert and nav badge
+- [x] R1 · Money given before payday in small amounts; adjusted at salary time as the owner decides
+- [x] R1 · Festival bonuses (Diwali, Eid, Onam…) for everyone or one person — fixed or % of salary, paid now or added to next salary
+- [x] R1 · Optional "Served by" staff on bills (Settings switch), remembered per counter; returns count against the original server; Sales-by-staff report; optional incentive % added in the salary run
 - [ ] R2 · Attach bill photos to expenses; WhatsApp salary slips; staff attendance from the mobile app
 - [ ] R2 · Expense approvals above a set amount; petty-cash float per counter
 
