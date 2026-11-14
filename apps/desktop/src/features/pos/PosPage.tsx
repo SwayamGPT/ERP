@@ -13,6 +13,7 @@ import {
   ScanBarcode,
   Send,
   Smartphone,
+  Split,
   Trash2,
   X,
 } from 'lucide-react';
@@ -20,7 +21,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { printInvoice } from '../../components/print/PrintInvoice';
 import { UpiQr } from '../../components/UpiQr';
-import { Badge, Button, ConfirmDialog, Dialog, Input, Kbd, MoneyInput, toast } from '../../components/ui';
+import { Badge, Button, ConfirmDialog, Dialog, Input, Kbd, MoneyInput, Segmented, toast } from '../../components/ui';
 import { ApiError, call } from '../../db/client';
 import type { DraftInvoice, Invoice, Item } from '../../db/types';
 import { cn } from '../../lib/cn';
@@ -149,13 +150,18 @@ export function PosPage() {
     }
     setSaving(true);
     try {
-      const amount = mode === 'credit' ? Math.min(bill.paidNow, payable) : payable;
-      const payMode = mode === 'credit' ? 'cash' : mode;
+      let payments: Array<{ mode: 'cash' | 'upi' | 'card'; amount: number }>;
+      if (mode === 'credit') payments = [{ mode: bill.paidNowMode ?? 'cash', amount: Math.min(bill.paidNow, payable) }];
+      else if (mode === 'split') {
+        const cash = Math.min(bill.splitCash ?? 0, payable);
+        payments = [{ mode: 'cash', amount: cash }, { mode: bill.splitOther ?? 'upi', amount: payable - cash }];
+      } else payments = [{ mode, amount: payable }];
+      payments = payments.filter((p) => p.amount > 0);
       const inv = await call('invoices.create', {
         ...draft,
         notes: bill.notes || undefined,
         servedBy: company?.billing_staff_mode === 'optional' ? bill.servedBy?.id ?? null : null,
-        payments: amount > 0 ? [{ mode: payMode, amount }] : [],
+        payments,
         overrideCreditLimit: override,
       });
       setLast(inv);
@@ -462,9 +468,14 @@ export function PosPage() {
             <PayBtn active={mode === 'upi'} onClick={() => setPay('upi')} icon={<Smartphone />} label={t('pos.upi')} k="F5" testid="pay-upi" />
             <PayBtn active={mode === 'credit'} onClick={() => setPay('credit')} icon={<NotebookPen />} label={t('pos.credit')} k="F6" testid="pay-credit" />
           </div>
-          <button onClick={() => setPay('card')} className={cn('mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs', mode === 'card' ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-2')}>
-            <CreditCard className="h-3.5 w-3.5" /> Card / other
-          </button>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <button onClick={() => setPay('split')} className={cn('flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs', mode === 'split' ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-2')} data-testid="pay-split">
+              <Split className="h-3.5 w-3.5" /> Split cash + UPI
+            </button>
+            <button onClick={() => setPay('card')} className={cn('flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs', mode === 'card' ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-2')}>
+              <CreditCard className="h-3.5 w-3.5" /> Card / other
+            </button>
+          </div>
 
           <div className="mt-4">
             {mode === 'cash' && (
@@ -511,6 +522,9 @@ export function PosPage() {
                 )}
               </div>
             )}
+            {mode === 'split' && (
+              <SplitPanel payable={payable} cash={Math.min(bill.splitCash ?? 0, payable)} other={bill.splitOther ?? 'upi'} onCash={(v) => pos.set({ splitCash: v })} onOther={(v) => pos.set({ splitOther: v })} onEnter={() => void save(true)} upiId={company?.upi_id ?? null} shop={company?.name ?? ''} />
+            )}
             {mode === 'credit' && (
               <div className="space-y-2 rounded-xl border border-border p-3">
                 <div className="text-sm">
@@ -527,8 +541,11 @@ export function PosPage() {
                   )}
                 </div>
                 {overLimit && <Badge tone="bad">Over credit limit</Badge>}
-                <label className="label mt-2">Paid now (optional, cash)</label>
-                <MoneyInput value={bill.paidNow} onChange={(v) => pos.set({ paidNow: v })} />
+                <label className="label mt-2">Paid now (optional)</label>
+                <div className="flex gap-2">
+                  <MoneyInput className="flex-1" value={bill.paidNow} onChange={(v) => pos.set({ paidNow: v })} data-testid="pos-paid-now" />
+                  <Segmented size="sm" value={bill.paidNowMode ?? 'cash'} onChange={(v) => pos.set({ paidNowMode: v })} options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'card', label: 'Card' }]} />
+                </div>
               </div>
             )}
           </div>
@@ -723,6 +740,28 @@ function LastBill({ inv, compact }: { inv: Invoice; compact?: boolean }) {
         </a>
       )}
       <Link to={`/sales/${inv.id}`} className="text-xs font-medium text-primary hover:underline">View</Link>
+    </div>
+  );
+}
+
+function SplitPanel({ payable, cash, other, onCash, onOther, onEnter, upiId, shop }: { payable: number; cash: number; other: 'upi' | 'card'; onCash: (v: number) => void; onOther: (v: 'upi' | 'card') => void; onEnter: () => void; upiId: string | null; shop: string }) {
+  const rest = Math.max(0, payable - cash);
+  return (
+    <div className="space-y-3 rounded-xl border border-border p-3" data-testid="split-panel">
+      <div>
+        <label className="label">Cash part</label>
+        <MoneyInput autoFocus value={cash} onChange={(v) => onCash(Math.min(v, payable))} onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), onEnter())} className="[&_input]:h-11 [&_input]:text-lg" data-testid="split-cash" />
+      </div>
+      <div className="flex items-center justify-between">
+        <Segmented size="sm" value={other} onChange={onOther} options={[{ value: 'upi', label: 'Rest by UPI' }, { value: 'card', label: 'Rest by card' }]} />
+        <span className="text-lg font-semibold tnum" data-testid="split-rest">{inr(rest)}</span>
+      </div>
+      {other === 'upi' && upiId && rest > 0 && (
+        <div className="flex items-center gap-3">
+          <UpiQr link={upiLink({ vpa: upiId, name: shop, amount: rest, note: 'Bill payment' })} size={96} />
+          <p className="text-xs text-muted">Scan to pay the remaining {inr(rest)}</p>
+        </div>
+      )}
     </div>
   );
 }

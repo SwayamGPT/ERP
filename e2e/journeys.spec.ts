@@ -271,3 +271,23 @@ test('bills survive a reload (offline storage)', async ({ page }) => {
   await expect(page.getByTestId('invoice-table')).toContainText('INV-1');
   await expect(page.getByTestId('invoice-table')).toContainText('₹240.00');
 });
+
+test('split payment: part cash, rest by UPI, both land in the right books', async ({ page }) => {
+  await openShop(page);
+  await page.keyboard.press('Alt+n');
+  await addItem(page, 'iodised salt', '10'); // ₹280
+  await page.getByTestId('pay-split').click();
+  await page.getByTestId('split-cash').fill('100');
+  await expect(page.getByTestId('split-rest')).toHaveText('₹180.00');
+  await page.keyboard.press('F10');
+  const toast = page.getByTestId('toast').filter({ hasText: /Bill (INV-\d+) saved · ₹280.00/ });
+  await expect(toast).toBeVisible();
+  await page.getByTestId('last-bill').getByRole('link', { name: 'View' }).click();
+  await expect(page.getByText('Cash', { exact: true })).toBeVisible();
+  await expect(page.getByText('UPI', { exact: true })).toBeVisible();
+  await expect(page.getByText('₹180.00').first()).toBeVisible();
+  await page.goto('/#/money?tab=log');
+  const log = page.getByTestId('money-log');
+  await expect(log.locator('tr', { hasText: '₹100.00' }).first()).toContainText('Cash');
+  await expect(log.locator('tr', { hasText: '₹180.00' }).first()).toContainText('Bank');
+});

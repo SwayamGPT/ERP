@@ -11,7 +11,7 @@ keyboard-first counter, and GST returns in one click.
 
 | | |
 |---|---|
-| **Counter billing** | Several bills open at once (F2 new, F3 next, Alt+1…9) · one search box for name / code / barcode / weighing-scale stickers · F4 cash, F5 UPI QR, F6 udhaar, F8 discount, F9 save & print · GST breakup always visible · tier prices, schemes, FIFO batches |
+| **Counter billing** | Several bills open at once (F2 new, F3 next, Alt+1…9) · split cash + UPI · one search box for name / code / barcode / weighing-scale stickers · F4 cash, F5 UPI QR, F6 udhaar, F8 discount, F9 save & print · GST breakup always visible · tier prices, schemes, FIFO batches |
 | **Printing** | 5 templates — classic & big-print receipts, GST tax invoice, modern A4, half-page A5 — with live preview; choose full GST breakup, totals only, or none (B2B bills always keep tax totals) |
 | **Stock** | Multi-unit (piece / box / carton, kg & g), batches & expiry with FIFO, low-stock & expiry alerts, adjustments, barcode labels |
 | **Purchases** | Keyboard grid with batch, expiry, MRP, free qty; IGST input for other-state suppliers; debit notes |
@@ -55,6 +55,7 @@ npm run dev          # http://localhost:5173
 npm test             # unit + database tests (Vitest)
 npm run typecheck
 npm run build && npm run e2e   # Playwright journeys against the production build
+npm run perf         # performance budget: bill save < 50 ms with 50k items / 100k bills
 ```
 
 First launch opens **Create enterprise**: business & contact details, GSTIN, FSSAI licence and the

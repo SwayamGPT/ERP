@@ -37,6 +37,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Performance budget (bill save < 50 ms at 50k items / 100k bills)
+        run: npm run perf
 
   build:
     name: Build (${{ matrix.name }})

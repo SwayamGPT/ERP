@@ -25,7 +25,7 @@ export interface CartLine {
   schemeLabel: string | null;
 }
 
-export type PayMode = 'cash' | 'upi' | 'card' | 'credit';
+export type PayMode = 'cash' | 'upi' | 'card' | 'credit' | 'split';
 
 /** One open bill. The counter can have up to MAX_BILLS of these at the same time. */
 export interface Bill {
@@ -37,6 +37,11 @@ export interface Bill {
   mode: PayMode;
   tendered: number;
   paidNow: number;
+  /** How the 'paid now' part of an udhaar bill was paid. */
+  paidNowMode?: 'cash' | 'upi' | 'card';
+  /** Split payment: cash part (the rest is UPI/card). */
+  splitCash?: number;
+  splitOther?: 'upi' | 'card';
   billDiscountPct: number;
   /** Optional staff member who served; undefined = not decided yet (use the counter's default). */
   servedBy?: { id: number; name: string } | null;
@@ -105,7 +110,7 @@ interface PosState {
   select: (i: number) => void;
   setParty: (p: Party | null) => void;
   setMode: (m: PayMode) => void;
-  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'billDiscountPct' | 'otherCharges' | 'notes' | 'servedBy'>>) => void;
+  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'paidNowMode' | 'splitCash' | 'splitOther' | 'billDiscountPct' | 'otherCharges' | 'notes' | 'servedBy'>>) => void;
   clear: () => void;
   /** After a bill is saved: close its tab if others are open, otherwise start fresh. */
   completed: () => void;

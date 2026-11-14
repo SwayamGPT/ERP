@@ -418,6 +418,17 @@ CREATE TABLE staff_requests (
 CREATE INDEX idx_staff_requests_status ON staff_requests(status, employee_id);
 `,
   },
+  {
+    version: 5,
+    name: 'performance_indexes',
+    sql: /* sql */ `
+CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_payments_expense ON payments(expense_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_ref ON invoices(ref_invoice_id);
+CREATE INDEX IF NOT EXISTS idx_moves_employee ON money_moves(employee_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_employee ON expenses(employee_id, status);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

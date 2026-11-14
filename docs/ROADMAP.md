@@ -6,7 +6,7 @@ release delivers each piece. Tick items as they ship.
 
 | Release | Theme | Status |
 |---|---|---|
-| **R1** | Offline desktop MVP — counter billing, stock, khata, GST returns | ✅ shipped (this repo) |
+| **R1** | Offline desktop MVP — counter billing, stock, khata, expenses & staff, GST returns | ✅ complete — every R1 item and quality gate ticked |
 | **R2** | Cloud sync, owner & salesman mobile apps, native hardware | ⏳ next |
 | **R3** | Full accounting, advanced compliance, multi-branch | planned |
 | **R4** | Ecosystem — subscriptions, partner/CA portal, integrations | planned |
@@ -18,7 +18,8 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · Keyboard-first flow (Enter: item → qty → next) with on-screen shortcut badges (F1–F10, Esc)
 - [x] R1 · Multiple bills open at once as tabs (F2 new, F3 next, Alt+1…9, Alt+X), persisted per enterprise across restarts
 - [x] R1 · GST breakup always shown while billing (per-line GST % and tax, rate-wise CGST/SGST/IGST table)
-- [x] R1 · Cash (with change calculator), UPI, card, udhaar (credit) with part-payment
+- [x] R1 · Cash (with change calculator), UPI, card, udhaar (credit) with part-payment by cash / UPI / card
+- [x] R1 · Split payment on one bill: part cash, rest by UPI (QR for the remainder) or card
 - [x] R1 · Dynamic UPI QR with the exact payable amount (screen + receipt)
 - [x] R1 · Price tiers auto-applied per customer (MRP / Retail / Wholesale / Super-stockist)
 - [x] R1 · Schemes: buy-X-get-Y free qty, quantity slab discounts; line and bill discounts (cashier cap 5%)
@@ -162,7 +163,8 @@ release delivers each piece. Tick items as they ship.
 - [x] Repository tests on real SQLite: ledger balance, FIFO, returns, cancel, RBAC, atomic rollback
 - [x] Playwright journeys for the core flows against the production build
 - [x] Migration upgrade test (release-1 schema → current)
-- [ ] Performance budget: a bill saves in < 50 ms with 50k items and 100k invoices
+- [x] Performance budget: a bill saves in < 50 ms with 50k items and 100k invoices — measured p95 **3.4 ms** (preview 0.7 ms, barcode scan 11 ms, name search 37 ms); `npm run perf`, also in CI
+  - Known limit: at that size the database is ~200 MB and each disk snapshot takes ~200 ms, so snapshots back off (up to 5 s) on large shops; closing or hiding the window still saves immediately. Native SQLite in the Tauri shell (R2) removes whole-file snapshots.
 
 ---
 

@@ -25,6 +25,10 @@ const IDB_STORE = 'db';
 const REGISTRY_KEY = 'registry';
 const LEGACY_KEY = 'main';
 const SNAPSHOT_MS = 150;
+/** Large databases take longer to snapshot; wait proportionally longer (max 5 s) so a busy counter isn't
+ *  rewriting hundreds of MB after every bill. Hiding/closing the window still flushes immediately. */
+let lastExportMs = 0;
+const snapshotDelay = () => Math.min(5000, Math.max(SNAPSHOT_MS, lastExportMs * 10));
 
 let SQL: SqlJsStatic;
 let ctx: Ctx | null = null;
@@ -115,7 +119,9 @@ async function flush(): Promise<void> {
   if (!adapter || !currentId || !registry.some((e) => e.id === currentId)) return;
   if (adapter.writeVersion === savedVersion) return saving ?? undefined;
   const version = adapter.writeVersion;
+  const t0 = performance.now();
   const bytes = adapter.exportDb();
+  lastExportMs = performance.now() - t0;
   adapter.db.exec('PRAGMA foreign_keys = ON;'); // export() resets connection pragmas
   const key = `db:${currentId}`;
   saving = (saving ?? Promise.resolve()).then(() => idbPut(key, bytes)).then(() => {
@@ -128,7 +134,7 @@ async function flush(): Promise<void> {
 function scheduleSnapshot() {
   if (timer) clearTimeout(timer);
   post({ type: 'dirty' });
-  timer = setTimeout(() => void flush(), SNAPSHOT_MS);
+  timer = setTimeout(() => void flush(), snapshotDelay());
 }
 
 async function close() {
