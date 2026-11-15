@@ -6,6 +6,7 @@ import { isMutation } from './methods';
 import { AppError, localToday, type Ctx } from './repos/base';
 import { migrate } from './schema';
 import { upgradePlainPins } from './crypto';
+import { attach as attachSync } from './sync/engine';
 import type { Company, EnterpriseEntry } from './types';
 
 /**
@@ -153,6 +154,7 @@ async function open(id: string, bytes?: Uint8Array | null) {
   const before = adapter.writeVersion;
   migrate(adapter);
   upgradePlainPins(adapter);
+  attachSync(adapter);
   currentId = id;
   ctx = { db: adapter, session: null, today: localToday };
   // If migrations changed an existing database, persist it; otherwise nothing to save yet.

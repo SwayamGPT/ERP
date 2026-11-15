@@ -429,6 +429,50 @@ CREATE INDEX IF NOT EXISTS idx_moves_employee ON money_moves(employee_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_employee ON expenses(employee_id, status);
 `,
   },
+  {
+    version: 6,
+    name: 'sync_ready',
+    sql: /* sql */ `
+-- One row. Filled in when this enterprise is connected to a shop in the cloud.
+CREATE TABLE _sync_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  server_url TEXT,
+  shop_id TEXT,
+  device_id TEXT,
+  device_token TEXT,
+  device_index INTEGER,
+  device_code TEXT,
+  device_name TEXT,
+  next_id INTEGER,
+  pull_seq INTEGER NOT NULL DEFAULT 0,
+  last_push_at TEXT,
+  last_pull_at TEXT,
+  last_error TEXT,
+  connected_at TEXT
+);
+INSERT INTO _sync_state (id) VALUES (1);
+-- Changes waiting to be sent. Filled by triggers; txn groups the rows of one local transaction.
+CREATE TABLE _outbox (
+  id INTEGER PRIMARY KEY,
+  tbl TEXT NOT NULL,
+  row_id INTEGER NOT NULL,
+  op TEXT NOT NULL CHECK (op IN ('u','d')),
+  txn INTEGER NOT NULL
+);
+CREATE INDEX _outbox_row ON _outbox(tbl, row_id);
+-- Bill-number series for devices other than the first (INV-B-1, INV-C-1, ...).
+CREATE TABLE _device_series (kind TEXT PRIMARY KEY, next_no INTEGER NOT NULL DEFAULT 1);
+-- Things the sync had to resolve on its own (e.g. the same barcode created on two counters).
+CREATE TABLE _sync_conflicts (
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  tbl TEXT NOT NULL,
+  row_id INTEGER NOT NULL,
+  message TEXT NOT NULL,
+  seen INTEGER NOT NULL DEFAULT 0
+);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

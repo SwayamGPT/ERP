@@ -1,3 +1,5 @@
+import type { SqlJsAdapter } from '../adapter';
+import { seriesCode } from '../sync/engine';
 import { computeLine, isInterState, validateGstin } from '@hisaab/core';
 import type { PayMode } from '../types';
 import { addDays, allowed, AppError, audit, guard, localNow, modeAccount, postVoucher, reverseVoucher, type Ctx } from './base';
@@ -162,7 +164,7 @@ export function createExpense(ctx: Ctx, input: ExpenseInput): Expense {
   });
 }
 
-function refreshStatus(ctx: Ctx, id: number) {
+export function refreshStatus(ctx: Ctx, id: number) {
   const e = ctx.db.get<{ amount: number; status: string }>('SELECT amount, status FROM expenses WHERE id = ?', [id])!;
   if (e.status === 'cancelled') return;
   const paid =
@@ -398,6 +400,8 @@ export function saveRecurring(
  */
 export function syncRecurring(ctx: Ctx): number {
   if (!ctx.session) return 0;
+  // With several devices, only the shop's first device raises recurring bills, so each is created once.
+  if (seriesCode(ctx.db as SqlJsAdapter)) return 0;
   const today = ctx.today();
   const horizon = addDays(today, LEAD_DAYS);
   const rows = ctx.db.query<Recurring>('SELECT r.*, c.name AS category FROM recurring_expenses r JOIN expense_categories c ON c.id = r.category_id WHERE r.active = 1');

@@ -1,3 +1,5 @@
+import type { SqlJsAdapter } from '../adapter';
+import { nextSeriesNo, seriesCode } from '../sync/engine';
 import {
   allocateFifo,
   applyScheme,
@@ -36,6 +38,12 @@ function nowTime() {
 
 function nextNumber(ctx: Ctx, kind: InvoiceKind): string {
   const c = mustCompany(ctx);
+  // Every device after the shop's first has its own series (INV-B-1, CN-B-1…) so offline counters never clash.
+  const code = seriesCode(ctx.db as SqlJsAdapter);
+  if (code) {
+    const prefix = { sale: c.invoice_prefix, sale_return: c.return_prefix, purchase: c.purchase_prefix, purchase_return: 'DN-' }[kind];
+    return `${prefix}${code}-${nextSeriesNo(ctx.db as SqlJsAdapter, kind)}`;
+  }
   if (kind === 'sale') {
     ctx.db.exec('UPDATE company SET next_invoice_no = next_invoice_no + 1 WHERE id = 1');
     return `${c.invoice_prefix}${c.next_invoice_no}`;
@@ -416,7 +424,7 @@ export function receivePayment(ctx: Ctx, input: { direction: 'in' | 'out'; party
 }
 
 /** Mark the oldest unpaid bills as paid up to the party's net payments (FIFO knock-off for "unpaid" status). */
-function allocateToBills(ctx: Ctx, partyId: number, kind: 'sale' | 'purchase') {
+export function allocateToBills(ctx: Ctx, partyId: number, kind: 'sale' | 'purchase') {
   const dir = kind === 'sale' ? 'in' : 'out';
   const credits = ctx.db.get<{ s: number }>(
     `SELECT COALESCE(SUM(amount), 0) AS s FROM payments WHERE party_id = ? AND direction = ? AND cancelled = 0`,
