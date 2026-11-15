@@ -49,7 +49,7 @@ release delivers each piece. Tick items as they ship.
 - [x] R2 · Import distributor bills from CSV / Excel (columns detected; items matched by barcode, name, similar name)
 - [x] R2 · Reorder suggestions from sales velocity, lead time and reorder level; one click to POs per supplier
 - [ ] R3 · Purchase-bill OCR (photo → entry)
-- [ ] R3 · GSTR-2B ITC matching against purchases
+- [x] R3 · GSTR-2B ITC matching against purchases (delivered early in R2)
 
 ## 3. Inventory
 - [x] R1 · Base-unit stock with any number of bigger units; "3 Carton 1 Pcs" display
@@ -112,9 +112,10 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · GSTR-3B JSON: 3.1 outward, 3.2 inter-state unregistered, 4 ITC
 - [x] R1 · Net tax payable summary; missing-HSN warnings
 - [x] R1 · e-Way Bill bulk JSON (NIC format)
-- [ ] R2 · GSTR-2B import & reconciliation
-- [ ] R2 · e-Invoice (IRN + signed QR) through a GSP
-- [ ] R2 · e-Way Bill generation via API
+- [x] R2 · GSTR-2B import & reconciliation (matched / tax differs / not in books / not filed by supplier, credit at risk)
+- [x] R2 · e-Invoice (IRN + signed QR): IRP schema 1.1 JSON with pre-checks, bulk upload file, import of the portal's result, IRN & QR printed on the bill, 24-hour cancel, test mode
+- [ ] R2 · Direct API filing through a GST Suvidha Provider (IRN, e-Way Bill) — needs the owner's GSP account and API keys
+- [x] R2 · e-Way Bill number recorded on the bill and printed (JSON for the portal since R1)
 - [ ] R3 · GSTR-9 annual summary; composition scheme (CMP-08)
 - [ ] R3 · Direct return filing through a GSP
 

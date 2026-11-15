@@ -604,18 +604,41 @@ function A5Simple({ x }: { x: Ctx }) {
 export function InvoiceDocument({ invoice, company, template }: { invoice: Invoice; company: Company; template?: PrintTemplate }) {
   const x = buildCtx(invoice, company);
   const t = template ?? company.print_template;
-  switch (t) {
-    case 'receipt-large':
-      return <ReceiptLarge x={x} />;
-    case 'a4-classic':
-      return <A4Classic x={x} />;
-    case 'a4-modern':
-      return <A4Modern x={x} />;
-    case 'a5-simple':
-      return <A5Simple x={x} />;
-    default:
-      return <Receipt x={x} narrow={company.print_format === 'thermal58'} />;
-  }
+  const doc = (() => {
+    switch (t) {
+      case 'receipt-large':
+        return <ReceiptLarge x={x} />;
+      case 'a4-classic':
+        return <A4Classic x={x} />;
+      case 'a4-modern':
+        return <A4Modern x={x} />;
+      case 'a5-simple':
+        return <A5Simple x={x} />;
+      default:
+        return <Receipt x={x} narrow={company.print_format === 'thermal58'} />;
+    }
+  })();
+  const irn = invoice.irn && !invoice.irn_cancelled;
+  if (!irn && !invoice.ewb_no) return doc;
+  const small = t === 'receipt' || t === 'receipt-large';
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', border: '1px solid #999', padding: 6, marginBottom: 6, fontSize: small ? 9 : 10, lineHeight: 1.35 }} data-testid="print-irn">
+        {irn && invoice.irn_qr && <UpiQr link={invoice.irn_qr} size={small ? 90 : 110} />}
+        <div style={{ wordBreak: 'break-all' }}>
+          {irn && (
+            <>
+              <div><b>e-Invoice{invoice.irn_test ? ' (TEST — NOT VALID)' : ''}</b></div>
+              <div>IRN: {invoice.irn}</div>
+              <div>Ack No: {invoice.irn_ack_no} · Ack Date: {invoice.irn_ack_date}</div>
+            </>
+          )}
+          {invoice.ewb_no && <div>e-Way Bill: {invoice.ewb_no}{invoice.ewb_valid_upto ? ` (valid till ${invoice.ewb_valid_upto})` : ''}</div>}
+        </div>
+      </div>
+      {doc}
+    </div>
+  );
 }
 
 /** On-screen width for previews, matching the printed paper. */

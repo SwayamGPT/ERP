@@ -57,6 +57,7 @@ export interface Company {
   reminder_every_days: number;
   expense_approval_limit: number;
   petty_cash_float: number;
+  einvoice_mode: 'off' | 'portal' | 'test';
 }
 
 export type PrintTemplate = 'receipt' | 'receipt-large' | 'a4-classic' | 'a4-modern' | 'a5-simple';
@@ -218,6 +219,15 @@ export interface InvoiceLine {
 
 export interface Invoice {
   id: number;
+  irn?: string | null;
+  irn_ack_no?: string | null;
+  irn_ack_date?: string | null;
+  irn_qr?: string | null;
+  irn_test?: number;
+  irn_cancelled?: number;
+  ewb_no?: string | null;
+  ewb_date?: string | null;
+  ewb_valid_upto?: string | null;
   kind: InvoiceKind;
   number: string;
   date: string;

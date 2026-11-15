@@ -689,6 +689,43 @@ ALTER TABLE expenses ADD COLUMN approved_by INTEGER REFERENCES users(id);
 ALTER TABLE expenses ADD COLUMN petty INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    version: 9,
+    name: 'gst_compliance',
+    sql: /* sql */ `
+-- e-Invoice (IRN) and e-Way Bill details on a bill
+ALTER TABLE invoices ADD COLUMN irn TEXT;
+ALTER TABLE invoices ADD COLUMN irn_ack_no TEXT;
+ALTER TABLE invoices ADD COLUMN irn_ack_date TEXT;
+ALTER TABLE invoices ADD COLUMN irn_qr TEXT;
+ALTER TABLE invoices ADD COLUMN irn_test INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invoices ADD COLUMN irn_cancelled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invoices ADD COLUMN ewb_no TEXT;
+ALTER TABLE invoices ADD COLUMN ewb_date TEXT;
+ALTER TABLE invoices ADD COLUMN ewb_valid_upto TEXT;
+CREATE INDEX idx_invoices_irn ON invoices(irn);
+ALTER TABLE company ADD COLUMN einvoice_mode TEXT NOT NULL DEFAULT 'off' CHECK (einvoice_mode IN ('off','portal','test'));
+-- GSTR-2B lines imported from the GST portal, for input-credit reconciliation
+CREATE TABLE gstr2b_rows (
+  id INTEGER PRIMARY KEY,
+  period TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  ctin TEXT NOT NULL,
+  supplier TEXT,
+  doc_no TEXT NOT NULL,
+  doc_date TEXT NOT NULL,
+  value INTEGER NOT NULL,
+  taxable INTEGER NOT NULL,
+  igst INTEGER NOT NULL,
+  cgst INTEGER NOT NULL,
+  sgst INTEGER NOT NULL,
+  cess INTEGER NOT NULL,
+  itc_available INTEGER NOT NULL DEFAULT 1,
+  imported_at TEXT NOT NULL
+);
+CREATE INDEX idx_gstr2b_period ON gstr2b_rows(period);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

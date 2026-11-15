@@ -12,6 +12,7 @@ import { fmtDate, fmtQty, inr } from '../../lib/format';
 import { useCan } from '../../lib/perm';
 import { billMessage, whatsappLink } from '../../lib/share';
 import { useAction, useApi } from '../../lib/useApi';
+import { EinvoicePanel } from './EinvoicePanel';
 
 export function InvoiceView() {
   const { id } = useParams();
@@ -80,6 +81,7 @@ export function InvoiceView() {
           </div>
         </div>
         <div className="space-y-4">
+          <EinvoicePanel inv={v} company={company} />
           <div className="card space-y-2 p-4 text-sm">
             <Row k="Taxable" v={inr(v.taxable)} />
             {v.igst ? <Row k="IGST" v={inr(v.igst)} /> : (<><Row k="CGST" v={inr(v.cgst)} /><Row k="SGST" v={inr(v.sgst)} /></>)}

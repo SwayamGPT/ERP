@@ -19,7 +19,7 @@ const EDITABLE: Array<keyof Company> = [
   'invoice_prefix', 'next_invoice_no', 'return_prefix', 'purchase_prefix', 'weight_barcode_mode', 'print_format',
   'print_footer', 'round_off', 'allow_negative_stock', 'print_template', 'print_tax_detail', 'print_show_hsn',
   'print_show_savings', 'print_show_qr', 'print_show_bank', 'print_show_signature', 'print_terms', 'billing_staff_mode',
-  'loyalty_enabled', 'loyalty_points_per_100', 'loyalty_point_value', 'reminder_after_days', 'reminder_every_days', 'expense_approval_limit', 'petty_cash_float',
+  'loyalty_enabled', 'loyalty_points_per_100', 'loyalty_point_value', 'reminder_after_days', 'reminder_every_days', 'expense_approval_limit', 'petty_cash_float', 'einvoice_mode',
 ];
 
 const TEMPLATES: Company['print_template'][] = ['receipt', 'receipt-large', 'a4-classic', 'a4-modern', 'a5-simple'];

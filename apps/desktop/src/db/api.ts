@@ -16,6 +16,7 @@ import * as stock from './repos/stock';
 import * as banking from './repos/banking';
 import * as pricing from './repos/pricing';
 import * as attachments from './repos/attachments';
+import * as gst from './repos/gst';
 import type { DraftInvoice } from './types';
 import { searchHsn } from '@hisaab/core';
 
@@ -76,6 +77,15 @@ export const api = {
   'attachments.add': (ctx: Ctx, a: Parameters<typeof attachments.addAttachment>[1]) => attachments.addAttachment(ctx, a),
   'attachments.list': (ctx: Ctx, a: Parameters<typeof attachments.listAttachments>[1]) => attachments.listAttachments(ctx, a),
   'attachments.delete': (ctx: Ctx, a: { id: number }) => attachments.deleteAttachment(ctx, a.id),
+  // e-invoice, e-way bill, GSTR-2B
+  'einvoice.json': (ctx: Ctx, a: { id: number }) => gst.einvoiceJson(ctx, a.id),
+  'einvoice.bulk': (ctx: Ctx, a: { period: string }) => gst.einvoiceBulk(ctx, a.period),
+  'einvoice.apply': (ctx: Ctx, a: Parameters<typeof gst.applyIrns>[1]) => gst.applyIrns(ctx, a),
+  'einvoice.test': (ctx: Ctx, a: { id: number }) => gst.generateTestIrn(ctx, a.id),
+  'einvoice.cancel': (ctx: Ctx, a: { id: number; reason: string }) => gst.cancelIrn(ctx, a),
+  'ewaybill.set': (ctx: Ctx, a: Parameters<typeof gst.setEwayBill>[1]) => gst.setEwayBill(ctx, a),
+  'gstr2b.import': (ctx: Ctx, a: { json: unknown }) => gst.importGstr2b(ctx, a),
+  'gstr2b.recon': (ctx: Ctx, a: { period: string }) => gst.gstr2bRecon(ctx, a.period),
   // sale orders (salesman on the phone → counter)
   'orders.create': (ctx: Ctx, a: orders.OrderInput) => orders.createOrder(ctx, a),
   'orders.list': (ctx: Ctx, a: Parameters<typeof orders.listOrders>[1]) => orders.listOrders(ctx, a),

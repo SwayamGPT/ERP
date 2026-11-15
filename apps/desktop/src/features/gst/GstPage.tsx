@@ -5,6 +5,7 @@ import { Badge, Button, Card, Loading, PageHeader, Select, Stat, Tabs, toast } f
 import { downloadJson } from '../../lib/download';
 import { inr, prevMonth, thisMonth } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
+import { EinvoiceTab, Gstr2bTab } from './Compliance';
 
 const R = (n: number) => new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
@@ -15,7 +16,7 @@ export function GstPage() {
     return m;
   });
   const [period, setPeriod] = useState(prevMonth());
-  const [tab, setTab] = useState<'gstr1' | 'gstr3b' | 'hsn'>('gstr1');
+  const [tab, setTab] = useState<'gstr1' | 'gstr3b' | 'hsn' | 'einvoice' | 'gstr2b'>('gstr1');
   const q = useApi('gst.summary', { period });
   const company = useApi('app.status').data?.company;
   const g = q.data;
@@ -69,7 +70,7 @@ export function GstPage() {
           </div>
           <p className="flex items-center gap-1.5 text-xs text-muted"><Info className="h-3.5 w-3.5" /> Net payable is before cross-utilisation rules (IGST credit first). Confirm on the portal or with your CA before paying.</p>
 
-          <Tabs value={tab} onChange={setTab} tabs={[{ value: 'gstr1', label: 'GSTR-1 preview' }, { value: 'gstr3b', label: 'GSTR-3B preview' }, { value: 'hsn', label: 'HSN summary' }]} />
+          <Tabs value={tab} onChange={setTab} tabs={[{ value: 'gstr1', label: 'GSTR-1 preview' }, { value: 'gstr3b', label: 'GSTR-3B preview' }, { value: 'hsn', label: 'HSN summary' }, { value: 'gstr2b', label: 'GSTR-2B match' }, { value: 'einvoice', label: 'e-Invoice' }]} />
 
           {tab === 'gstr1' && g1 && (
             <div className="grid gap-4 lg:grid-cols-2">
@@ -106,6 +107,8 @@ export function GstPage() {
               </Section>
             </div>
           )}
+          {tab === 'einvoice' && <EinvoiceTab period={period} />}
+          {tab === 'gstr2b' && <Gstr2bTab period={period} />}
           {tab === 'hsn' && g1?.hsn && (
             <Card padded={false} title="12 · HSN-wise summary (B2B & B2C)">
               <Mini head={['Table', 'HSN', 'Description', 'UQC', 'Qty', 'Rate', 'Taxable', 'IGST', 'CGST', 'SGST']} rows={[
