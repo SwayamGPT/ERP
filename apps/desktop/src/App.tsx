@@ -4,6 +4,8 @@ import { MobileApp } from './features/mobile/MobileApp';
 import { useIsPhone } from './lib/useIsPhone';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
+import { ScreenBoundary } from './components/ErrorBoundary';
+import { RequirePerm } from './components/RouteGuard';
 import { ChangePinScreen, LockScreen } from './components/LockScreen';
 import { PrintHost } from './components/print/PrintInvoice';
 import { Loading, Toaster } from './components/ui';
@@ -82,33 +84,35 @@ function Boot() {
   return (
     <HashRouter>
       <AppShell company={status.data.company}>
+        <ScreenBoundary>
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/pos" element={<PosPage />} />
-          <Route path="/sales" element={<InvoiceList kind="sales_all" />} />
-          <Route path="/sales/:id" element={<InvoiceView />} />
-          <Route path="/purchases" element={<InvoiceList kind="purchases_all" />} />
-          <Route path="/purchases/new" element={<PurchaseEntry />} />
-          <Route path="/purchases/orders" element={<PurchaseOrdersPage />} />
-          <Route path="/purchases/:id" element={<InvoiceView />} />
-          <Route path="/items" element={<ItemsPage />} />
-          <Route path="/items/labels" element={<LabelsPage />} />
-          <Route path="/items/godowns" element={<GodownsPage />} />
-          <Route path="/items/stock" element={<StockReportPage />} />
-          <Route path="/import" element={<ImportPage />} />
-          <Route path="/welcome" element={<WelcomePage />} />
-          <Route path="/parties" element={<PartiesPage />} />
-          <Route path="/parties/:id" element={<PartyDetail />} />
-          <Route path="/money" element={<MoneyPage />} />
-          <Route path="/expenses" element={<ExpensesPage />} />
-          <Route path="/staff" element={<StaffPage />} />
-          <Route path="/activity" element={<ActivityPage />} />
+          <Route path="/pos" element={<RequirePerm perm="sale.create"><PosPage /></RequirePerm>} />
+          <Route path="/sales" element={<RequirePerm perm="sale.view"><InvoiceList kind="sales_all" /></RequirePerm>} />
+          <Route path="/sales/:id" element={<RequirePerm perm="sale.view"><InvoiceView /></RequirePerm>} />
+          <Route path="/purchases" element={<RequirePerm perm="purchase.view"><InvoiceList kind="purchases_all" /></RequirePerm>} />
+          <Route path="/purchases/new" element={<RequirePerm perm="purchase.create"><PurchaseEntry /></RequirePerm>} />
+          <Route path="/purchases/orders" element={<RequirePerm perm="purchase.view"><PurchaseOrdersPage /></RequirePerm>} />
+          <Route path="/purchases/:id" element={<RequirePerm perm="purchase.view"><InvoiceView /></RequirePerm>} />
+          <Route path="/items" element={<RequirePerm perm="item.view"><ItemsPage /></RequirePerm>} />
+          <Route path="/items/labels" element={<RequirePerm perm="item.edit"><LabelsPage /></RequirePerm>} />
+          <Route path="/items/godowns" element={<RequirePerm perm="item.view"><GodownsPage /></RequirePerm>} />
+          <Route path="/items/stock" element={<RequirePerm perm="item.view"><StockReportPage /></RequirePerm>} />
+          <Route path="/import" element={<RequirePerm perm="settings.edit"><ImportPage /></RequirePerm>} />
+          <Route path="/welcome" element={<RequirePerm perm="settings.edit"><WelcomePage /></RequirePerm>} />
+          <Route path="/parties" element={<RequirePerm perm="party.view"><PartiesPage /></RequirePerm>} />
+          <Route path="/parties/:id" element={<RequirePerm perm="party.view"><PartyDetail /></RequirePerm>} />
+          <Route path="/money" element={<RequirePerm perm="payment.in"><MoneyPage /></RequirePerm>} />
+          <Route path="/expenses" element={<RequirePerm perm="expense.view"><ExpensesPage /></RequirePerm>} />
+          <Route path="/staff" element={<RequirePerm perm="payroll.manage"><StaffPage /></RequirePerm>} />
+          <Route path="/activity" element={<RequirePerm perm="users.manage"><ActivityPage /></RequirePerm>} />
           <Route path="/me" element={<MyPayPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/gst" element={<GstPage />} />
+          <Route path="/reports" element={<RequirePerm perm="report.view"><ReportsPage /></RequirePerm>} />
+          <Route path="/gst" element={<RequirePerm perm="gst.view"><GstPage /></RequirePerm>} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </ScreenBoundary>
       </AppShell>
     </HashRouter>
   );

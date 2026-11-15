@@ -249,7 +249,7 @@ export function Stat({ label, value, sub, icon, tone = 'neutral', onClick }: { l
 
 export function Tabs<T extends string>({ value, onChange, tabs }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: ReactNode; count?: number }> }) {
   return (
-    <div className="flex gap-1 overflow-x-auto border-b border-border">
+    <div className="flex gap-1 overflow-x-auto border-b border-border" data-testid="tabs">
       {tabs.map((t) => (
         <button
           key={t.value}

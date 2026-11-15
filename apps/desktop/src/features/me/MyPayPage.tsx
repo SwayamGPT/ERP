@@ -19,6 +19,18 @@ export function MyPayPage() {
   const [reason, setReason] = useState('');
   const ask = useAction('staff.request', { success: 'Request sent to the owner', onSuccess: () => (setAmount(0), setReason('')) });
   const withdraw = useAction('staff.withdrawRequest', { success: 'Request withdrawn' });
+  if (q.error) {
+    // Not every login is a staff member (e.g. the owner, or a login not linked to an employee yet).
+    return (
+      <div className="animate-slide-up">
+        <PageHeader icon={<Wallet className="h-5 w-5" />} title="My pay" />
+        <Card>
+          <p className="text-sm" data-testid="mypay-none">This page shows a staff member's own salary, advances and money requests.</p>
+          <p className="mt-1 text-sm text-muted">Your login isn't linked to a staff record. The owner can link it from <b>Staff & salary</b> → the staff member → login. Salaries for everyone are under Staff & salary.</p>
+        </Card>
+      </div>
+    );
+  }
   if (!q.data) return <Loading />;
   const d = q.data;
   const pending = d.requests.find((r) => r.status === 'pending');
