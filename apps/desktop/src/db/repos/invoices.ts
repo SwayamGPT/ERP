@@ -238,6 +238,7 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
     const total = b.totals.payable;
     if (paid > total) throw new AppError('Payment is more than the bill amount. Enter the amount to keep, not the cash tendered.');
     if (draft.kind === 'sale' && b.party.is_walkin && paid < total) throw new AppError('Cash bills (no customer) must be paid in full. Pick a customer to give credit (udhaar).', 'WALKIN_CREDIT');
+    if (draft.kind === 'sale' && paid < total && !allowed(ctx, 'credit.give')) throw new AppError("You're not allowed to give credit (udhaar). Take the full payment, or ask the owner.", 'CREDIT_NOT_ALLOWED');
     if (draft.kind === 'purchase' && b.party.is_walkin && paid < total) throw new AppError('A purchase from no particular supplier must be paid now. Pick the supplier to buy on credit.', 'WALKIN_CREDIT');
     if (draft.kind === 'purchase' && b.party.is_walkin && !draft.noBill) throw new AppError('Pick the supplier.');
     // Only a bill that adds to their dues can push a customer over the limit; paying in full is always fine.

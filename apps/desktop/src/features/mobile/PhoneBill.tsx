@@ -9,6 +9,7 @@ import { fmtDate, fmtQty, inr } from '../../lib/format';
 import { useDevice } from '../../lib/devicePrefs';
 import { billMessage, whatsappLink } from '../../lib/share';
 import { useApi } from '../../lib/useApi';
+import { useCan } from '../../lib/perm';
 import { autoPrinted, lanPrint } from '../../lan/client';
 import { isNative, native } from '../../native';
 import { receiptBytes } from '../../native/print';
@@ -18,6 +19,7 @@ type Mode = 'cash' | 'upi' | 'card' | 'credit';
 
 /** A quick bill on the phone. Saved straight onto the shop computer (or this device's own data). */
 export function PhoneBill({ company }: { company: Company }) {
+  const canCredit = useCan()('credit.give');
   const [party, setParty] = useState<Party | null>(null);
   const [picking, setPicking] = useState(false);
   const [lines, setLines] = useState<Line[]>([]);
@@ -75,7 +77,7 @@ export function PhoneBill({ company }: { company: Company }) {
       {lines.length > 0 && preview.data?.belowCost && (
         <p className="rounded-lg bg-bad/10 p-2 text-sm font-medium text-bad" data-testid="m-bill-loss">Selling below purchase cost{preview.data.loss != null ? ` · loss ${inr(preview.data.loss)}` : ''}</p>
       )}
-      <Segmented full value={mode} onChange={setMode} options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'card', label: 'Card' }, { value: 'credit', label: 'Udhaar' }]} />
+      <Segmented full value={mode} onChange={setMode} options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'card', label: 'Card' }, ...(canCredit ? [{ value: 'credit' as const, label: 'Udhaar' }] : [])]} />
       <div className="sticky bottom-0 -mx-4 border-t border-border bg-surface px-4 py-3">
         <Button variant="primary" size="lg" className="w-full" icon={<Check className="h-4 w-4" />} disabled={!lines.length || !total} loading={busy} onClick={save} data-testid="m-bill-save">
           Save bill · {inr(total)}

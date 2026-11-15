@@ -481,3 +481,45 @@ describe('buying without a GST bill', () => {
     expect(api['reports.health'](ctx).balanced).toBe(true);
   });
 });
+
+describe('people: delete, and what the owner allows each person', () => {
+  it('owner takes credit away from a salesman and a cashier; removed users cannot sign in', () => {
+    const ctx = setup('kirana', false);
+    const owner = ctx.session!;
+    const itemId = api['items.save'](ctx, { name: 'Tea 250g', gst_rate: 0, base_unit: 'Pcs', mrp: 15000, retail_price: 15000, purchase_price: 12000 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 20, rate: 12000 }] });
+    const cust = api['parties.save'](ctx, { kind: 'customer', name: 'Ramesh', phone: '9822000009' });
+    const sales = api['users.save'](ctx, { name: 'Putul', role: 'salesman', pin: '2468', revoke: ['credit.give'] }) as number;
+    const cashier = api['users.save'](ctx, { name: 'Ravi', role: 'cashier', pin: '1357', revoke: ['credit.give'], grant: ['report.view', 'users.manage'] }) as number;
+    const users = api['users.list'](ctx);
+    expect(users.find((u) => u.id === cashier)).toMatchObject({ revoke: ['credit.give'], grant: ['report.view'] }); // users.manage can't be handed out
+
+    // salesman: order is marked cash only, and the counter can't bill it on credit
+    api['auth.login'](ctx, { userId: sales, pin: '2468' });
+    expect(ctx.session).toMatchObject({ revoke: ['credit.give'] });
+    const o = api['orders.create'](ctx, { partyId: cust, lines: [{ itemId, qty: 2 }] });
+    ctx.session = owner;
+    expect(api['orders.get'](ctx, { id: o.id }).cash_only).toBe(1);
+    const line = { itemId, unit: 'Pcs', factor: 1, qty: 2, rate: 15000 };
+    expect(() => api['invoices.create'](ctx, { kind: 'sale', partyId: cust, orderId: o.id, lines: [line] })).toThrow(/cash only/);
+    api['invoices.create'](ctx, { kind: 'sale', partyId: cust, orderId: o.id, lines: [line], payments: [{ mode: 'cash', amount: 30000 }] });
+
+    // cashier: no udhaar, but can sell for cash, and now sees reports
+    api['auth.login'](ctx, { userId: cashier, pin: '1357' });
+    expect(() => api['invoices.create'](ctx, { kind: 'sale', partyId: cust, lines: [line] })).toThrow(/not allowed to give credit/);
+    expect(api['invoices.create'](ctx, { kind: 'sale', partyId: cust, lines: [line], payments: [{ mode: 'cash', amount: 30000 }] }).total).toBe(30000);
+    expect(() => api['reports.daybook'](ctx, { date: TODAY } as never)).not.toThrow();
+    ctx.session = owner;
+
+    // delete: gone from the list and from sign-in; the owner can't delete themselves
+    api['users.delete'](ctx, { id: cashier });
+    expect(api['users.list'](ctx).some((u) => u.id === cashier)).toBe(false);
+    expect(api['app.status'](ctx).users.some((u) => u.id === cashier)).toBe(false);
+    expect(() => api['auth.login'](ctx, { userId: cashier, pin: '1357' })).toThrow(/Wrong PIN/);
+    ctx.session = owner;
+    expect(() => api['users.delete'](ctx, { id: owner.userId })).toThrow(/yourself/);
+    // their bills keep their name
+    expect(ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM invoices WHERE created_by = ?', [cashier])!.n).toBe(1);
+  });
+});

@@ -1,10 +1,11 @@
-import { panFromGstin, ROLE_LABELS, STATES, validateEnterprise, type Role } from '@hisaab/core';
-import { Building2, Database, Download, FileBadge, HeartPulse, Landmark, Plus, Settings, ShieldCheck, Store, Trash2, Upload, Users } from 'lucide-react';
+import { panFromGstin, STATES, validateEnterprise } from '@hisaab/core';
+import { Building2, Database, Download, FileBadge, HeartPulse, Landmark, Settings, ShieldCheck, Store, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Badge, Button, Card, ConfirmDialog, Dialog, Field, Input, Loading, PageHeader, Segmented, Select, Switch, Tabs, toast } from '../../components/ui';
+import { Badge, Button, Card, ConfirmDialog, Field, Input, Loading, PageHeader, Segmented, Select, Switch, Tabs, toast } from '../../components/ui';
 import { db, LAN } from '../../db/client';
 import { LanSettings } from './LanSettings';
+import { UsersTab } from './UsersTab';
 import type { Company } from '../../db/types';
 import { BUSINESS_TYPES } from '../../db/templates';
 import type { BusinessType } from '../../db/repos/company';
@@ -139,49 +140,6 @@ function Billing({ c }: { c: Company }) {
       </Card>
       <div className="flex justify-end"><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(f)} data-testid="billing-save">Save</Button></div>
     </div>
-  );
-}
-
-function UsersTab() {
-  const list = useApi('users.list');
-  const me = useUi((s) => s.session);
-  const [edit, setEdit] = useState<null | { id?: number; name: string; role: Role; pin: string; active: boolean }>(null);
-  const save = useAction('users.save', { success: 'User saved', onSuccess: () => setEdit(null) });
-  return (
-    <Card title={<span className="flex items-center gap-2"><Users className="h-4 w-4" /> Users</span>} action={<Button size="sm" variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setEdit({ name: '', role: 'cashier', pin: '', active: true })}>Add user</Button>} padded={false}>
-      <table className="table-base">
-        <thead><tr><th>Name</th><th>Role</th><th>Can do</th><th /></tr></thead>
-        <tbody>
-          {list.data?.map((u) => (
-            <tr key={u.id}>
-              <td className="font-medium">{u.name} {u.id === me?.userId && <Badge tone="primary">you</Badge>} {!u.active && <Badge>inactive</Badge>}</td>
-              <td className="capitalize">{u.role}</td>
-              <td className="text-xs text-muted">{ROLE_LABELS[u.role].description}</td>
-              <td className="text-right"><Button size="sm" variant="ghost" onClick={() => setEdit({ id: u.id, name: u.name, role: u.role, pin: '', active: !!u.active })}>Edit</Button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {edit && (
-        <Dialog open onOpenChange={(v) => !v && setEdit(null)} title={edit.id ? 'Edit user' : 'Add user'} footer={<><Button variant="ghost" onClick={() => setEdit(null)}>Cancel</Button><Button variant="primary" loading={save.isPending} onClick={() => save.mutate(edit)}>Save</Button></>}>
-          <div className="space-y-3">
-            <Field label="Name"><Input autoFocus value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
-            <Field label="Role">
-              <div className="grid gap-2">
-                {(Object.keys(ROLE_LABELS) as Role[]).map((r) => (
-                  <label key={r} className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${edit.role === r ? 'border-primary bg-primary-soft/50' : 'border-border'}`}>
-                    <input type="radio" checked={edit.role === r} onChange={() => setEdit({ ...edit, role: r })} className="mt-1 accent-[rgb(var(--primary))]" />
-                    <span><span className="block text-sm font-medium">{ROLE_LABELS[r].label}</span><span className="text-xs text-muted">{ROLE_LABELS[r].description}</span></span>
-                  </label>
-                ))}
-              </div>
-            </Field>
-            <Field label={edit.id ? 'New 4-digit PIN (leave empty to keep)' : '4-digit PIN'}><Input type="password" inputMode="numeric" maxLength={4} value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value.replace(/\D/g, '').slice(0, 4) })} /></Field>
-            {edit.id && <Switch checked={edit.active} onChange={(v) => setEdit({ ...edit, active: v })} label="Active" />}
-          </div>
-        </Dialog>
-      )}
-    </Card>
   );
 }
 

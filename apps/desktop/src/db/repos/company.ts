@@ -1,4 +1,4 @@
-import { normalizePhone, panFromGstin, validateEnterprise, type Role } from '@hisaab/core';
+import { normalizePhone, NOT_GRANTABLE, panFromGstin, PERMISSION_GROUPS, roleCan, validateEnterprise, type Permission, type Role } from '@hisaab/core';
 import type { Company, Session } from '../types';
 import { hashPin, isHashed, verifyPin } from '../crypto';
 import { AppError, audit, guard, postVoucher, requireSession, type Ctx } from './base';
@@ -137,11 +137,11 @@ export function listUsersForLogin(ctx: Ctx) {
 }
 
 export function login(ctx: Ctx, userId: number, pin: string): Session {
-  const u = ctx.db.get<{ id: number; name: string; role: Role; pin: string }>('SELECT * FROM users WHERE id = ? AND active = 1', [userId]);
+  const u = ctx.db.get<{ id: number; name: string; role: Role; pin: string; perms_grant: string | null; perms_revoke: string | null }>('SELECT * FROM users WHERE id = ? AND active = 1', [userId]);
   if (!u || !verifyPin(pin, u.pin)) throw new AppError('Wrong PIN. Try again.', 'BAD_PIN');
   if (!isHashed(u.pin)) ctx.db.exec('UPDATE users SET pin = ? WHERE id = ?', [hashPin(pin), u.id]);
   // PINs are 4 digits. Someone still on an older, longer PIN gets in once and must pick a new one.
-  ctx.session = { userId: u.id, name: u.name, role: u.role, ...(PIN_RE.test(pin) ? {} : { mustChangePin: true }) };
+  ctx.session = { userId: u.id, name: u.name, role: u.role, ...overrides(u), ...(PIN_RE.test(pin) ? {} : { mustChangePin: true }) };
   audit(ctx, 'login', 'user', u.id);
   return ctx.session;
 }
@@ -152,7 +152,7 @@ export function changeOwnPin(ctx: Ctx, input: { pin: string }) {
   if (!PIN_RE.test(input.pin ?? '')) throw new AppError(PIN_MSG);
   ctx.db.exec('UPDATE users SET pin = ? WHERE id = ?', [hashPin(input.pin), s.userId]);
   audit(ctx, 'pin.change', 'user', s.userId);
-  ctx.session = { userId: s.userId, name: s.name, role: s.role };
+  ctx.session = { userId: s.userId, name: s.name, role: s.role, ...(s.grant ? { grant: s.grant } : {}), ...(s.revoke ? { revoke: s.revoke } : {}) };
   return ctx.session;
 }
 
@@ -160,14 +160,44 @@ export function lock(ctx: Ctx) {
   ctx.session = null;
 }
 
-export function listUsers(ctx: Ctx) {
-  guard(ctx, 'users.manage');
-  return ctx.db.query<{ id: number; name: string; role: Role; active: number; created_at: string }>(
-    'SELECT id, name, role, active, created_at FROM users ORDER BY id',
-  );
+const parsePerms = (v: string | null | undefined): string[] => {
+  try {
+    return v ? (JSON.parse(v) as string[]) : [];
+  } catch {
+    return [];
+  }
+};
+function overrides(u: { perms_grant: string | null; perms_revoke: string | null }) {
+  const grant = parsePerms(u.perms_grant);
+  const revoke = parsePerms(u.perms_revoke);
+  return { ...(grant.length ? { grant } : {}), ...(revoke.length ? { revoke } : {}) };
 }
 
-export function saveUser(ctx: Ctx, u: { id?: number; name: string; role: Role; pin?: string; active?: boolean }) {
+export function listUsers(ctx: Ctx) {
+  guard(ctx, 'users.manage');
+  return ctx.db
+    .query<{ id: number; name: string; role: Role; active: number; created_at: string; perms_grant: string | null; perms_revoke: string | null }>(
+      'SELECT id, name, role, active, created_at, perms_grant, perms_revoke FROM users WHERE active = 1 ORDER BY id',
+    )
+    .map(({ perms_grant, perms_revoke, ...u }) => ({ ...u, grant: parsePerms(perms_grant), revoke: parsePerms(perms_revoke) }));
+}
+
+/**
+ * Remove a person: they can no longer sign in and leave the user list. Their bills, payments and
+ * the activity log keep their name (history is never rewritten).
+ */
+export function deleteUser(ctx: Ctx, id: number) {
+  const s = guard(ctx, 'users.manage');
+  const u = ctx.db.get<{ name: string; role: Role; active: number }>('SELECT name, role, active FROM users WHERE id = ?', [id]);
+  if (!u || !u.active) throw new AppError('User not found.');
+  if (id === s.userId) throw new AppError("You can't delete yourself.");
+  if (u.role === 'owner' && ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM users WHERE role = 'owner' AND active = 1")!.n <= 1) throw new AppError('Keep at least one owner.');
+  ctx.db.exec('UPDATE users SET active = 0 WHERE id = ?', [id]);
+  audit(ctx, 'user.delete', 'user', id, { name: u.name, role: u.role });
+  return true;
+}
+
+export function saveUser(ctx: Ctx, u: { id?: number; name: string; role: Role; pin?: string; active?: boolean; grant?: string[]; revoke?: string[] }) {
   const s = guard(ctx, 'users.manage');
   if (!u.name.trim()) throw new AppError('Name is required.');
   if (u.pin !== undefined && u.pin !== '' && !PIN_RE.test(u.pin)) throw new AppError(PIN_MSG);
@@ -176,11 +206,13 @@ export function saveUser(ctx: Ctx, u: { id?: number; name: string; role: Role; p
       if (u.id === s.userId && (u.role !== 'owner' || u.active === false)) throw new AppError("You can't remove your own owner access.");
       ctx.db.exec('UPDATE users SET name = ?, role = ?, active = ? WHERE id = ?', [u.name.trim(), u.role, u.active === false ? 0 : 1, u.id]);
       if (u.pin) ctx.db.exec('UPDATE users SET pin = ? WHERE id = ?', [hashPin(u.pin), u.id]);
+      savePerms(ctx, u.id, u.role, u.grant, u.revoke);
       audit(ctx, 'user.update', 'user', u.id, { role: u.role });
       return u.id;
     }
     if (!u.pin) throw new AppError('Set a PIN for the new user.');
     const { lastId } = ctx.db.exec('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)', [u.name.trim(), u.role, hashPin(u.pin)]);
+    savePerms(ctx, lastId, u.role, u.grant, u.revoke);
     audit(ctx, 'user.create', 'user', lastId, { role: u.role });
     return lastId;
   });
@@ -197,4 +229,14 @@ export function auditLog(ctx: Ctx, limit = 2000) {
     'SELECT a.*, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.id DESC LIMIT ?',
     [limit],
   );
+}
+
+/** Keep only real differences from the role (an allowed thing the role already has is not stored). */
+function savePerms(ctx: Ctx, id: number, role: Role, grant?: string[], revoke?: string[]) {
+  if (grant === undefined && revoke === undefined) return;
+  const known = new Set<string>(PERMISSION_GROUPS.flatMap((g) => g.perms.map((p) => p.perm)));
+  const g = role === 'owner' ? [] : [...new Set(grant ?? [])].filter((p) => known.has(p) && !NOT_GRANTABLE.includes(p as Permission) && !roleCan(role, p as Permission));
+  const r = role === 'owner' ? [] : [...new Set(revoke ?? [])].filter((p) => known.has(p) && roleCan(role, p as Permission));
+  ctx.db.exec('UPDATE users SET perms_grant = ?, perms_revoke = ? WHERE id = ?', [g.length ? JSON.stringify(g) : null, r.length ? JSON.stringify(r) : null, id]);
+  if (g.length || r.length) audit(ctx, 'user.permissions', 'user', id, { allowed: g, removed: r });
 }

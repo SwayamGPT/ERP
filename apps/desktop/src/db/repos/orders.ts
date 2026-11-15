@@ -17,6 +17,8 @@ export interface OrderInput {
 
 export interface SaleOrder {
   id: number;
+  /** Taken by someone who may not give credit: bill it paid in full. */
+  cash_only?: number;
   number: string;
   date: string;
   party_id: number;
@@ -83,8 +85,9 @@ export function createOrder(ctx: Ctx, input: OrderInput) {
     });
     const total = priced.reduce((a, l) => a + l.total, 0);
     const id = ctx.db.exec(
-      'INSERT INTO sale_orders (number, date, party_id, party_name, status, total, notes, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [number, date, party.id, party.name, 'open', total, input.notes?.trim() || null, s.userId, localNow()],
+      'INSERT INTO sale_orders (number, date, party_id, party_name, status, total, notes, created_by, created_at, cash_only) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      // Someone the owner hasn't allowed to give credit takes cash-only orders: the counter can't bill them on udhaar.
+      [number, date, party.id, party.name, 'open', total, input.notes?.trim() || null, s.userId, localNow(), allowed(ctx, 'credit.give') ? 0 : 1],
     ).lastId;
     for (const l of priced) {
       ctx.db.exec('INSERT INTO sale_order_lines (order_id, item_id, name, unit, factor, qty, rate, total) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
@@ -134,7 +137,11 @@ export function cancelOrder(ctx: Ctx, id: number) {
 
 /** Called inside createInvoice's transaction when a bill is made from an order. */
 export function markBilled(ctx: Ctx, orderId: number, invoiceId: number) {
-  const o = ctx.db.get<{ status: string }>('SELECT status FROM sale_orders WHERE id = ?', [orderId]);
+  const o = ctx.db.get<{ status: string; cash_only: number }>('SELECT status, cash_only FROM sale_orders WHERE id = ?', [orderId]);
+  if (o?.cash_only) {
+    const inv = ctx.db.get<{ total: number; paid: number }>('SELECT total, paid FROM invoices WHERE id = ?', [invoiceId])!;
+    if (inv.paid < inv.total) throw new AppError('This order was taken as cash only (the salesman may not give credit). Take the full payment.', 'CREDIT_NOT_ALLOWED');
+  }
   if (!o) throw new AppError('That order no longer exists.');
   if (o.status !== 'open') throw new AppError(o.status === 'billed' ? 'This order was already billed (maybe on another counter).' : 'This order was cancelled.');
   ctx.db.exec("UPDATE sale_orders SET status = 'billed', invoice_id = ?, billed_at = ? WHERE id = ?", [invoiceId, localNow(), orderId]);

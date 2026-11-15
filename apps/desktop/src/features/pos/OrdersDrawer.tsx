@@ -56,7 +56,7 @@ function OrdersList({ onLoaded }: { onLoaded: () => void }) {
       {q.data.map((o) => (
         <li key={o.id} className="flex items-center gap-3 py-3">
           <div className="min-w-0 flex-1">
-            <p className="font-medium">{o.party_name} <span className="text-xs text-muted">· {o.number}</span></p>
+            <p className="font-medium">{o.party_name} <span className="text-xs text-muted">· {o.number}</span>{!!o.cash_only && <span className="ml-1 rounded bg-warn/15 px-1.5 text-[11px] text-warn">cash only</span>}</p>
             <p className="text-xs text-muted">{o.created_by_name ?? 'Salesman'} · {o.created_at.slice(0, 16)}{o.notes ? ` · ${o.notes}` : ''}</p>
           </div>
           <span className="font-semibold tnum">{inr(o.total)}</span>
@@ -82,5 +82,5 @@ export async function loadOrderIntoBill(orderId: number) {
     const ol = o.lines!.find((x) => x.item_id === ln.itemId && x.unit === ln.unit);
     if (ol && ol.rate !== ln.rate) s.update(i, { rate: ol.rate, manualRate: true });
   });
-  s.set({ orderId: o.id, orderNumber: o.number, notes: o.notes ?? '' });
+  s.set({ orderId: o.id, orderNumber: o.number, orderCashOnly: !!o.cash_only, notes: o.notes ?? '' });
 }

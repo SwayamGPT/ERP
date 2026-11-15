@@ -42,10 +42,13 @@ import { OrdersButton } from './OrdersDrawer';
 import { CounterTools, displayThanks, useCustomerDisplay } from './CounterTools';
 
 export function PosPage() {
+  const canCreditUser = useCan()('credit.give');
   const t = useT();
   const canDo = useCan();
   const pos = usePos();
   const bill = pos.bills[pos.active];
+  // Udhaar needs the owner's permission, and an order taken as cash only must be paid in full.
+  const canCredit = canCreditUser && !bill.orderCashOnly;
   const { lines, party, mode, selected } = bill;
   const company = useApi('app.status').data?.company;
   const searchRef = useRef<HTMLInputElement>(null);
@@ -227,7 +230,7 @@ export function PosPage() {
       ...Object.fromEntries(Array.from({ length: MAX_BILLS }, (_, i) => [`alt+${i + 1}`, () => switchBill(i)])),
       F4: () => setPay('cash'),
       F5: () => setPay('upi'),
-      F6: () => setPay('credit'),
+      F6: () => canCredit && setPay('credit'),
       F7: () => setPickCustomer(true),
       F8: () => setDiscOpen(true),
       F9: () => void save(true),
@@ -265,7 +268,7 @@ export function PosPage() {
         )}
         {bill.orderNumber && (
           <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-5 py-1.5 text-xs text-primary" data-testid="bill-from-order">
-            <ClipboardList className="h-3.5 w-3.5" /> Billing order {bill.orderNumber}. Saving marks it billed.
+            <ClipboardList className="h-3.5 w-3.5" /> Billing order {bill.orderNumber}. Saving marks it billed.{bill.orderCashOnly && ' Cash only: no udhaar.'}
           </div>
         )}
         <div className="relative border-b border-border bg-surface px-5 py-3">
@@ -520,7 +523,7 @@ export function PosPage() {
           <div className="mt-5 grid grid-cols-3 gap-2">
             <PayBtn active={mode === 'cash'} onClick={() => setPay('cash')} icon={<Banknote />} label={t('pos.cash')} k="F4" testid="pay-cash" />
             <PayBtn active={mode === 'upi'} onClick={() => setPay('upi')} icon={<Smartphone />} label={t('pos.upi')} k="F5" testid="pay-upi" />
-            <PayBtn active={mode === 'credit'} onClick={() => setPay('credit')} icon={<NotebookPen />} label={t('pos.credit')} k="F6" testid="pay-credit" />
+            {canCredit && <PayBtn active={mode === 'credit'} onClick={() => setPay('credit')} icon={<NotebookPen />} label={t('pos.credit')} k="F6" testid="pay-credit" />}
           </div>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <button onClick={() => setPay('split')} className={cn('flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs', mode === 'split' ? 'bg-primary-soft text-primary' : 'text-muted hover:bg-surface-2')} data-testid="pay-split">

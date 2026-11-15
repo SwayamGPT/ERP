@@ -117,6 +117,7 @@ export const api = {
   'auth.lock': (ctx: Ctx) => (company.lock(ctx), true),
   'auth.changePin': (ctx: Ctx, a: { pin: string }) => company.changeOwnPin(ctx, a),
   'users.list': (ctx: Ctx) => company.listUsers(ctx),
+  'users.delete': (ctx: Ctx, a: { id: number }) => company.deleteUser(ctx, a.id),
   'users.save': (ctx: Ctx, a: Parameters<typeof company.saveUser>[1]) => company.saveUser(ctx, a),
   'audit.list': (ctx: Ctx) => company.auditLog(ctx),
 

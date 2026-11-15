@@ -19,7 +19,7 @@ import { useApi } from '../../lib/useApi';
 type Tab = 'bill' | 'home' | 'dues' | 'stock' | 'count' | 'requests' | 'orders' | 'new';
 
 export function MobileApp({ company, session, onDesktop }: { company: Company; session: Session; onDesktop?: () => void }) {
-  const canDo = (p: Permission) => can(session.role, p);
+  const canDo = (p: Permission) => can(session.role, p, session);
   const salesman = session.role === 'salesman';
   const pending = useApi('app.status').data?.pendingRequests ?? 0;
   const tabs: Array<{ value: Tab; label: string; icon: ReactNode; badge?: number; show: boolean }> = [
@@ -293,6 +293,7 @@ interface OrderLine {
 }
 
 function NewOrder({ onDone }: { onDone: () => void }) {
+  const canCredit = useCan()('credit.give');
   const [party, setParty] = useState<Party | null>(null);
   const [lines, setLines] = useState<OrderLine[]>([]);
   const [notes, setNotes] = useState('');
@@ -345,6 +346,7 @@ function NewOrder({ onDone }: { onDone: () => void }) {
         </div>
       )}
       <Input placeholder="Note for the counter (delivery, scheme…)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      {!canCredit && <p className="rounded-lg bg-warn/10 p-2 text-xs text-warn" data-testid="m-order-cash-only">Cash-only order: you can't give credit, so the customer pays in full when it's billed.</p>}
       <div className="sticky bottom-0 -mx-4 border-t border-border bg-surface px-4 py-3">
         <Button variant="primary" size="lg" className="w-full" icon={<ShoppingBag className="h-4 w-4" />} disabled={!lines.length} loading={busy} onClick={submit} data-testid="m-order-save">
           Save order · {inr(total)}

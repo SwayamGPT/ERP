@@ -26,11 +26,11 @@ export function requireSession(ctx: Ctx) {
 export function guard(ctx: Ctx, perm: Permission) {
   const s = requireSession(ctx);
   if (s.mustChangePin) throw new AppError('Choose your new 4-digit PIN first.', 'CHANGE_PIN');
-  if (!can(s.role, perm)) throw new ForbiddenError(perm);
+  if (!can(s.role, perm, s)) throw new ForbiddenError(perm);
   return s;
 }
 
-export const allowed = (ctx: Ctx, perm: Permission) => !!ctx.session && can(ctx.session.role, perm);
+export const allowed = (ctx: Ctx, perm: Permission) => !!ctx.session && can(ctx.session.role, perm, ctx.session);
 
 /** Remove cost/margin fields for users without cost.view. Mutates and returns. */
 export function stripCost<T extends object>(ctx: Ctx, obj: T, fields: string[] = ['purchase_price', 'cost', 'cost_total', 'profit', 'margin']): T {

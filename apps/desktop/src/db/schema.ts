@@ -906,6 +906,15 @@ CREATE TABLE deposits (
 CREATE INDEX idx_deposits_date ON deposits(date);
 `,
   },
+  {
+    version: 17,
+    name: 'per-person permissions; cash-only orders',
+    sql: /* sql */ `
+ALTER TABLE users ADD COLUMN perms_grant TEXT;
+ALTER TABLE users ADD COLUMN perms_revoke TEXT;
+ALTER TABLE sale_orders ADD COLUMN cash_only INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

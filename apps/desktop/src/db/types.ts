@@ -6,6 +6,9 @@ export interface Session {
   role: Role;
   /** Signed in with an old longer PIN: must choose a 4-digit one before continuing. */
   mustChangePin?: boolean;
+  /** What the owner allowed or took away for this person, on top of their role. */
+  grant?: string[];
+  revoke?: string[];
 }
 
 export type InvoiceKind = 'sale' | 'purchase' | 'sale_return' | 'purchase_return';

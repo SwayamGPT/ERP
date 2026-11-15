@@ -115,6 +115,15 @@ export async function handleLan(ctx: Ctx, st: LanState, req: LanRequest): Promis
   for (const [k, v] of st.sessions) if (now - v.seen > SESSION_IDLE) st.sessions.delete(k);
   const held = req.session ? st.sessions.get(req.session) : undefined;
   if (held && held.deviceId !== dev.id) throw new AppError('Sign in again on this phone.', 'NO_SESSION');
+  // Someone the owner removed (or whose permissions changed) signs in again.
+  if (held) {
+    const u = ctx.db.get<{ active: number; role: string; perms_grant: string | null; perms_revoke: string | null }>('SELECT active, role, perms_grant, perms_revoke FROM users WHERE id = ?', [held.session.userId]);
+    if (!u?.active || u.role !== held.session.role) {
+      st.sessions.delete(req.session!);
+      throw new AppError('Sign in again on this phone.', 'NO_SESSION');
+    }
+    held.session = { ...held.session, grant: u.perms_grant ? JSON.parse(u.perms_grant) : undefined, revoke: u.perms_revoke ? JSON.parse(u.perms_revoke) : undefined };
+  }
   if (method === 'auth.login' && (st.pinFails.get(dev.id) ?? 0) >= MAX_PIN_TRIES) {
     throw new AppError('Too many wrong PINs from this phone. Ask the owner to make a new pairing code on the computer, then try again.', 'LOCKED_OUT');
   }
