@@ -34,11 +34,24 @@ pub fn parse_line(line: &str) -> Option<Reading> {
 }
 
 /// Serial ports present on this computer.
+#[cfg(not(target_os = "android"))]
 pub fn list_ports() -> Vec<String> {
     serialport::available_ports().map(|v| v.into_iter().map(|p| p.port_name).collect()).unwrap_or_default()
 }
 
+/// Phones have no serial ports.
+#[cfg(target_os = "android")]
+pub fn list_ports() -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(target_os = "android")]
+pub fn read(_port: &str, _baud: u32, _wait: Duration, _request: Option<&[u8]>) -> Result<Reading, String> {
+    Err("Weighing scales connect to the shop computer, not the phone.".into())
+}
+
 /// Read the scale for up to `wait`: returns the first stable reading seen twice in a row, else the last one.
+#[cfg(not(target_os = "android"))]
 pub fn read(port: &str, baud: u32, wait: Duration, request: Option<&[u8]>) -> Result<Reading, String> {
     let mut p = serialport::new(port, baud).timeout(Duration::from_millis(200)).open().map_err(|e| format!("Cannot open the scale on {port}: {e}"))?;
     if let Some(req) = request {

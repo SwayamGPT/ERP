@@ -174,6 +174,7 @@ fn lan_reply(rid: u64, body: String, lan: State<'_, Lan>) {
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {

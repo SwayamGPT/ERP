@@ -1,0 +1,108 @@
+name: Android build
+
+# Builds the Hisaab Android app (.apk): the phone client that bills and prints using the shop
+# computer's data over the shop Wi-Fi (Settings → Phones on Wi-Fi on the computer).
+#
+# Every run uploads the APK as a workflow artifact.
+# - With repository secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD
+#   it builds a signed release APK (the same key must sign every update).
+# - Without them it builds a debug-signed APK that installs directly (allow "unknown sources").
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    tags: ['v*']
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/core/**'
+      - 'package-lock.json'
+      - '.github/workflows/android-build.yml'
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 27.0.12077973
+      SIGNED: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Android SDK platform, build tools and NDK
+        run: |
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0" "ndk;${NDK_VERSION}"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Android project
+        working-directory: apps/desktop
+        run: npx tauri android init --ci
+
+      - name: Allow plain HTTP to the shop computer on the local Wi-Fi
+        run: node apps/desktop/src-tauri/android/patch-manifest.mjs
+
+      - name: Build APK (debug-signed)
+        if: env.SIGNED != 'true'
+        working-directory: apps/desktop
+        run: npx tauri android build --apk --debug --target aarch64 --target armv7
+
+      - name: Build APK (release)
+        if: env.SIGNED == 'true'
+        working-directory: apps/desktop
+        run: npx tauri android build --apk --target aarch64 --target armv7
+
+      - name: Sign release APK
+        if: env.SIGNED == 'true'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          BT="$ANDROID_HOME/build-tools/34.0.0"
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/hisaab.jks"
+          IN=$(find apps/desktop/src-tauri/gen/android -name '*-release-unsigned.apk' | head -1)
+          "$BT/zipalign" -f -p 4 "$IN" "$RUNNER_TEMP/aligned.apk"
+          mkdir -p dist-apk
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/hisaab.jks" --ks-key-alias "$KEY_ALIAS" --ks-pass env:KEY_PASSWORD --key-pass env:KEY_PASSWORD \
+            --out dist-apk/hisaab-android.apk "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" verify dist-apk/hisaab-android.apk
+          rm -f "$RUNNER_TEMP/hisaab.jks"
+
+      - name: Collect debug APK
+        if: env.SIGNED != 'true'
+        run: |
+          mkdir -p dist-apk
+          cp "$(find apps/desktop/src-tauri/gen/android -name '*-debug.apk' | head -1)" dist-apk/hisaab-android-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hisaab-android
+          path: dist-apk/*.apk
+          if-no-files-found: error

@@ -5,8 +5,11 @@ edition = "2021"
 description = "Counter hardware for Hisaab: raw printing (ESC/POS, TSPL, ZPL), weighing scales, safe file storage"
 
 [dependencies]
-serialport = { version = "4.7", default-features = false }
 tiny_http = "0.12"
+
+# Serial / USB weighing scales: computers only (the Android app is a phone client).
+[target.'cfg(not(target_os = "android"))'.dependencies]
+serialport = { version = "4.7", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Printing", "Win32_Graphics_Gdi"] }
