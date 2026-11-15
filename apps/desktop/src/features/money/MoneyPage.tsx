@@ -2,7 +2,8 @@ import { toCsv } from '@hisaab/core';
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Ban, Calculator, Download, HandCoins, PiggyBank, Plus, Receipt, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Badge, Button, Card, Dialog, EmptyState, Field, Input, Loading, Money, MoneyInput, PageHeader, Segmented, Stat, Tabs, toast } from '../../components/ui';
+import { Badge, Button, Card, Dialog, EmptyState, Field, Input, Loading, Money, MoneyInput, PageHeader, Segmented, Stat, Tabs, toast, Select } from '../../components/ui';
+import { BankPicker, CashAndBank } from './BankAccounts';
 import { call } from '../../db/client';
 import type { Party, PayMode } from '../../db/types';
 import { cn } from '../../lib/cn';
@@ -14,7 +15,7 @@ import { ExpenseDialog } from '../expenses/ExpenseDialog';
 import { CustomerPicker } from '../pos/CustomerPicker';
 import { BankReconciliation, Cheques } from './Banking';
 
-type Tab = 'log' | 'flow' | 'payments' | 'moves' | 'bank' | 'cheques';
+type Tab = 'log' | 'flow' | 'payments' | 'moves' | 'bank' | 'cheques' | 'cashbank';
 type Action = 'in' | 'out' | 'expense' | 'transfer' | 'owner' | 'income' | 'check';
 
 export function MoneyPage() {
@@ -63,6 +64,7 @@ export function MoneyPage() {
         value={tab}
         onChange={(t) => set({ tab: t })}
         tabs={[
+          ...(canDo('money.move') ? [{ value: 'cashbank' as const, label: 'Cash & bank' }] : []),
           ...(canDo('expense.view') ? [{ value: 'log' as const, label: 'Money log' }, { value: 'flow' as const, label: 'Cash flow' }] : []),
           { value: 'payments' as const, label: 'Customer & supplier payments' },
           ...(canDo('expense.view') ? [{ value: 'moves' as const, label: 'Transfers, owner & cash checks' }] : []),
@@ -70,6 +72,7 @@ export function MoneyPage() {
           ...(canDo('money.move') ? [{ value: 'bank' as const, label: 'Bank reconciliation' }] : []),
         ]}
       />
+      {tab === 'cashbank' && <CashAndBank />}
       {tab === 'log' && <MoneyLog />}
       {tab === 'flow' && <CashFlow />}
       {tab === 'payments' && <PartyPayments />}
@@ -97,13 +100,23 @@ function QuickLink({ children, icon, onClick }: { children: React.ReactNode; ico
 function MoneyLog() {
   const [from, setFrom] = useState(shiftDate(today(), -6));
   const [to, setTo] = useState(today());
-  const [account, setAccount] = useState<'ALL' | 'CASH' | 'BANK'>('ALL');
+  const [account, setAccount] = useState<string>('ALL');
+  const banks = useApi('bank.accounts').data ?? [];
   const q = useApi('money.log', { from, to, account });
   const d = q.data;
   return (
     <Card padded={false}>
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
-        <Segmented size="sm" value={account} onChange={setAccount} options={[{ value: 'ALL', label: 'Cash + Bank' }, { value: 'CASH', label: 'Cash' }, { value: 'BANK', label: 'Bank / UPI' }]} />
+        {banks.length > 1 ? (
+          <Select value={account} onChange={(e) => setAccount(e.target.value)} className="w-52" data-testid="log-account">
+            <option value="ALL">Cash + all banks</option>
+            <option value="CASH">Cash</option>
+            <option value="BANK">All bank accounts</option>
+            {banks.map((b) => <option key={b.id} value={`bank:${b.id}`}>{b.name}</option>)}
+          </Select>
+        ) : (
+          <Segmented size="sm" value={account} onChange={setAccount} options={[{ value: 'ALL', label: 'Cash + Bank' }, { value: 'CASH', label: 'Cash' }, { value: 'BANK', label: 'Bank / UPI' }]} />
+        )}
         <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
         <span className="text-muted">to</span>
         <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-40" />
@@ -300,17 +313,22 @@ function Moves() {
 }
 
 function MoveDialog({ kind, onClose }: { kind: 'transfer' | 'owner' | 'income'; onClose: () => void }) {
-  const [dir, setDir] = useState<'deposit' | 'withdraw' | 'drawing' | 'capital'>(kind === 'transfer' ? 'deposit' : 'drawing');
+  const [dir, setDir] = useState<'deposit' | 'withdraw' | 'between' | 'drawing' | 'capital'>(kind === 'transfer' ? 'deposit' : 'drawing');
+  const manyBanks = (useApi('bank.accounts').data ?? []).length > 1;
   const [amount, setAmount] = useState(0);
   const [acct, setAcct] = useState<PayMode>('cash');
+  const [bankA, setBankA] = useState<number | null>(null);
+  const [bankB, setBankB] = useState<number | null>(null);
   const [category, setCategory] = useState('');
   const [note, setNote] = useState('');
   const [date, setDate] = useState(today());
   const act = useAction('money.move', { success: 'Recorded', onSuccess: onClose });
   const submit = () => {
-    if (kind === 'transfer') act.mutate({ kind: 'transfer', amount, from: dir === 'deposit' ? 'cash' : 'bank', to: dir === 'deposit' ? 'bank' : 'cash', note, date });
-    else if (kind === 'owner') act.mutate(dir === 'drawing' ? { kind: 'drawing', amount, from: acct, note, date } : { kind: 'capital', amount, to: acct, note, date });
-    else act.mutate({ kind: 'income', amount, to: acct, category, note, date });
+    if (kind === 'transfer') {
+      if (dir === 'between') act.mutate({ kind: 'transfer', amount, from: 'bank', fromBank: bankA, to: 'bank', toBank: bankB, note, date });
+      else act.mutate({ kind: 'transfer', amount, from: dir === 'deposit' ? 'cash' : 'bank', to: dir === 'deposit' ? 'bank' : 'cash', fromBank: dir === 'withdraw' ? bankA : null, toBank: dir === 'deposit' ? bankA : null, note, date });
+    } else if (kind === 'owner') act.mutate(dir === 'drawing' ? { kind: 'drawing', amount, from: acct, fromBank: bankA, note, date } : { kind: 'capital', amount, to: acct, toBank: bankA, note, date });
+    else act.mutate({ kind: 'income', amount, to: acct, toBank: bankA, category, note, date });
   };
   const title = kind === 'transfer' ? 'Move money between cash and bank' : kind === 'owner' ? 'Owner money' : 'Other income';
   return (
@@ -318,11 +336,19 @@ function MoveDialog({ kind, onClose }: { kind: 'transfer' | 'owner' | 'income'; 
       description={kind === 'owner' ? 'Money the owner takes home is not an expense — it is recorded separately so profit stays correct.' : kind === 'income' ? 'Money in that is not a sale: scrap or carton sale, commission, rent received, interest.' : undefined}
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={act.isPending} disabled={amount <= 0 || (kind === 'income' && !category.trim())} onClick={submit} data-testid="move-save">Save</Button></>}>
       <div className="space-y-3">
-        {kind === 'transfer' && <Segmented value={dir} onChange={setDir} options={[{ value: 'deposit', label: 'Cash → Bank (deposit)' }, { value: 'withdraw', label: 'Bank → Cash (withdraw)' }]} />}
+        {kind === 'transfer' && <Segmented value={dir} onChange={setDir} options={[{ value: 'deposit', label: 'Cash → Bank (deposit)' }, { value: 'withdraw', label: 'Bank → Cash (withdraw)' }, ...(manyBanks ? [{ value: 'between' as const, label: 'Bank → Bank' }] : [])]} />}
+        {kind === 'transfer' && dir !== 'between' && <BankPicker value={bankA} onChange={setBankA} label={dir === 'deposit' ? 'Into account' : 'From account'} testid="move-bank" />}
+        {kind === 'transfer' && dir === 'between' && (
+          <div className="grid grid-cols-2 gap-3">
+            <BankPicker value={bankA} onChange={setBankA} label="From" testid="move-bank-from" />
+            <BankPicker value={bankB} onChange={setBankB} label="To" testid="move-bank-to" />
+          </div>
+        )}
         {kind === 'owner' && <Segmented value={dir} onChange={setDir} options={[{ value: 'drawing', label: 'Owner took money' }, { value: 'capital', label: 'Owner added money' }]} />}
         {kind === 'income' && <Field label="What is it for"><Input autoFocus list="income-cats" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Scrap / carton sale" data-testid="income-category" /><datalist id="income-cats">{['Scrap / carton sale', 'Commission', 'Rent received', 'Interest received', 'Display / scheme income from company'].map((c) => <option key={c} value={c} />)}</datalist></Field>}
         <Field label="Amount"><MoneyInput autoFocus={kind !== 'income'} value={amount} onChange={setAmount} data-testid="move-amount" /></Field>
         {kind !== 'transfer' && <Segmented size="sm" value={acct} onChange={setAcct} options={[{ value: 'cash', label: 'Cash' }, { value: 'bank', label: 'Bank' }, { value: 'upi', label: 'UPI' }]} />}
+        {kind !== 'transfer' && acct !== 'cash' && <BankPicker value={bankA} onChange={setBankA} />}
         <div className="grid grid-cols-[1fr_150px] gap-3">
           <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={kind === 'transfer' ? 'Deposit slip no.' : 'Optional'} /></Field>
           <Field label="Date"><Input type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} /></Field>
@@ -374,6 +400,7 @@ export function PaymentDialog({ direction, party: initial, bill, onClose }: { di
   const [picking, setPicking] = useState(!initial);
   const [amount, setAmount] = useState(bill?.due ?? 0);
   const [mode, setMode] = useState<PayMode>('cash');
+  const [bankId, setBankId] = useState<number | null>(null);
   const [ref, setRef] = useState('');
   const act = useAction('payments.receive', { success: direction === 'in' ? 'Payment received' : 'Payment recorded', onSuccess: onClose });
   const owes = party ? (direction === 'in' ? party.balance : -party.balance) : 0;
@@ -391,7 +418,7 @@ export function PaymentDialog({ direction, party: initial, bill, onClose }: { di
       return n;
     });
   const save = () =>
-    act.mutate({ direction, partyId: party!.id, amount, mode, reference: ref || undefined, againstBills: Object.entries(chosen).map(([invoiceId, a]) => ({ invoiceId: Number(invoiceId), amount: a })) });
+    act.mutate({ direction, partyId: party!.id, amount, mode, bankAccountId: mode === 'cash' ? null : bankId, reference: ref || undefined, againstBills: Object.entries(chosen).map(([invoiceId, a]) => ({ invoiceId: Number(invoiceId), amount: a })) });
   return (
     <>
       <Dialog
@@ -405,6 +432,7 @@ export function PaymentDialog({ direction, party: initial, bill, onClose }: { di
           <Field label="Amount"><MoneyInput autoFocus value={amount} onChange={setAmount} className="[&_input]:h-11 [&_input]:text-lg" data-testid="pay-amount" /></Field>
           {owes > 0 && <button className="text-xs font-medium text-primary hover:underline" onClick={() => setAmount(owes)}>Full balance {inr(owes)}</button>}
           <Field label="Mode"><Segmented value={mode} onChange={setMode} options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'bank', label: 'Bank' }, { value: 'cheque', label: 'Cheque' }]} /></Field>
+          {mode !== 'cash' && <BankPicker value={bankId} onChange={setBankId} label={direction === 'in' ? 'Into account' : 'From account'} testid="pay-bank" />}
           {mode !== 'cash' && <Field label="Reference (UTR / cheque no.)"><Input value={ref} onChange={(e) => setRef(e.target.value)} /></Field>}
           {bills.length > 0 && (
             <div className="rounded-lg border border-border" data-testid="pay-bills">

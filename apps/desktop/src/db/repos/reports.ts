@@ -1,5 +1,6 @@
 import { buildEwayBill, buildGstr1, buildGstr3b, expiryBucket, netTaxPayable, uqcFor, type GstDoc } from '@hisaab/core';
-import { addDays, allowed, AppError, guard, stripCost, type Ctx } from './base';
+import { addDays, allowed, ANY_BANK, AppError, guard, stripCost, type Ctx } from './base';
+import { accountWhere } from './money';
 import { mustCompany } from './company';
 import { getInvoice } from './invoices';
 import { getParty } from './parties';
@@ -85,7 +86,7 @@ export function dashboard(ctx: Ctx) {
     moneyIn,
     moneyOut,
     cash: bal('CASH'),
-    bank: bal('BANK'),
+    bank: db.get<{ b: number }>(`SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE ${ANY_BANK}`)?.b ?? 0,
     receivable: parties.recv,
     payable: parties.pay,
     trend,
@@ -164,14 +165,15 @@ export function dayBook(ctx: Ctx, date: string) {
   );
 }
 
-export function cashBook(ctx: Ctx, opts: { from: string; to: string; account: 'CASH' | 'BANK' }) {
+export function cashBook(ctx: Ctx, opts: { from: string; to: string; account: string }) {
   guard(ctx, 'report.view');
-  const opening = ctx.db.get<{ b: number }>('SELECT COALESCE(SUM(debit - credit),0) AS b FROM ledger_entries WHERE account = ? AND date < ?', [opts.account, opts.from])!.b;
+  const where = accountWhere(opts.account, 'l.account');
+  const opening = ctx.db.get<{ b: number }>(`SELECT COALESCE(SUM(l.debit - l.credit),0) AS b FROM ledger_entries l WHERE ${where} AND l.date < ?`, [opts.from])!.b;
   const rows = ctx.db.query<{ id: number; date: string; voucher_type: string; voucher_id: number; debit: number; credit: number; narration: string | null; party_name: string | null; balance?: number }>(
     `SELECT l.id, l.date, l.voucher_type, l.voucher_id, l.debit, l.credit, l.narration,
        (SELECT p.name FROM payments pm JOIN parties p ON p.id = pm.party_id WHERE pm.id = l.voucher_id AND l.voucher_type IN ('payment','cancel_payment')) AS party_name
-     FROM ledger_entries l WHERE l.account = ? AND l.date BETWEEN ? AND ? ORDER BY l.date, l.id`,
-    [opts.account, opts.from, opts.to],
+     FROM ledger_entries l WHERE ${where} AND l.date BETWEEN ? AND ? ORDER BY l.date, l.id`,
+    [opts.from, opts.to],
   );
   let b = opening;
   for (const r of rows) {

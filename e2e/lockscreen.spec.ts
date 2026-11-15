@@ -5,8 +5,7 @@ test('sign-in with many staff: search the grid, last person first', async ({ pag
   await openShop(page);
   for (const n of ['Anil', 'Bharat', 'Chetan', 'Deepa', 'Esha']) await addUser(page, n, 'Cashier');
   await page.keyboard.press('Alt+l');
-  await expect(page.getByTestId('lock-users').getByRole('button')).toHaveCount(await page.getByTestId('lock-users').getByRole('button').count());
-  expect(await page.getByTestId('lock-users').getByRole('button').count()).toBeGreaterThan(6);
+  await expect.poll(() => page.getByTestId('lock-users').getByRole('button').count()).toBeGreaterThan(6);
   await page.getByTestId('lock-search').fill('dee');
   await expect(page.getByTestId('lock-users').getByRole('button')).toHaveCount(1);
   await page.getByTestId('lock-search').press('Enter');

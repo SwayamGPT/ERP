@@ -1,6 +1,6 @@
 import { isMobile, normalizePhone, roundHalfUp, type Role } from '@hisaab/core';
 import type { PayMode } from '../types';
-import { allowed, AppError, audit, guard, localNow, modeAccount, postVoucher, requireSession, type Ctx } from './base';
+import { allowed, AppError, audit, guard, localNow, payAccount, postVoucher, requireSession, type Ctx } from './base';
 import { saveUser } from './company';
 import { createExpense, employeeAdvance, getExpense, payExpense, salaryCategoryId, type Expense } from './expenses';
 
@@ -214,7 +214,7 @@ export function staffAdvance(ctx: Ctx, input: { employeeId: number; amount: numb
   if (!e) throw new AppError('Employee not found.');
   if (input.direction === 'return' && input.amount > employeeAdvance(ctx, input.employeeId)) throw new AppError('That is more than the advance outstanding.');
   const date = input.date ?? ctx.today();
-  const acc = modeAccount(input.mode);
+  const acc = payAccount(ctx, input.mode);
   return ctx.db.transaction(() => {
     const kind = input.direction === 'give' ? 'advance' : 'advance_return';
     const id = ctx.db.exec(

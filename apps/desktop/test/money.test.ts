@@ -350,3 +350,53 @@ describe('daily rent and flexible repeating expenses', () => {
     balanced(ctx);
   });
 });
+
+describe('cash, several bank accounts, deposit slips', () => {
+  it('deposits cash and cheques into a chosen bank; cheques count when they clear; totals cover every bank', () => {
+    const { ctx, bal } = shop('2026-11-15');
+    const bank = (code: string) => bal(code);
+    const sbi = api['bank.saveAccount'](ctx, { name: 'SBI current', bank: 'SBI', accountNo: '1234', ifsc: 'SBIN0001234' });
+    const hdfc = api['bank.saveAccount'](ctx, { name: 'HDFC savings', isDefault: true });
+    expect(api['bank.accounts'](ctx).map((b) => b.name)).toEqual(['HDFC savings', 'Bank / UPI', 'SBI current']);
+    expect(() => api['bank.saveAccount'](ctx, { name: 'Bad', ifsc: 'XYZ' })).toThrow(/IFSC/);
+
+    // a customer pays by UPI: goes to the default account (HDFC)
+    const cust = api['parties.save'](ctx, { kind: 'customer', name: 'Asha', phone: '9822000001' });
+    api['payments.receive'](ctx, { direction: 'in', partyId: cust, amount: 50000, mode: 'upi' });
+    expect(bank(`BANK:${hdfc}`)).toBe(50000);
+    // or to an account chosen on the payment
+    api['payments.receive'](ctx, { direction: 'in', partyId: cust, amount: 20000, mode: 'upi', bankAccountId: sbi });
+    expect(bank(`BANK:${sbi}`)).toBe(20000);
+
+    // two cheques received, one deposit slip with cash into SBI
+    const c1 = api['cheques.add'](ctx, { direction: 'in', partyId: cust, number: '000111', chequeDate: '2026-11-15', amount: 30000 });
+    const c2 = api['cheques.add'](ctx, { direction: 'in', partyId: cust, number: '000112', chequeDate: '2026-11-15', amount: 40000 });
+    let pos = api['bank.position'](ctx);
+    expect(pos.chequesInHand).toEqual({ n: 2, v: 70000 });
+    const cash0 = pos.cash;
+    api['bank.deposit'](ctx, { bankAccountId: sbi, cash: 100000, chequeIds: [c1, c2], slipNo: 'D-77' });
+    pos = api['bank.position'](ctx);
+    expect(pos.cash).toBe(cash0 - 100000);
+    expect(pos.chequesInHand.n).toBe(0);
+    expect(pos.chequesDeposited).toEqual({ n: 2, v: 70000 });
+    expect(bank(`BANK:${sbi}`)).toBe(120000); // cash in now, cheques not yet
+    expect(() => api['bank.deposit'](ctx, { bankAccountId: sbi, chequeIds: [c1] })).toThrow(/in hand/);
+
+    api['cheques.setStatus'](ctx, { id: c1, status: 'cleared' });
+    expect(bank(`BANK:${sbi}`)).toBe(150000); // cleared into the bank it was deposited in
+    api['cheques.setStatus'](ctx, { id: c2, status: 'bounced' });
+    expect(api['bank.deposits'](ctx)[0]).toMatchObject({ bank: 'SBI current', cash: 100000, cheque_count: 2, cleared: 1, bounced: 1, slip_no: 'D-77' });
+
+    // bank to bank transfer, and every-bank totals
+    api['money.move'](ctx, { kind: 'transfer', amount: 10000, from: 'bank', fromBank: sbi, to: 'bank', toBank: hdfc });
+    expect(bank(`BANK:${hdfc}`)).toBe(60000);
+    pos = api['bank.position'](ctx);
+    expect(pos.bankTotal).toBe(60000 + 140000);
+    expect(api['expenses.overview'](ctx, {}).bank).toBe(pos.bankTotal);
+    const log = api['money.log'](ctx, { from: '2026-11-01', to: '2026-11-30', account: `bank:${sbi}` });
+    expect(log.closing).toBe(140000);
+    // an account with money can't be closed
+    expect(() => api['bank.saveAccount'](ctx, { id: sbi, name: 'SBI current', active: false })).toThrow(/Move the money out/);
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+  });
+});

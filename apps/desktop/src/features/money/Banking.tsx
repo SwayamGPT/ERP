@@ -1,6 +1,7 @@
 import { Check, FileUp, Landmark, Link2Off, Plus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Badge, Button, Card, Dialog, EmptyState, Field, Input, Loading, MoneyInput, Segmented, Stat, toast } from '../../components/ui';
+import { BankPicker, DepositDialog } from './BankAccounts';
 import { call } from '../../db/client';
 import type { Party } from '../../db/types';
 import { fmtDate, inr, today } from '../../lib/format';
@@ -11,7 +12,8 @@ import { CustomerPicker } from '../pos/CustomerPicker';
 /* ───────── bank reconciliation ───────── */
 
 export function BankReconciliation() {
-  const rec = useApi('bank.reconciliation');
+  const [bankId, setBankId] = useState<number | null>(null);
+  const rec = useApi('bank.reconciliation', { bankAccountId: bankId });
   const file = useRef<HTMLInputElement>(null);
   const match = useAction('bank.match');
   const [pickFor, setPickFor] = useState<{ id: number; amount: number } | null>(null);
@@ -30,7 +32,7 @@ export function BankReconciliation() {
         const amount = cols.amount != null ? toPaiseLoose(r[cols.amount]) ?? 0 : Math.abs(cr) - Math.abs(dr);
         return { date: toIsoDate(r[cols.date!]) ?? '', description: cols.description != null ? r[cols.description] : undefined, reference: cols.reference != null ? r[cols.reference] : undefined, amount };
       });
-      const r = await call('bank.import', { rows, source: f.name });
+      const r = await call('bank.import', { rows, source: f.name, bankAccountId: bankId });
       toast.success(`${r.added} lines imported, ${r.matched} matched automatically`, r.skipped ? `${r.skipped} lines were already imported or empty.` : undefined);
     } catch (e) {
       toast.error(e);
@@ -43,6 +45,7 @@ export function BankReconciliation() {
   const d = rec.data;
   return (
     <div className="space-y-4">
+      <div className="max-w-xs"><BankPicker value={bankId} onChange={setBankId} label="Statement of" testid="rec-bank" /></div>
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat label="Bank balance in books" value={inr(d.book)} />
         <Stat label="Cleared (seen in statement)" value={inr(d.cleared)} />
@@ -103,6 +106,8 @@ export function Cheques() {
   const list = useApi('cheques.list', { status: all ? 'all' : 'open' });
   const setStatus = useAction('cheques.setStatus', { success: (r) => (r ? 'Cheque updated' : '') });
   const [adding, setAdding] = useState(false);
+  const [depositOne, setDepositOne] = useState<number | null>(null);
+  const cash = useApi('bank.position', undefined, { enabled: depositOne !== null }).data?.cash ?? 0;
   if (!list.data) return <Loading />;
   return (
     <Card padded={false} title="Cheques" action={<div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => setAll(!all)}>{all ? 'Open only' : 'Show all'}</Button><Button size="sm" variant="primary" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setAdding(true)} data-testid="cheque-add">Add cheque</Button></div>}>
@@ -121,7 +126,7 @@ export function Cheques() {
                 <td><Badge tone={c.status === 'cleared' ? 'good' : c.status === 'bounced' ? 'bad' : 'neutral'}>{c.status}</Badge></td>
                 <td className="whitespace-nowrap text-right">
                   {(NEXT[c.status] ?? []).map((s) => (
-                    <Button key={s} size="sm" variant={s === 'cleared' ? 'primary' : 'ghost'} onClick={() => setStatus.mutate({ id: c.id, status: s })} data-testid={`cheque-${s}`}>{s === 'deposited' ? 'Deposited' : s === 'cleared' ? 'Cleared' : s === 'bounced' ? 'Bounced' : 'Cancel'}</Button>
+                    <Button key={s} size="sm" variant={s === 'cleared' ? 'primary' : 'ghost'} onClick={() => (s === 'deposited' && c.direction === 'in' ? setDepositOne(c.id) : setStatus.mutate({ id: c.id, status: s }))} data-testid={`cheque-${s}`}>{s === 'deposited' ? 'Deposited' : s === 'cleared' ? 'Cleared' : s === 'bounced' ? 'Bounced' : 'Cancel'}</Button>
                   ))}
                 </td>
               </tr>
@@ -130,6 +135,7 @@ export function Cheques() {
         </table>
       )}
       {adding && <AddCheque onClose={() => setAdding(false)} />}
+      {depositOne !== null && <DepositDialog cashInHand={cash} only={depositOne} onClose={() => setDepositOne(null)} />}
     </Card>
   );
 }
@@ -140,10 +146,11 @@ function AddCheque({ onClose }: { onClose: () => void }) {
   const [pick, setPick] = useState(false);
   const [f, setF] = useState({ number: '', bank: '', date: today(), amount: 0 });
   const add = useAction('cheques.add', { success: 'Cheque recorded', onSuccess: onClose });
+  const [drawnOn, setDrawnOn] = useState<number | null>(null);
   return (
     <>
       <Dialog open onOpenChange={(v) => !v && onClose()} title="Add cheque" size="sm"
-        footer={<Button variant="primary" disabled={!party || !f.number || !f.amount} loading={add.isPending} onClick={() => add.mutate({ direction: dir, partyId: party!.id, number: f.number, bank: f.bank, chequeDate: f.date, amount: f.amount })} data-testid="cheque-save">Save</Button>}>
+        footer={<Button variant="primary" disabled={!party || !f.number || !f.amount} loading={add.isPending} onClick={() => add.mutate({ direction: dir, partyId: party!.id, number: f.number, bank: f.bank, chequeDate: f.date, amount: f.amount, bankAccountId: dir === 'out' ? drawnOn : null })} data-testid="cheque-save">Save</Button>}>
         <div className="space-y-3">
           <Segmented value={dir} onChange={(v) => (setDir(v), setParty(null))} options={[{ value: 'in', label: 'Received from customer' }, { value: 'out', label: 'Given to supplier' }]} />
           <Field label={dir === 'in' ? 'Customer' : 'Supplier'}><button className="input text-left" onClick={() => setPick(true)} data-testid="cheque-party">{party?.name ?? 'Pick…'}</button></Field>
@@ -153,6 +160,7 @@ function AddCheque({ onClose }: { onClose: () => void }) {
             <Field label="Cheque date"><Input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
             <Field label="Amount"><MoneyInput value={f.amount} onChange={(amount) => setF({ ...f, amount })} data-testid="cheque-amount" /></Field>
           </div>
+          {dir === 'out' && <BankPicker value={drawnOn} onChange={setDrawnOn} label="Drawn on (our account)" />}
         </div>
       </Dialog>
       <CustomerPicker kind={dir === 'in' ? 'customer' : 'supplier'} open={pick} onOpenChange={setPick} onPick={(p) => (setParty(p), setPick(false))} />

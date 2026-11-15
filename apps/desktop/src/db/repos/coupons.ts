@@ -4,7 +4,7 @@
  * shop redeems them with the distributor: for cash / UPI, as a cut on the distributor's bill, or
  * for free goods.
  */
-import { AppError, allowed, audit, guard, localNow, postVoucher, type Ctx } from './base';
+import { AppError, allowed, audit, guard, localNow, payAccount, postVoucher, type Ctx } from './base';
 import { assertCouponsInHand, couponsInHand, receivePayment } from './invoices';
 import { defaultGodown } from './purchasing';
 
@@ -60,6 +60,8 @@ export interface RedeemInput {
   goods?: { itemId: number; qty: number } | null;
   date?: string;
   note?: string;
+  /** upi: which bank account received it (default account if not given). */
+  bankAccountId?: number | null;
 }
 
 /** Hand coupons to the distributor and record what came back. */
@@ -98,7 +100,7 @@ export function redeemCoupons(ctx: Ctx, input: RedeemInput) {
     ).lastId;
 
     if (input.how === 'cash' || input.how === 'upi') {
-      settle(input.how === 'cash' ? 'CASH' : 'BANK', value);
+      settle(payAccount(ctx, input.how === 'cash' ? 'cash' : 'upi', input.bankAccountId), value);
     } else if (input.how === 'bill') {
       if (!supplier) throw new AppError('Pick the distributor whose bill the coupons are taken off.');
       // Paying the distributor with coupons: their dues go down (and chosen bills count as paid).

@@ -870,6 +870,42 @@ CREATE INDEX idx_payments_expense ON payments(expense_id);
     name: 'purchases without a GST bill',
     sql: `ALTER TABLE invoices ADD COLUMN no_bill INTEGER NOT NULL DEFAULT 0;`,
   },
+  {
+    version: 16,
+    name: 'several bank accounts; deposit slips',
+    sql: /* sql */ `
+CREATE TABLE bank_accounts (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  bank TEXT,
+  account_no TEXT,
+  ifsc TEXT,
+  upi_id TEXT,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT INTO bank_accounts (id, name, is_default) VALUES (1, 'Bank / UPI', 1);
+ALTER TABLE payments ADD COLUMN bank_account_id INTEGER;
+ALTER TABLE cheques ADD COLUMN bank_account_id INTEGER;
+ALTER TABLE cheques ADD COLUMN deposit_id INTEGER;
+ALTER TABLE bank_lines ADD COLUMN bank_account_id INTEGER;
+CREATE TABLE deposits (
+  id INTEGER PRIMARY KEY,
+  bank_account_id INTEGER NOT NULL REFERENCES bank_accounts(id),
+  date TEXT NOT NULL,
+  cash INTEGER NOT NULL DEFAULT 0,
+  cheque_total INTEGER NOT NULL DEFAULT 0,
+  cheque_count INTEGER NOT NULL DEFAULT 0,
+  slip_no TEXT,
+  note TEXT,
+  move_id INTEGER,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_deposits_date ON deposits(date);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

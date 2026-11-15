@@ -170,6 +170,8 @@ export interface DraftPayment {
   mode: PayMode;
   amount: number;
   reference?: string;
+  /** Which bank account (UPI / card / bank / cheque); default account if not given. */
+  bankAccountId?: number | null;
 }
 
 export interface DraftInvoice {

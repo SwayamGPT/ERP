@@ -3,7 +3,7 @@ import { seriesCode } from '../sync/engine';
 import { computeLine, isInterState, validateGstin } from '@hisaab/core';
 import type { PayMode } from '../types';
 import { dueDates, isOff, occurrence } from '../schedule';
-import { addDays, allowed, AppError, audit, guard, localNow, modeAccount, postVoucher, requireSession, reverseVoucher, type Ctx } from './base';
+import { addDays, allowed, AppError, audit, guard, localNow, bankIdOf, isBankCode, payAccount, postVoucher, requireSession, reverseVoucher, type Ctx } from './base';
 import { mustCompany } from './company';
 
 /*
@@ -189,7 +189,7 @@ export function refreshStatus(ctx: Ctx, id: number) {
 }
 
 /** Pay all or part of an expense bill. For salaries, part can come from the employee's advance. */
-export function payExpense(ctx: Ctx, input: { id: number; amount: number; mode: PayMode; date?: string; recoverAdvance?: number; reference?: string }) {
+export function payExpense(ctx: Ctx, input: { id: number; amount: number; mode: PayMode; date?: string; recoverAdvance?: number; reference?: string; bankAccountId?: number | null }) {
   const e = ctx.db.get<Expense>(`${SELECT} WHERE e.id = ?`, [input.id]);
   if (!e) throw new AppError('Expense not found.');
   const s = guard(ctx, e.employee_id ? 'payroll.manage' : 'expense.create');
@@ -209,15 +209,16 @@ export function payExpense(ctx: Ctx, input: { id: number; amount: number; mode: 
   }
   const date = input.date ?? ctx.today();
   const label = [e.category, e.payee].filter(Boolean).join(' · ');
+  const acct = payAccount(ctx, input.mode, input.bankAccountId);
   return ctx.db.transaction(() => {
     if (input.amount > 0) {
       const pid = ctx.db.exec(
-        "INSERT INTO payments (direction, kind, amount, mode, category, reference, note, date, expense_id, created_by, created_at) VALUES ('out', 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [input.amount, input.mode, e.category, input.reference ?? null, label, date, e.id, s.userId, localNow()],
+        "INSERT INTO payments (direction, kind, amount, mode, category, reference, note, date, expense_id, created_by, created_at, bank_account_id) VALUES ('out', 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [input.amount, input.mode, e.category, input.reference ?? null, label, date, e.id, s.userId, localNow(), isBankCode(acct) ? bankIdOf(acct) : null],
       ).lastId;
       postVoucher(ctx, 'expense_payment', pid, date, [
         { account: 'EXPENSE_PAYABLE', amount: input.amount, narration: label },
-        { account: modeAccount(input.mode), amount: -input.amount, narration: label },
+        { account: acct, amount: -input.amount, narration: label },
       ]);
     }
     if (recover > 0) {

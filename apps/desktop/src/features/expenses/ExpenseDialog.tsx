@@ -2,6 +2,7 @@ import { computeLine, validateGstin } from '@hisaab/core';
 import { Banknote, CalendarClock, Landmark, Smartphone } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Dialog, Field, Input, MoneyInput, Segmented, Select, Switch } from '../../components/ui';
+import { BankPicker } from '../money/BankAccounts';
 import type { PayMode } from '../../db/types';
 import { cn } from '../../lib/cn';
 import { inr, shiftDate, today } from '../../lib/format';
@@ -154,6 +155,7 @@ export function PayExpenseDialog({ expense, onClose, advance = 0 }: { expense: {
   const [recover, setRecover] = useState(expense.employee_id ? Math.min(advance, due) : 0);
   const [amount, setAmount] = useState(due - (expense.employee_id ? Math.min(advance, due) : 0));
   const [mode, setMode] = useState<PayMode>('cash');
+  const [bankId, setBankId] = useState<number | null>(null);
   const [date, setDate] = useState(today());
   const paySalary = useAction('staff.paySalary', { success: 'Salary payment recorded', onSuccess: onClose });
   const payBill = useAction('expenses.pay', { success: 'Payment recorded', onSuccess: onClose });
@@ -175,7 +177,7 @@ export function PayExpenseDialog({ expense, onClose, advance = 0 }: { expense: {
             onClick={() =>
               expense.employee_id
                 ? paySalary.mutate({ expenseId: expense.id, amount, mode, recoverAdvance: recover, date })
-                : payBill.mutate({ id: expense.id, amount, mode, date })
+                : payBill.mutate({ id: expense.id, amount, mode, date, bankAccountId: mode === 'cash' ? null : bankId })
             }
           >
             Pay {inr(total)}
@@ -194,6 +196,7 @@ export function PayExpenseDialog({ expense, onClose, advance = 0 }: { expense: {
         </Field>
         <div className="flex flex-wrap items-center gap-3">
           <Segmented value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m.value, label: m.label }))} />
+          {mode !== 'cash' && !expense.employee_id && <BankPicker value={bankId} onChange={setBankId} label="From account" />}
           <Input type="date" className="w-44" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
         </div>
         {total < due && total > 0 && <p className="text-xs text-muted">Part payment — {inr(due - total)} will remain in bills to pay.</p>}

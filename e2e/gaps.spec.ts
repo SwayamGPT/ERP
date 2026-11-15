@@ -120,6 +120,7 @@ test('customer price list and loyalty points at the counter', async ({ page }) =
   await page.keyboard.press('Alt+n');
   await page.keyboard.press('F7');
   await page.getByTestId('customer-search').fill('Meena');
+  await expect(page.getByRole('dialog').getByText('Meena Aunty')).toBeVisible();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('customer-search')).toBeHidden();
   await page.getByTestId('pos-search').focus();

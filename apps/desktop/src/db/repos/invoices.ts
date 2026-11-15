@@ -16,7 +16,7 @@ import {
   type Scheme,
 } from '@hisaab/core';
 import type { Batch, DraftInvoice, DraftPayment, Invoice, InvoiceKind, InvoiceLine, Payment } from '../types';
-import { AppError, allowed, audit, guard, modeAccount, postVoucher, reverseVoucher, stripCost, type Ctx, type Posting } from './base';
+import { AppError, allowed, audit, bankIdOf, guard, isBankCode, payAccount, postVoucher, reverseVoucher, stripCost, type Ctx, type Posting } from './base';
 import { mustCompany } from './company';
 import { cancelExpensePayment } from './expenses';
 import { getParty, walkinParty } from './parties';
@@ -83,15 +83,16 @@ function invoicePostings(kind: InvoiceKind, inv: { party_id: number; taxable: nu
 
 function recordPayment(
   ctx: Ctx,
-  p: { direction: 'in' | 'out'; partyId: number; invoiceId: number | null; amount: number; mode: DraftPayment['mode']; reference?: string; note?: string; date: string },
+  p: { direction: 'in' | 'out'; partyId: number; invoiceId: number | null; amount: number; mode: DraftPayment['mode']; reference?: string; note?: string; date: string; bankAccountId?: number | null },
 ) {
+  const account = payAccount(ctx, p.mode, p.bankAccountId);
   const id = ctx.db.exec(
-    "INSERT INTO payments (direction, kind, party_id, invoice_id, amount, mode, reference, note, date, created_by) VALUES (?, 'party', ?, ?, ?, ?, ?, ?, ?, ?)",
-    [p.direction, p.partyId, p.invoiceId, p.amount, p.mode, p.reference ?? null, p.note ?? null, p.date, ctx.session?.userId ?? null],
+    "INSERT INTO payments (direction, kind, party_id, invoice_id, amount, mode, reference, note, date, created_by, bank_account_id) VALUES (?, 'party', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [p.direction, p.partyId, p.invoiceId, p.amount, p.mode, p.reference ?? null, p.note ?? null, p.date, ctx.session?.userId ?? null, isBankCode(account) ? bankIdOf(account) : null],
   ).lastId;
   const sign = p.direction === 'in' ? 1 : -1;
   postVoucher(ctx, 'payment', id, p.date, [
-    { account: modeAccount(p.mode), amount: sign * p.amount, narration: p.note },
+    { account, amount: sign * p.amount, narration: p.note },
     { account: 'PARTY', partyId: p.partyId, amount: -sign * p.amount, narration: p.note },
   ]);
   return id;
@@ -398,7 +399,7 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
     const inv = { party_id: b.party.id, taxable: t.taxable, cgst: t.cgst, sgst: t.sgst, igst: t.igst, cess: t.cess, other_charges: draft.otherCharges ?? 0, round_off: t.roundOff, total };
     postVoucher(ctx, kind, invoiceId, date, invoicePostings(kind, inv, `${kind === 'sale' ? 'Sale' : 'Purchase'} ${number}`));
     for (const p of existing?.keepPayments ? [] : payments) {
-      recordPayment(ctx, { direction: kind === 'sale' ? 'in' : 'out', partyId: b.party.id, invoiceId, amount: p.amount, mode: p.mode, reference: p.reference, note: `${number}`, date });
+      recordPayment(ctx, { direction: kind === 'sale' ? 'in' : 'out', partyId: b.party.id, invoiceId, amount: p.amount, mode: p.mode, reference: p.reference, note: `${number}`, date, bankAccountId: p.bankAccountId });
     }
     if (draft.poId) {
       if (kind !== 'purchase') throw new AppError('Only a purchase can receive a purchase order.');
@@ -749,7 +750,7 @@ export function cancelInvoice(ctx: Ctx, id: number, reason: string) {
 
 export function receivePayment(
   ctx: Ctx,
-  input: { direction: 'in' | 'out'; partyId: number; amount: number; mode: DraftPayment['mode']; reference?: string; note?: string; date?: string; againstBills?: Array<{ invoiceId: number; amount: number }> },
+  input: { direction: 'in' | 'out'; partyId: number; amount: number; mode: DraftPayment['mode']; reference?: string; note?: string; date?: string; againstBills?: Array<{ invoiceId: number; amount: number }>; bankAccountId?: number | null },
 ) {
   guard(ctx, input.direction === 'in' ? 'payment.in' : 'payment.out');
   if (!(input.amount > 0)) throw new AppError('Enter an amount.');

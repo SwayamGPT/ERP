@@ -47,6 +47,8 @@ export const SYNC_TABLES: Array<{ name: string; local?: string[] }> = [
   { name: 'payment_allocations' },
   { name: 'recurring_skips' },
   { name: 'coupon_moves' },
+  { name: 'bank_accounts' },
+  { name: 'deposits' },
 ];
 
 export const SYNCED = new Set(SYNC_TABLES.map((t) => t.name));

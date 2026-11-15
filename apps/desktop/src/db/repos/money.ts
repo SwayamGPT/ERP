@@ -1,5 +1,5 @@
 import type { PayMode } from '../types';
-import { addDays, allowed, AppError, audit, guard, localNow, modeAccount, postVoucher, reverseVoucher, type Ctx } from './base';
+import { addDays, allowed, ANY_BANK, AppError, audit, bankCode, guard, isBankCode, localNow, payAccount, postVoucher, reverseVoucher, type Ctx } from './base';
 
 /*
  * Every rupee that moves is a ledger entry on Cash or Bank. This module records the movements that
@@ -28,7 +28,26 @@ export interface MoneyMove {
   created_at: string;
 }
 
-const balance = (ctx: Ctx, account: string) => ctx.db.get<{ b: number }>('SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account = ?', [account])!.b;
+const bankName = (ctx: Ctx, code: string) =>
+  isBankCode(code) ? ctx.db.get<{ name: string }>('SELECT name FROM bank_accounts WHERE id = ?', [code === 'BANK' ? 1 : Number(code.split(':')[1])])?.name ?? 'bank' : 'cash';
+
+const balance = (ctx: Ctx, account: string) =>
+  account === 'BANKS'
+    ? ctx.db.get<{ b: number }>(`SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE ${ANY_BANK}`)!.b
+    : ctx.db.get<{ b: number }>('SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account = ?', [account])!.b;
+
+/**
+ * Which ledger accounts a money view covers: 'ALL' (cash + every bank), 'CASH', 'BANK' (every
+ * bank account together), or 'bank:<id>' (one bank account).
+ */
+export function accountWhere(sel: string | undefined, col = 'account'): string {
+  if (!sel || sel === 'ALL') return `(${col} = 'CASH' OR ${col} = 'BANK' OR ${col} LIKE 'BANK:%')`;
+  if (sel === 'CASH') return `${col} = 'CASH'`;
+  if (sel === 'BANK') return `(${col} = 'BANK' OR ${col} LIKE 'BANK:%')`;
+  const id = Number(sel.replace(/^bank:/, ''));
+  if (!Number.isInteger(id) || id < 1) throw new AppError('Unknown account.');
+  return `${col} = '${bankCode(id)}'`;
+}
 
 /**
  * - transfer: Cash → Bank (deposit) or Bank → Cash (withdrawal)
@@ -36,19 +55,22 @@ const balance = (ctx: Ctx, account: string) => ctx.db.get<{ b: number }>('SELECT
  * - capital: owner puts money into the business
  * - income: money in that isn't a sale (commission, scrap sale, rent received, interest)
  */
-export function recordMove(ctx: Ctx, input: { kind: 'transfer' | 'drawing' | 'capital' | 'income'; amount: number; from?: PayMode; to?: PayMode; category?: string; note?: string; date?: string }) {
+export function recordMove(
+  ctx: Ctx,
+  input: { kind: 'transfer' | 'drawing' | 'capital' | 'income'; amount: number; from?: PayMode; to?: PayMode; fromBank?: number | null; toBank?: number | null; category?: string; note?: string; date?: string },
+) {
   const s = guard(ctx, 'money.move');
   if (!(input.amount > 0) || !Number.isSafeInteger(input.amount)) throw new AppError('Enter the amount.');
-  const from = input.from ? modeAccount(input.from) : null;
-  const to = input.to ? modeAccount(input.to) : null;
+  const from = input.from ? payAccount(ctx, input.from, input.fromBank) : null;
+  const to = input.to ? payAccount(ctx, input.to, input.toBank) : null;
   const date = input.date ?? ctx.today();
   let postings: Array<{ account: string; amount: number; narration: string }>;
   let label: string;
   switch (input.kind) {
     case 'transfer':
-      if (!from || !to || from === to) throw new AppError('Pick where the money moves from and to (cash ↔ bank).');
+      if (!from || !to || from === to) throw new AppError('Pick where the money moves from and to (cash ↔ bank, or between banks).');
       if (from === 'CASH' && input.amount > balance(ctx, 'CASH')) throw new AppError('There is not that much cash in the drawer.');
-      label = from === 'CASH' ? 'Cash deposited in bank' : 'Cash withdrawn from bank';
+      label = from === 'CASH' ? `Cash deposited in ${bankName(ctx, to)}` : to === 'CASH' ? `Cash withdrawn from ${bankName(ctx, from)}` : `${bankName(ctx, from)} → ${bankName(ctx, to)}`;
       postings = [{ account: to, amount: input.amount, narration: label }, { account: from, amount: -input.amount, narration: label }];
       break;
     case 'drawing':
@@ -172,7 +194,7 @@ export const FLOW_LABELS: Record<FlowGroup, string> = {
 interface RawRow {
   id: number;
   date: string;
-  account: 'CASH' | 'BANK';
+  account: string;
   debit: number;
   credit: number;
   voucher_type: string;
@@ -210,7 +232,7 @@ function rawMovements(ctx: Ctx, where: string, params: unknown[]): RawRow[] {
      LEFT JOIN money_moves m ON m.id = l.voucher_id AND l.voucher_type IN ('move','cancel_move')
      LEFT JOIN employees me ON me.id = m.employee_id
      LEFT JOIN payments lp ON lp.id = l.voucher_id AND l.voucher_type IN ('expense','cancel_expense','income','cancel_income')
-     WHERE l.account IN ('CASH','BANK') AND ${where}
+     WHERE ${accountWhere('ALL', 'l.account')} AND ${where}
      ORDER BY l.date, l.id`,
     params as never,
   );
@@ -247,12 +269,10 @@ function classify(r: RawRow): { group: FlowGroup; label: string; detail: string 
 }
 
 /** The money log: every movement in Cash and/or Bank with who recorded it and the running balance. */
-export function moneyLog(ctx: Ctx, opts: { from: string; to: string; account?: 'CASH' | 'BANK' | 'ALL' }) {
+export function moneyLog(ctx: Ctx, opts: { from: string; to: string; account?: string }) {
   guard(ctx, 'expense.view');
-  const accounts = opts.account && opts.account !== 'ALL' ? [opts.account] : ['CASH', 'BANK'];
-  const inList = accounts.map(() => '?').join(',');
-  const opening = ctx.db.get<{ b: number }>(`SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account IN (${inList}) AND date < ?`, [...accounts, opts.from])!.b;
-  const rows = rawMovements(ctx, `l.account IN (${inList}) AND l.date BETWEEN ? AND ?`, [...accounts, opts.from, opts.to]);
+  const opening = ctx.db.get<{ b: number }>(`SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE ${accountWhere(opts.account)} AND date < ?`, [opts.from])!.b;
+  const rows = rawMovements(ctx, `${accountWhere(opts.account, 'l.account')} AND l.date BETWEEN ? AND ?`, [opts.from, opts.to]);
   const hideSalary = !allowed(ctx, 'payroll.manage');
   let bal = opening;
   const out = rows.map((r) => {
@@ -270,7 +290,7 @@ export function moneyLog(ctx: Ctx, opts: { from: string; to: string; account?: '
 /** Cash-flow statement: where money came from and where it went, grouped, for Cash + Bank together. */
 export function cashFlow(ctx: Ctx, opts: { from: string; to: string }) {
   guard(ctx, 'expense.view');
-  const opening = ctx.db.get<{ b: number }>("SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account IN ('CASH','BANK') AND date < ?", [opts.from])!.b;
+  const opening = ctx.db.get<{ b: number }>(`SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE ${accountWhere('ALL')} AND date < ?`, [opts.from])!.b;
   const rows = rawMovements(ctx, 'l.date BETWEEN ? AND ?', [opts.from, opts.to]);
   const groups = new Map<FlowGroup, { net: number; byLabel: Map<string, number> }>();
   for (const r of rows) {
@@ -363,6 +383,6 @@ export function expenseOverview(ctx: Ctx, month?: string) {
     totalDue: due.reduce((s, d) => s + d.amount - d.paid, 0),
     overdueCount: due.filter((d) => d.due_date && d.due_date < today).length,
     cash: balance(ctx, 'CASH'),
-    bank: balance(ctx, 'BANK'),
+    bank: balance(ctx, 'BANKS'),
   };
 }

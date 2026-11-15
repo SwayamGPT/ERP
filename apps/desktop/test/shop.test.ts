@@ -135,7 +135,7 @@ describe('bank reconciliation and cheques', () => {
     const r = api['bank.import'](ctx, { rows });
     expect(r).toEqual({ added: 2, skipped: 0, matched: 1 });
     expect(api['bank.import'](ctx, { rows }).added).toBe(0);
-    const rec = api['bank.reconciliation'](ctx);
+    const rec = api['bank.reconciliation'](ctx, {});
     expect(rec.matched).toBe(1);
     expect(rec.unmatchedLines.map((l) => l.amount)).toEqual([-2360]);
     expect(rec.cleared).toBe(5600);

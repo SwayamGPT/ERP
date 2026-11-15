@@ -136,3 +136,26 @@ export const ACCOUNTS: Record<string, string> = {
 };
 
 export const modeAccount = (mode: string) => (mode === 'cash' ? 'CASH' : mode === 'coupon' ? 'COUPONS' : 'BANK');
+
+/**
+ * Bank accounts. The first (id 1) keeps the ledger account 'BANK' that every older entry uses;
+ * more accounts get 'BANK:<id>'. All of them together are "the bank" in totals and reports.
+ */
+export const bankCode = (id?: number | null) => (!id || id === 1 ? 'BANK' : `BANK:${id}`);
+export const bankIdOf = (code: string) => (code === 'BANK' ? 1 : Number(code.split(':')[1]) || 1);
+export const isBankCode = (code: string | null | undefined) => !!code && (code === 'BANK' || code.startsWith('BANK:'));
+/** SQL condition for "any bank account" on ledger_entries.account. */
+export const ANY_BANK = "(account = 'BANK' OR account LIKE 'BANK:%')";
+
+export function defaultBankId(ctx: Ctx): number {
+  return ctx.db.get<{ id: number }>('SELECT id FROM bank_accounts WHERE is_default = 1 AND active = 1 ORDER BY id LIMIT 1')?.id ?? 1;
+}
+
+/** The ledger account money paid this way lands in: cash, coupons, or a bank account (default if none chosen). */
+export function payAccount(ctx: Ctx, mode: string, bankAccountId?: number | null) {
+  if (mode === 'cash') return 'CASH';
+  if (mode === 'coupon') return 'COUPONS';
+  const id = bankAccountId ?? defaultBankId(ctx);
+  if (bankAccountId && !ctx.db.get('SELECT 1 FROM bank_accounts WHERE id = ? AND active = 1', [bankAccountId])) throw new AppError('That bank account is closed or does not exist.');
+  return bankCode(id);
+}
