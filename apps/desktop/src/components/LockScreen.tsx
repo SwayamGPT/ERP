@@ -1,14 +1,43 @@
 import type { Role } from '@hisaab/core';
-import { Building2, Delete, ShieldCheck } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Building2, Delete, Search, ShieldCheck } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { call, db, queryClient } from '../db/client';
 import type { Company } from '../db/types';
 import { cn } from '../lib/cn';
 import { useUi } from '../lib/store';
 import { Logo } from './Logo';
 
-export function LockScreen({ users, company, enterpriseCount = 1 }: { users: Array<{ id: number; name: string; role: Role }>; company: Company; enterpriseCount?: number }) {
+const RECENT = (company: Company) => `hisaab.recentUsers.${company.gstin ?? company.name}`;
+function recentIds(company: Company): number[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT(company)) ?? '[]') as number[];
+  } catch {
+    return [];
+  }
+}
+function rememberUser(company: Company, id: number) {
+  try {
+    localStorage.setItem(RECENT(company), JSON.stringify([id, ...recentIds(company).filter((x) => x !== id)].slice(0, 20)));
+  } catch {
+    /* private mode */
+  }
+}
+const ROLE_ORDER: Role[] = ['owner', 'manager', 'cashier', 'salesman'];
+
+export function LockScreen({ users: all, company, enterpriseCount = 1 }: { users: Array<{ id: number; name: string; role: Role }>; company: Company; enterpriseCount?: number }) {
+  // Whoever signed in on this computer most recently comes first (and is picked already).
+  const users = useMemo(() => {
+    const recent = recentIds(company);
+    const rank = (id: number) => (recent.includes(id) ? recent.indexOf(id) : 1000);
+    return [...all].sort((a, b) => rank(a.id) - rank(b.id) || ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || a.name.localeCompare(b.name));
+  }, [all, company]);
   const [userId, setUserId] = useState(users[0]?.id);
+  const [q, setQ] = useState('');
+  const [role, setRole] = useState<Role | 'all'>('all');
+  const roles = ROLE_ORDER.filter((r) => users.some((u) => u.role === r));
+  const shown = users.filter((u) => (role === 'all' || u.role === role) && (!q.trim() || u.name.toLowerCase().includes(q.trim().toLowerCase())));
+  const pick = (id: number) => (setUserId(id), setPin(''), setError(''), setTimeout(() => inputRef.current?.focus(), 0));
+  const current = users.find((u) => u.id === userId);
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [shake, setShake] = useState(false);
@@ -32,6 +61,7 @@ export function LockScreen({ users, company, enterpriseCount = 1 }: { users: Arr
     busy.current = true;
     try {
       const s = await call('auth.login', { userId, pin: p });
+      rememberUser(company, userId);
       useUi.getState().setSession(s);
       await queryClient.invalidateQueries();
     } catch (e) {
@@ -58,19 +88,46 @@ export function LockScreen({ users, company, enterpriseCount = 1 }: { users: Arr
           <p className="mt-1 text-sm text-muted">Who's at the counter?</p>
         </div>
         <div className="card p-5">
-          <div className="mb-4 flex flex-wrap justify-center gap-2">
-            {users.map((u) => (
+          {users.length > 6 && (
+            <div className="relative mb-2">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && shown[0]) (e.preventDefault(), pick(shown[0].id));
+                }}
+                placeholder="Find your name…"
+                className="input h-9 pl-8 text-sm"
+                data-testid="lock-search"
+              />
+            </div>
+          )}
+          {roles.length > 1 && users.length > 4 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {(['all', ...roles] as const).map((r) => (
+                <button key={r} type="button" onClick={() => setRole(r)} className={cn('rounded-full border px-2.5 py-0.5 text-xs capitalize', role === r ? 'border-primary bg-primary-soft text-primary' : 'border-border text-muted hover:bg-surface-2')}>
+                  {r === 'all' ? 'Everyone' : r}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className={cn('mb-3 grid grid-cols-3 gap-2 overflow-y-auto pr-0.5', users.length > 9 && 'max-h-[13.5rem]')} data-testid="lock-users">
+            {shown.map((u) => (
               <button
                 key={u.id}
-                onClick={() => (setUserId(u.id), setPin(''), setError(''), setTimeout(() => inputRef.current?.focus(), 0))}
-                className={cn('flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-colors', u.id === userId ? 'border-primary bg-primary-soft text-primary' : 'border-border hover:bg-surface-2')}
+                type="button"
+                onClick={() => pick(u.id)}
+                className={cn('flex min-w-0 flex-col items-center gap-1 rounded-xl border px-1.5 py-2 text-center transition-colors', u.id === userId ? 'border-primary bg-primary-soft text-primary' : 'border-border hover:bg-surface-2')}
               >
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-fg">{u.name[0]}</span>
-                {u.name}
-                <span className="text-[10px] capitalize text-muted">{u.role}</span>
+                <span className={cn('grid h-8 w-8 place-items-center rounded-full text-xs font-semibold', u.id === userId ? 'bg-primary text-primary-fg' : 'bg-surface-2 text-ink')}>{initials(u.name)}</span>
+                <span className="w-full truncate text-xs font-medium leading-tight">{u.name}</span>
+                <span className="text-[10px] capitalize leading-none text-muted">{u.role}</span>
               </button>
             ))}
+            {!shown.length && <p className="col-span-3 py-3 text-center text-xs text-faint">No one by that name.</p>}
           </div>
+          {current && <p className="mb-1 text-center text-sm">PIN for <b data-testid="lock-current">{current.name}</b></p>}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -164,3 +221,12 @@ export function ChangePinScreen({ name }: { name: string }) {
     </div>
   );
 }
+
+const initials = (name: string) =>
+  name
+    .replace(/\(.*?\)/g, '')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('') || '?';
