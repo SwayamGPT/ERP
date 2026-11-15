@@ -90,7 +90,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop
-          tauriScript: npm run tauri --
+          # npx, not "npm run": tauri-action adds its own "--" for npm, which sent the flags to cargo.
+          tauriScript: npx tauri
           args: ${{ matrix.args }}
           # Only publish a (draft) release for version tags; other runs just upload artifacts.
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
