@@ -204,3 +204,26 @@ describe('database & posting engine', () => {
     expect(isMutation('company.setup')).toBe(true);
   });
 });
+
+describe('PIN security', () => {
+  it('stores PINs hashed, verifies them, and upgrades old plain-text PINs', async () => {
+    const { hashPin, verifyPin, upgradePlainPins } = await import('../src/db/crypto');
+    const h = hashPin('1234');
+    expect(h).toMatch(/^pbkdf2\$\d+\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+    expect(hashPin('1234')).not.toBe(h); // salted
+    expect(verifyPin('1234', h)).toBe(true);
+    expect(verifyPin('1235', h)).toBe(false);
+
+    const ctx = freshCtx();
+    api['company.setup'](ctx, { ...ENTERPRISE });
+    expect(ctx.db.get<{ pin: string }>('SELECT pin FROM users')!.pin).toMatch(/^pbkdf2\$/);
+    ctx.db.exec("INSERT INTO users (name, role, pin) VALUES ('Old', 'cashier', '4321')");
+    const old = ctx.db.get<{ id: number }>("SELECT id FROM users WHERE name = 'Old'")!.id;
+    expect(() => api['auth.login'](ctx, { userId: old, pin: '1111' })).toThrow(/Wrong PIN/);
+    api['auth.login'](ctx, { userId: old, pin: '4321' }); // plain-text still works once…
+    expect(ctx.db.get<{ pin: string }>('SELECT pin FROM users WHERE id = ?', [old])!.pin).toMatch(/^pbkdf2\$/); // …and is upgraded
+    ctx.db.exec("INSERT INTO users (name, role, pin) VALUES ('Older', 'cashier', '9999')");
+    expect(upgradePlainPins(ctx.db)).toBe(1);
+    expect(ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM users WHERE pin NOT LIKE 'pbkdf2$%'")!.n).toBe(0);
+  });
+});

@@ -1,5 +1,6 @@
 import { normalizePhone, panFromGstin, validateEnterprise, type Role } from '@hisaab/core';
 import type { Company, Session } from '../types';
+import { hashPin, isHashed, verifyPin } from '../crypto';
 import { AppError, audit, guard, postVoucher, requireSession, type Ctx } from './base';
 
 export function getCompany(ctx: Ctx): Company | null {
@@ -109,7 +110,7 @@ export function setupCompany(ctx: Ctx, input: SetupInput): Session {
   const keys = Object.keys(c) as Array<keyof Company>;
   return ctx.db.transaction(() => {
     ctx.db.exec(`INSERT INTO company (id, ${keys.join(', ')}) VALUES (1, ${keys.map(() => '?').join(', ')})`, keys.map((k) => (c[k] ?? null) as never));
-    const { lastId } = ctx.db.exec('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)', [input.ownerName.trim(), 'owner', input.ownerPin]);
+    const { lastId } = ctx.db.exec('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)', [input.ownerName.trim(), 'owner', hashPin(input.ownerPin)]);
     ctx.db.exec("INSERT INTO parties (kind, name, is_walkin, state_code) VALUES ('customer', 'Walk-in Customer', 1, ?)", [c.state_code!]);
     const session: Session = { userId: lastId, name: input.ownerName.trim(), role: 'owner' };
     ctx.session = session;
@@ -132,7 +133,8 @@ export function listUsersForLogin(ctx: Ctx) {
 
 export function login(ctx: Ctx, userId: number, pin: string): Session {
   const u = ctx.db.get<{ id: number; name: string; role: Role; pin: string }>('SELECT * FROM users WHERE id = ? AND active = 1', [userId]);
-  if (!u || u.pin !== pin) throw new AppError('Wrong PIN. Try again.', 'BAD_PIN');
+  if (!u || !verifyPin(pin, u.pin)) throw new AppError('Wrong PIN. Try again.', 'BAD_PIN');
+  if (!isHashed(u.pin)) ctx.db.exec('UPDATE users SET pin = ? WHERE id = ?', [hashPin(pin), u.id]);
   ctx.session = { userId: u.id, name: u.name, role: u.role };
   audit(ctx, 'login', 'user', u.id);
   return ctx.session;
@@ -157,12 +159,12 @@ export function saveUser(ctx: Ctx, u: { id?: number; name: string; role: Role; p
     if (u.id) {
       if (u.id === s.userId && (u.role !== 'owner' || u.active === false)) throw new AppError("You can't remove your own owner access.");
       ctx.db.exec('UPDATE users SET name = ?, role = ?, active = ? WHERE id = ?', [u.name.trim(), u.role, u.active === false ? 0 : 1, u.id]);
-      if (u.pin) ctx.db.exec('UPDATE users SET pin = ? WHERE id = ?', [u.pin, u.id]);
+      if (u.pin) ctx.db.exec('UPDATE users SET pin = ? WHERE id = ?', [hashPin(u.pin), u.id]);
       audit(ctx, 'user.update', 'user', u.id, { role: u.role });
       return u.id;
     }
     if (!u.pin) throw new AppError('Set a PIN for the new user.');
-    const { lastId } = ctx.db.exec('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)', [u.name.trim(), u.role, u.pin]);
+    const { lastId } = ctx.db.exec('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)', [u.name.trim(), u.role, hashPin(u.pin)]);
     audit(ctx, 'user.create', 'user', lastId, { role: u.role });
     return lastId;
   });

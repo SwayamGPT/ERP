@@ -5,6 +5,7 @@ import { api, type Method } from './api';
 import { isMutation } from './methods';
 import { AppError, localToday, type Ctx } from './repos/base';
 import { migrate } from './schema';
+import { upgradePlainPins } from './crypto';
 import type { Company, EnterpriseEntry } from './types';
 
 /**
@@ -151,6 +152,7 @@ async function open(id: string, bytes?: Uint8Array | null) {
   adapter = new SqlJsAdapter(data ? new SQL.Database(data) : new SQL.Database());
   const before = adapter.writeVersion;
   migrate(adapter);
+  upgradePlainPins(adapter);
   currentId = id;
   ctx = { db: adapter, session: null, today: localToday };
   // If migrations changed an existing database, persist it; otherwise nothing to save yet.
