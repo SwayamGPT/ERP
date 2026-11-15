@@ -741,6 +741,22 @@ CREATE INDEX idx_expenses_godown ON expenses(godown_id);
 INSERT OR IGNORE INTO expense_categories (name, grp) VALUES ('Godown rent', 'Rent & premises');
 `,
   },
+  {
+    version: 11,
+    name: 'bill_wise_payments',
+    sql: /* sql */ `
+-- Which bills a payment (money in from a customer / out to a supplier) was made against.
+CREATE TABLE payment_allocations (
+  id INTEGER PRIMARY KEY,
+  payment_id INTEGER NOT NULL REFERENCES payments(id),
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+  amount INTEGER NOT NULL CHECK (amount > 0)
+);
+CREATE INDEX idx_alloc_payment ON payment_allocations(payment_id);
+CREATE INDEX idx_alloc_invoice ON payment_allocations(invoice_id);
+CREATE INDEX idx_invoices_supplier_bill ON invoices(party_id, supplier_bill_no);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

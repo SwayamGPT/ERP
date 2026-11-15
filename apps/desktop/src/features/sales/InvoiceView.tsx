@@ -13,6 +13,7 @@ import { useCan } from '../../lib/perm';
 import { billMessage, whatsappLink } from '../../lib/share';
 import { useAction, useApi } from '../../lib/useApi';
 import { EinvoicePanel } from './EinvoicePanel';
+import { PaymentDialog } from '../money/MoneyPage';
 
 export function InvoiceView() {
   const { id } = useParams();
@@ -25,6 +26,8 @@ export function InvoiceView() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [ewayOpen, setEwayOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
+  const party = useApi('parties.get', { id: inv.data?.party_id ?? 0 }, { enabled: payOpen && !!inv.data }).data;
   if (!inv.data || !company) return <Loading />;
   const v = inv.data;
   const tpl = template ?? company.print_template;
@@ -88,6 +91,14 @@ export function InvoiceView() {
             {v.round_off !== 0 && <Row k="Round off" v={inr(v.round_off)} />}
             <div className="flex justify-between border-t border-border pt-2 text-base font-semibold"><span>Total</span><span className="tnum">{inr(v.total)}</span></div>
             <Row k="Paid" v={inr(v.paid)} />
+            {v.status === 'final' && (v.kind === 'sale' || v.kind === 'purchase') && due > 0 && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="font-medium text-bad" data-testid="bill-due">Due {inr(due)}</span>
+                {canDo(v.kind === 'sale' ? 'payment.in' : 'payment.out') && (
+                  <Button size="sm" variant="outline" onClick={() => setPayOpen(true)} data-testid="bill-pay">{v.kind === 'sale' ? 'Receive payment' : 'Record payment'}</Button>
+                )}
+              </div>
+            )}
             {profit !== null && canDo('report.profit') && <Row k="Profit (on cost)" v={`${inr(profit)} · ${v.taxable ? Math.round((profit / v.taxable) * 1000) / 10 : 0}%`} />}
           </div>
           {!!v.payments?.length && (
@@ -106,6 +117,8 @@ export function InvoiceView() {
       </div>
 
       {returnOpen && <ReturnDialog inv={v} onClose={() => setReturnOpen(false)} onDone={(r) => navigate(`${isSale ? '/sales' : '/purchases'}/${r.id}`)} />}
+      {payOpen && party && <PaymentDialog direction={v.kind === 'sale' ? 'in' : 'out'} party={party} bill={{ id: v.id, due }} onClose={() => setPayOpen(false)} />}
+      <BillPayments invoiceId={v.id} />
       {ewayOpen && <EwayDialog inv={v} onClose={() => setEwayOpen(false)} />}
       <ConfirmDialog
         open={cancelOpen}
@@ -228,5 +241,22 @@ function EwayDialog({ inv, onClose }: { inv: Invoice; onClose: () => void }) {
       </div>
       <p className="mt-3 flex items-center gap-1.5 text-xs text-muted"><Receipt className="h-3.5 w-3.5" /> Direct API generation (no upload) arrives with cloud sync.</p>
     </Dialog>
+  );
+}
+
+/** Payments marked against this bill after it was made (bill-time payments are listed in the sidebar). */
+function BillPayments({ invoiceId }: { invoiceId: number }) {
+  const rows = (useApi('payments.forBill', { invoiceId }).data ?? []).filter((p) => p.how === 'against bill');
+  if (!rows.length) return null;
+  return (
+    <div className="card mt-4 max-w-md p-4" data-testid="bill-payments">
+      <h3 className="mb-2 text-sm font-semibold">Paid against this bill later</h3>
+      {rows.map((p) => (
+        <div key={`${p.id}-${p.amount}`} className="flex justify-between py-1 text-sm">
+          <span className="text-muted">{fmtDate(p.date)} · {p.mode.toUpperCase()}{p.reference ? ` · ${p.reference}` : ''}</span>
+          <span className="tnum">{inr(p.amount)}</span>
+        </div>
+      ))}
+    </div>
   );
 }

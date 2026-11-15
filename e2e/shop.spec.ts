@@ -18,6 +18,7 @@ test('purchase order → receive goods, and a distributor bill imported from CSV
   await page.getByTestId('po-receive').first().click();
   await expect(page.getByTestId('purchase-from-po')).toContainText('PO-1');
   await expect(page.getByTestId('pur-qty').first()).toHaveValue('1');
+  await page.getByTestId('purchase-billno').fill('PO-INV-1');
   await page.getByTestId('purchase-save').click();
   await expect(page.getByTestId('toast').filter({ hasText: /Purchase PUR-\d+ saved/ })).toBeVisible();
   await page.goto('/#/purchases/orders');
@@ -131,6 +132,7 @@ test('purchase: a typed name that is not an item can be created on the spot; tot
   await page.getByTestId('pur-item').first().fill('Kesar Badam Mix 200g');
   await page.getByTestId('pur-qty').first().fill('10'); // left the name without picking
   await page.getByTestId('pur-rate').first().fill('55');
+  await page.getByTestId('purchase-billno').fill('KB-1');
   await page.getByTestId('purchase-save').click();
   await expect(page.getByTestId('toast').filter({ hasText: /Row 1: “Kesar Badam Mix 200g” is not an item yet/ })).toBeVisible();
   await page.getByTestId('pur-item').first().fill('Kesar Badam Mix 200g');
@@ -148,6 +150,7 @@ test('purchase: a typed name that is not an item can be created on the spot; tot
   await page.getByTestId('pur-qty').first().fill('10');
   await page.getByTestId('pur-rate').first().fill('55');
   await expect(page.getByTestId('purchase-total')).toHaveText('₹649.00'); // 550 + 18% GST
+  await page.getByTestId('purchase-billno').fill('KB-1');
   await page.getByTestId('purchase-save').click();
   await expect(page.getByTestId('toast').filter({ hasText: /Purchase PUR-\d+ saved/ })).toBeVisible();
 });
@@ -192,4 +195,34 @@ test('items show total items and stock value; the stock report breaks it down by
   const [dl] = await Promise.all([page.waitForEvent('download'), (await page.keyboard.press('Escape'), page.getByTestId('stock-csv')).click()]);
   expect(dl.suggestedFilename()).toMatch(/^stock-report-/);
   await page.screenshot({ path: '/tmp/claude-0/-home-user-ERP/b2553004-ffbc-5c9d-a739-8c93f31c8446/scratchpad/stock-report.png', fullPage: false });
+});
+
+test('purchase needs the supplier invoice number; a payment can be recorded against that bill', async ({ page }) => {
+  await openShop(page);
+  await page.keyboard.press('Alt+p');
+  await page.getByTestId('customer-search').fill('Mahalaxmi');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('customer-search')).toBeHidden();
+  await page.getByTestId('pur-item').first().fill('Fresh Paneer');
+  await page.getByRole('button', { name: /Fresh Paneer 200g/ }).click();
+  await page.getByTestId('pur-qty').first().fill('10');
+  await page.getByTestId('pur-rate').first().fill('70');
+  await page.getByTestId('purchase-save').click();
+  await expect(page.getByText("Enter the invoice number printed on the supplier's bill")).toBeVisible();
+  await page.getByTestId('purchase-billno').fill('MD/7788');
+  await page.getByTestId('purchase-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: /Purchase PUR-\d+ saved/ })).toBeVisible();
+
+  // On the bill: due amount and "Record payment" pre-filled for this bill.
+  await expect(page.getByTestId('bill-due')).toContainText('Due');
+  await page.getByTestId('bill-pay').click();
+  await expect(page.getByTestId('pay-bills')).toContainText('MD/7788');
+  const row = page.getByTestId('pay-bills').locator('li', { hasText: 'MD/7788' });
+  await expect(row.getByTestId('pay-bill-check')).toBeChecked();
+  await expect(page.getByTestId('pay-bills').getByTestId('pay-bill-check').and(page.locator(':checked'))).toHaveCount(1); // only this bill
+  await page.getByTestId('pay-amount').fill('300');
+  await row.getByTestId('pay-bill-amount').fill('300');
+  await page.getByTestId('pay-save').click();
+  await expect(page.getByTestId('bill-payments')).toContainText('₹300.00');
+  await expect(page.getByTestId('bill-due')).toContainText('₹400.00'); // ₹700 bill (paneer has no GST) − 300
 });

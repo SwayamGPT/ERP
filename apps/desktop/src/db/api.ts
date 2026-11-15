@@ -144,6 +144,8 @@ export const api = {
 
   // money
   'payments.receive': (ctx: Ctx, a: Parameters<typeof invoices.receivePayment>[1]) => invoices.receivePayment(ctx, a),
+  'payments.forBill': (ctx: Ctx, a: { invoiceId: number }) => invoices.billPayments(ctx, a.invoiceId),
+  'payments.openBills': (ctx: Ctx, a: { partyId: number; kind: 'sale' | 'purchase' }) => invoices.openBills(ctx, a.partyId, a.kind),
   'payments.cancel': (ctx: Ctx, a: { id: number }) => invoices.cancelPayment(ctx, a.id),
   'payments.list': (ctx: Ctx, a: Parameters<typeof invoices.listPayments>[1]) => invoices.listPayments(ctx, a),
 

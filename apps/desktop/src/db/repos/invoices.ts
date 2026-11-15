@@ -161,6 +161,16 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
   const s = guard(ctx, draft.kind === 'sale' ? 'sale.create' : 'purchase.create');
   if (!draft.lines.length) throw new AppError('Add at least one item.');
   if (draft.date && draft.date !== ctx.today() && s.role === 'cashier') throw new AppError('Only the owner or manager can bill on another date.');
+  if (draft.kind === 'purchase') {
+    // Every purchase records the supplier's own invoice number (needed for GSTR-2B matching and payments).
+    const billNo = draft.supplierBillNo?.trim();
+    if (!billNo) throw new AppError("Enter the supplier's invoice number.", 'BILL_NO');
+    const dup = draft.partyId
+      ? ctx.db.get<{ number: string }>("SELECT number FROM invoices WHERE kind = 'purchase' AND status = 'final' AND party_id = ? AND UPPER(supplier_bill_no) = UPPER(?)", [draft.partyId, billNo])
+      : undefined;
+    if (dup) throw new AppError(`Invoice ${billNo} from this supplier is already entered as ${dup.number}.`, 'DUP_BILL_NO');
+    draft = { ...draft, supplierBillNo: billNo };
+  }
   if (draft.kind === 'sale' && !allowed(ctx, 'discount.any')) {
     const over = draft.lines.some((l) => (l.discountPct ?? 0) > CASHIER_DISCOUNT_CAP) || (draft.billDiscountPct ?? 0) > CASHIER_DISCOUNT_CAP;
     if (over) throw new AppError(`Cashiers can give up to ${CASHIER_DISCOUNT_CAP}% discount. Ask the owner for more.`);
@@ -448,14 +458,34 @@ export function cancelInvoice(ctx: Ctx, id: number, reason: string) {
 
 /* ───────── Money in / out ───────── */
 
-export function receivePayment(ctx: Ctx, input: { direction: 'in' | 'out'; partyId: number; amount: number; mode: DraftPayment['mode']; reference?: string; note?: string; date?: string }) {
+export function receivePayment(
+  ctx: Ctx,
+  input: { direction: 'in' | 'out'; partyId: number; amount: number; mode: DraftPayment['mode']; reference?: string; note?: string; date?: string; againstBills?: Array<{ invoiceId: number; amount: number }> },
+) {
   guard(ctx, input.direction === 'in' ? 'payment.in' : 'payment.out');
   if (!(input.amount > 0)) throw new AppError('Enter an amount.');
   const party = getParty(ctx, input.partyId);
   if (party.is_walkin) throw new AppError('Pick a customer or supplier.');
+  // Optional: which bills this money is for, and how much each.
+  const against = (input.againstBills ?? []).filter((a) => a.amount > 0);
+  const kind = input.direction === 'in' ? 'sale' : 'purchase';
+  const billNotes: string[] = [];
+  for (const a of against) {
+    if (!Number.isSafeInteger(a.amount)) throw new AppError('Amounts must be in whole paise.');
+    const b = ctx.db.get<{ number: string; supplier_bill_no: string | null; total: number; paid: number; party_id: number; kind: string; status: string }>(
+      'SELECT number, supplier_bill_no, total, paid, party_id, kind, status FROM invoices WHERE id = ?',
+      [a.invoiceId],
+    );
+    if (!b || b.party_id !== party.id || b.kind !== kind || b.status !== 'final') throw new AppError(`That bill is not an open ${kind === 'sale' ? 'sale' : 'purchase'} of ${party.name}.`);
+    if (a.amount > b.total - b.paid) throw new AppError(`Only ${(Math.max(0, b.total - b.paid) / 100).toFixed(2)} is due on ${b.supplier_bill_no ?? b.number}.`);
+    billNotes.push(b.supplier_bill_no ?? b.number);
+  }
+  if (against.reduce((s, a) => s + a.amount, 0) > input.amount) throw new AppError('The amounts against bills add up to more than the payment.');
   return ctx.db.transaction(() => {
     const date = input.date ?? ctx.today();
-    const id = recordPayment(ctx, { ...input, invoiceId: null, date, note: input.note ?? (input.direction === 'in' ? 'Payment received' : 'Payment made') });
+    const note = input.note ?? `${input.direction === 'in' ? 'Payment received' : 'Payment made'}${billNotes.length ? ` against ${billNotes.join(', ')}` : ''}`;
+    const id = recordPayment(ctx, { ...input, invoiceId: null, date, note });
+    for (const a of against) ctx.db.exec('INSERT INTO payment_allocations (payment_id, invoice_id, amount) VALUES (?, ?, ?)', [id, a.invoiceId, a.amount]);
     allocateToBills(ctx, party.id, input.direction === 'in' ? 'sale' : 'purchase');
     audit(ctx, `payment.${input.direction}`, 'payment', id, { amount: input.amount });
     return id;
@@ -463,6 +493,11 @@ export function receivePayment(ctx: Ctx, input: { direction: 'in' | 'out'; party
 }
 
 /** Mark the oldest unpaid bills as paid up to the party's net payments (FIFO knock-off for "unpaid" status). */
+/**
+ * Work out how much of each bill is paid. Money paid on the bill itself and money a payment was
+ * marked "against this bill" count for that bill first; everything else (and returns adjusted in
+ * the account) settles the oldest bills.
+ */
 export function allocateToBills(ctx: Ctx, partyId: number, kind: 'sale' | 'purchase') {
   const dir = kind === 'sale' ? 'in' : 'out';
   const credits = ctx.db.get<{ s: number }>(
@@ -470,13 +505,31 @@ export function allocateToBills(ctx: Ctx, partyId: number, kind: 'sale' | 'purch
     [partyId, dir],
   )?.s ?? 0;
   const returns = ctx.db.get<{ s: number }>(`SELECT COALESCE(SUM(total), 0) AS s FROM invoices WHERE party_id = ? AND kind = ? AND status = 'final' AND payment_mode = 'adjust'`, [partyId, `${kind}_return`])?.s ?? 0;
-  let pool = credits + returns;
-  const bills = ctx.db.query<{ id: number; total: number }>(`SELECT id, total FROM invoices WHERE party_id = ? AND kind = ? AND status = 'final' ORDER BY date, id`, [partyId, kind]);
+  const bills = ctx.db.query<{ id: number; total: number; earmarked: number }>(
+    `SELECT i.id, i.total,
+       (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.invoice_id = i.id AND p.cancelled = 0)
+       + (SELECT COALESCE(SUM(a.amount), 0) FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.invoice_id = i.id AND p.cancelled = 0) AS earmarked
+     FROM invoices i WHERE i.party_id = ? AND i.kind = ? AND i.status = 'final' ORDER BY i.date, i.id`,
+    [partyId, kind],
+  );
+  const paid = new Map(bills.map((b) => [b.id, Math.min(b.total, b.earmarked)]));
+  let pool = credits + returns - [...paid.values()].reduce((a, v) => a + v, 0);
   for (const b of bills) {
-    const p = Math.max(0, Math.min(b.total, pool));
-    pool -= p;
-    ctx.db.exec('UPDATE invoices SET paid = ? WHERE id = ?', [p, b.id]);
+    const take = Math.max(0, Math.min(b.total - paid.get(b.id)!, pool));
+    pool -= take;
+    paid.set(b.id, paid.get(b.id)! + take);
   }
+  for (const b of bills) ctx.db.exec('UPDATE invoices SET paid = ? WHERE id = ?', [paid.get(b.id)!, b.id]);
+}
+
+/** Bills of a party that still have money due (for "pay against these bills"). */
+export function openBills(ctx: Ctx, partyId: number, kind: 'sale' | 'purchase') {
+  guard(ctx, 'party.view');
+  return ctx.db.query<{ id: number; number: string; supplier_bill_no: string | null; date: string; total: number; paid: number; due: number }>(
+    `SELECT id, number, supplier_bill_no, date, total, paid, total - paid AS due FROM invoices
+     WHERE party_id = ? AND kind = ? AND status = 'final' AND paid < total ORDER BY date, id`,
+    [partyId, kind],
+  );
 }
 
 export function cancelPayment(ctx: Ctx, id: number) {
@@ -519,4 +572,16 @@ export function batchesFor(ctx: Ctx, itemId: number): Batch[] {
   return ctx.db
     .query<Batch>('SELECT * FROM batches WHERE item_id = ? AND qty > 0 ORDER BY expiry IS NULL, expiry, received_at', [itemId])
     .map((b) => stripCost(ctx, b));
+}
+
+/** Money paid on or against one bill: at billing time and later payments marked for it. */
+export function billPayments(ctx: Ctx, invoiceId: number) {
+  guard(ctx, 'party.view');
+  return ctx.db.query<{ id: number; date: string; mode: string; reference: string | null; amount: number; how: 'on bill' | 'against bill' }>(
+    `SELECT id, date, mode, reference, amount, 'on bill' AS how FROM payments WHERE invoice_id = ? AND cancelled = 0
+     UNION ALL
+     SELECT p.id, p.date, p.mode, p.reference, a.amount, 'against bill' FROM payment_allocations a JOIN payments p ON p.id = a.payment_id WHERE a.invoice_id = ? AND p.cancelled = 0
+     ORDER BY date, id`,
+    [invoiceId, invoiceId],
+  );
 }

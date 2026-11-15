@@ -7,6 +7,7 @@ import type { Ctx } from '../src/db/repos/base';
 import { migrate, MIGRATIONS } from '../src/db/schema';
 import { loadSample } from './fixtures/seed';
 
+let billSeq = 0; // supplier invoice numbers for test purchases
 let SQL: Awaited<ReturnType<typeof initSqlJs>>;
 beforeAll(async () => {
   SQL = await initSqlJs();
@@ -55,8 +56,8 @@ describe('database & posting engine', () => {
     const ctx = setup('kirana', false);
     const itemId = api['items.save'](ctx, { name: 'Test Biscuit', gst_rate: 5, base_unit: 'Pcs', mrp: 3000, retail_price: 3000, purchase_price: 2400, track_batch: true });
     const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
-    api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 2400, taxInclusive: false, batchNo: 'LATE', expiry: '2027-06-01' }] });
-    api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 5, rate: 2500, taxInclusive: false, batchNo: 'SOON', expiry: '2026-12-10' }] });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 2400, taxInclusive: false, batchNo: 'LATE', expiry: '2027-06-01' }] });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 5, rate: 2500, taxInclusive: false, batchNo: 'SOON', expiry: '2026-12-10' }] });
     expect(stockOf(ctx, itemId)).toBe(15);
 
     const pv = api['invoices.preview'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 7, rate: 3000 }] });

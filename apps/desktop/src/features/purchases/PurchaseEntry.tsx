@@ -52,6 +52,8 @@ export function PurchaseEntry() {
   const [other, setOther] = useState(0);
   const [payNow, setPayNow] = useState<'none' | 'cash' | 'bank' | 'upi'>('none');
   const [saving, setSaving] = useState(false);
+  const [billNoMissing, setBillNoMissing] = useState(false);
+  const billNoRef = useRef<HTMLInputElement>(null);
   const [po, setPo] = useState<{ id: number; number: string } | null>(null);
   const [godownId, setGodownId] = useState<number | null>(null);
   const godowns = useApi('stock.godowns').data ?? [];
@@ -117,6 +119,11 @@ export function PurchaseEntry() {
       return toast.error(new Error(`Row ${orphan + 1}: “${r.typed?.trim() || 'item'}” is not an item yet. Pick it from the list, or choose “Create item” to add it.`));
     }
     if (!draft.lines.length) return toast.info('Add at least one item with quantity');
+    if (!billNo.trim()) {
+      setBillNoMissing(true);
+      billNoRef.current?.focus();
+      return toast.error(new Error("Enter the supplier's invoice number (from their bill)."));
+    }
     setSaving(true);
     try {
       const payable = t?.payable ?? 0;
@@ -166,7 +173,9 @@ export function PurchaseEntry() {
               <Kbd>F7</Kbd>
             </button>
           </Field>
-          <Field label="Supplier bill no."><Input value={billNo} onChange={(e) => setBillNo(e.target.value)} placeholder="e.g. MD/2291" /></Field>
+          <Field label="Supplier invoice no. *" error={billNoMissing ? "Enter the invoice number printed on the supplier's bill" : undefined}>
+            <Input ref={billNoRef} value={billNo} onChange={(e) => (setBillNo(e.target.value), setBillNoMissing(false))} placeholder="e.g. MD/2291" data-testid="purchase-billno" />
+          </Field>
           <Field label="Bill date"><Input type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} /></Field>
           {godowns.length > 1 && (
             <Field label="Goods go to">

@@ -7,6 +7,7 @@ import type { Ctx } from '../src/db/repos/base';
 import { migrate } from '../src/db/schema';
 import { loadSample } from './fixtures/seed';
 
+let billSeq = 0; // supplier invoice numbers for test purchases
 let SQL: Awaited<ReturnType<typeof initSqlJs>>;
 beforeAll(async () => {
   SQL = await initSqlJs();
@@ -51,7 +52,7 @@ describe('purchase orders, reorder and bill import', () => {
     const po = api['po.create'](ctx, { partyId: sup, lines: [{ itemId: it, qty: 10, rate: 2000 }] });
     expect(po.number).toBe('PO-1');
     expect(po.status).toBe('open');
-    const buy = (qty: number) => api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, poId: po.id, lines: [{ itemId: it, unit: 'Pcs', factor: 1, qty, rate: 2000, taxInclusive: false }] });
+    const buy = (qty: number) => api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, poId: po.id, lines: [{ itemId: it, unit: 'Pcs', factor: 1, qty, rate: 2000, taxInclusive: false }] });
     const p1 = buy(4);
     expect(api['po.get'](ctx, { id: po.id }).status).toBe('partial');
     expect(api['po.get'](ctx, { id: po.id }).lines![0].pending).toBe(6);
@@ -68,7 +69,7 @@ describe('purchase orders, reorder and bill import', () => {
     const ctx = shop(false);
     const sup = supplier(ctx, 'Distributor A');
     const it = newItem(ctx, 'Tea 250g', { reorder_level: 5 });
-    api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, lines: [{ itemId: it, unit: 'Pcs', factor: 1, qty: 40, rate: 2000, taxInclusive: false }] });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId: it, unit: 'Pcs', factor: 1, qty: 40, rate: 2000, taxInclusive: false }] });
     for (let i = 0; i < 6; i++) sell(ctx, it, 5, { payments: [{ mode: 'cash', amount: 14000 }] }); // 30 sold in 30 days → 1/day
     const s = api['po.reorder'](ctx, {}).find((r) => r.item_id === it)!;
     expect(s.per_day).toBe(1);
@@ -94,7 +95,7 @@ describe('godowns, transfers and variants', () => {
     const sup = supplier(ctx);
     const it = newItem(ctx, 'Atta 10kg');
     const back = api['stock.saveGodown'](ctx, { name: 'Back store' });
-    api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, godownId: back, lines: [{ itemId: it, unit: 'Pcs', factor: 1, qty: 20, rate: 2000, taxInclusive: false }] });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, godownId: back, lines: [{ itemId: it, unit: 'Pcs', factor: 1, qty: 20, rate: 2000, taxInclusive: false }] });
     const by = () => Object.fromEntries(api['stock.byGodown'](ctx, { itemId: it }).map((g) => [g.name, g.qty]));
     expect(by()).toEqual({ Shop: 0, 'Back store': 20 });
     api['stock.transfer'](ctx, { from: back, to: 1, lines: [{ itemId: it, qty: 8 }] });
@@ -125,7 +126,7 @@ describe('bank reconciliation and cheques', () => {
     const ctx = shop(false);
     const it = newItem(ctx, 'Ghee 1L');
     const sup = supplier(ctx);
-    api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, lines: [{ itemId: it, unit: 'Pcs', factor: 1, qty: 10, rate: 2000, taxInclusive: false }] });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId: it, unit: 'Pcs', factor: 1, qty: 10, rate: 2000, taxInclusive: false }] });
     sell(ctx, it, 2, { payments: [{ mode: 'upi', amount: 5600 }] });
     const rows = [
       { date: '2026-11-14', description: 'UPI/CR/Ramesh', amount: 5600 },
@@ -305,7 +306,7 @@ describe('stock report', () => {
     const a = newItem(ctx, 'Tea 250g', { category: 'Beverages', reorder_level: 5 }); // MRP ₹30, sells ₹28
     const b = newItem(ctx, 'Coffee 100g', { category: 'Beverages' });
     newItem(ctx, 'Soap', { category: 'Personal care' }); // never bought: out of stock
-    api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, lines: [
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [
       { itemId: a, unit: 'Pcs', factor: 1, qty: 10, rate: 2000, taxInclusive: false },
       { itemId: b, unit: 'Pcs', factor: 1, qty: 4, rate: 2000, taxInclusive: false },
     ] });
@@ -321,5 +322,58 @@ describe('stock report', () => {
     const c = api['reports.stockDetail'](ctx, {});
     expect([c.canCost, c.totals.costValue, c.items[0].cost_value, c.totals.retailValue]).toEqual([false, 0, 0, 22400]);
     backToOwner();
+  });
+});
+
+describe('purchase invoice numbers and bill-wise payments', () => {
+  it("a purchase needs the supplier's invoice number, once per supplier", () => {
+    const ctx = shop(false);
+    const it = newItem(ctx, 'Rice 25kg');
+    const sup = supplier(ctx);
+    const line = [{ itemId: it, unit: 'Pcs', factor: 1, qty: 1, rate: 2000, taxInclusive: false }];
+    expect(() => api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, lines: line })).toThrow(/supplier's invoice number/);
+    const p = api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, supplierBillNo: ' MD/2291 ', lines: line });
+    expect(p.supplier_bill_no).toBe('MD/2291');
+    expect(() => api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, supplierBillNo: 'md/2291', lines: line })).toThrow(new RegExp(`already entered as ${p.number}`));
+    const other = supplier(ctx, 'Other supplier');
+    expect(api['invoices.create'](ctx, { kind: 'purchase', partyId: other, supplierBillNo: 'MD/2291', lines: line }).number).toBeTruthy(); // same number, different supplier: fine
+  });
+
+  it('paying a supplier against a chosen bill marks that bill paid, not the oldest', () => {
+    const ctx = shop(false);
+    const it = newItem(ctx, 'Oil tin');
+    const sup = supplier(ctx);
+    const buy = (no: string, date: string) => api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, supplierBillNo: no, date, lines: [{ itemId: it, unit: 'Pcs', factor: 1, qty: 10, rate: 10000, taxInclusive: false }] });
+    const b1 = buy('A-1', '2026-11-01');
+    const b2 = buy('A-2', '2026-11-05');
+    const b3 = buy('A-3', '2026-11-09');
+    const paid = (id: number) => api['invoices.get'](ctx, { id }).paid;
+    expect(api['payments.openBills'](ctx, { partyId: sup, kind: 'purchase' }).map((b) => b.supplier_bill_no)).toEqual(['A-1', 'A-2', 'A-3']);
+
+    // ₹1,050 against A-2 (full), plus ₹300 not earmarked → settles the oldest (A-1) partly.
+    const pay = api['payments.receive'](ctx, { direction: 'out', partyId: sup, amount: b2.total + 30000, mode: 'bank', againstBills: [{ invoiceId: b2.id, amount: b2.total }] });
+    expect([paid(b1.id), paid(b2.id), paid(b3.id)]).toEqual([30000, b2.total, 0]);
+    expect(ctx.db.get<{ note: string }>('SELECT note FROM payments WHERE id = ?', [pay])!.note).toBe('Payment made against A-2');
+    expect(api['payments.openBills'](ctx, { partyId: sup, kind: 'purchase' }).map((b) => [b.supplier_bill_no, b.due])).toEqual([['A-1', b1.total - 30000], ['A-3', b3.total]]);
+
+    expect(() => api['payments.receive'](ctx, { direction: 'out', partyId: sup, amount: 100, mode: 'cash', againstBills: [{ invoiceId: b3.id, amount: 200 }] })).toThrow(/add up to more/);
+    expect(() => api['payments.receive'](ctx, { direction: 'out', partyId: sup, amount: b3.total + 100, mode: 'cash', againstBills: [{ invoiceId: b3.id, amount: b3.total + 100 }] })).toThrow(/is due on A-3/);
+    expect(() => api['payments.receive'](ctx, { direction: 'out', partyId: sup, amount: 100, mode: 'cash', againstBills: [{ invoiceId: b2.id, amount: 100 }] })).toThrow(/is due on A-2/);
+
+    // Cancelling the payment puts the bills back to unpaid.
+    api['payments.cancel'](ctx, { id: pay });
+    expect([paid(b1.id), paid(b2.id), paid(b3.id)]).toEqual([0, 0, 0]);
+    expect(balanced(ctx)).toBe(true);
+  });
+
+  it('a customer payment can be split across chosen bills', () => {
+    const ctx = shop(false);
+    const it = newItem(ctx, 'Basmati');
+    api['items.adjust'](ctx, { itemId: it, delta: 100, note: 'opening' });
+    const c = customer(ctx);
+    const s1 = sell(ctx, it, 2, { partyId: c });
+    const s2 = sell(ctx, it, 3, { partyId: c });
+    api['payments.receive'](ctx, { direction: 'in', partyId: c, amount: 5000, mode: 'upi', againstBills: [{ invoiceId: s1.id, amount: 1000 }, { invoiceId: s2.id, amount: 4000 }] });
+    expect([api['invoices.get'](ctx, { id: s1.id }).paid, api['invoices.get'](ctx, { id: s2.id }).paid]).toEqual([1000, 4000]);
   });
 });

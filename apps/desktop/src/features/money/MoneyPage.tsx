@@ -369,14 +369,29 @@ function CashCheckDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function PaymentDialog({ direction, party: initial, onClose }: { direction: 'in' | 'out'; party?: Party; onClose: () => void }) {
+export function PaymentDialog({ direction, party: initial, bill, onClose }: { direction: 'in' | 'out'; party?: Party; bill?: { id: number; due: number }; onClose: () => void }) {
   const [party, setParty] = useState<Party | null>(initial ?? null);
   const [picking, setPicking] = useState(!initial);
-  const [amount, setAmount] = useState(0);
+  const [amount, setAmount] = useState(bill?.due ?? 0);
   const [mode, setMode] = useState<PayMode>('cash');
   const [ref, setRef] = useState('');
   const act = useAction('payments.receive', { success: direction === 'in' ? 'Payment received' : 'Payment recorded', onSuccess: onClose });
   const owes = party ? (direction === 'in' ? party.balance : -party.balance) : 0;
+  // Which bills this payment is for. Empty = oldest bills first.
+  const bills = useApi('payments.openBills', { partyId: party?.id ?? 0, kind: direction === 'in' ? 'sale' : 'purchase' }, { enabled: !!party }).data ?? [];
+  const [chosen, setChosen] = useState<Record<number, number>>(bill ? { [bill.id]: bill.due } : {});
+  const earmarked = Object.values(chosen).reduce((a, v) => a + v, 0);
+  const toggle = (id: number, due: number) =>
+    setChosen((c) => {
+      const n = { ...c };
+      if (n[id] != null) delete n[id];
+      else n[id] = due;
+      const sum = Object.values(n).reduce((a, v) => a + v, 0);
+      setAmount((amt) => Math.max(amt, sum));
+      return n;
+    });
+  const save = () =>
+    act.mutate({ direction, partyId: party!.id, amount, mode, reference: ref || undefined, againstBills: Object.entries(chosen).map(([invoiceId, a]) => ({ invoiceId: Number(invoiceId), amount: a })) });
   return (
     <>
       <Dialog
@@ -384,13 +399,37 @@ export function PaymentDialog({ direction, party: initial, onClose }: { directio
         onOpenChange={(v) => !v && onClose()}
         title={direction === 'in' ? 'Receive payment' : 'Pay supplier'}
         description={party ? `${party.name}${owes > 0 ? ` · ${direction === 'in' ? 'owes you' : 'you owe'} ${inr(owes)}` : ''}` : undefined}
-        footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant={direction === 'in' ? 'saffron' : 'primary'} loading={act.isPending} disabled={!party || amount <= 0} onClick={() => act.mutate({ direction, partyId: party!.id, amount, mode, reference: ref || undefined })} data-testid="pay-save">Save {amount ? inr(amount) : ''}</Button></>}
+        footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant={direction === 'in' ? 'saffron' : 'primary'} loading={act.isPending} disabled={!party || amount <= 0 || earmarked > amount} onClick={save} data-testid="pay-save">Save {amount ? inr(amount) : ''}</Button></>}
       >
         <div className="space-y-3">
           <Field label="Amount"><MoneyInput autoFocus value={amount} onChange={setAmount} className="[&_input]:h-11 [&_input]:text-lg" data-testid="pay-amount" /></Field>
           {owes > 0 && <button className="text-xs font-medium text-primary hover:underline" onClick={() => setAmount(owes)}>Full balance {inr(owes)}</button>}
           <Field label="Mode"><Segmented value={mode} onChange={setMode} options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'bank', label: 'Bank' }, { value: 'cheque', label: 'Cheque' }]} /></Field>
           {mode !== 'cash' && <Field label="Reference (UTR / cheque no.)"><Input value={ref} onChange={(e) => setRef(e.target.value)} /></Field>}
+          {bills.length > 0 && (
+            <div className="rounded-lg border border-border" data-testid="pay-bills">
+              <div className="flex items-center justify-between border-b border-border px-3 py-2 text-xs">
+                <span className="font-medium">{direction === 'in' ? 'Against which bills?' : 'Which bills are you paying?'}</span>
+                <span className="text-muted">{earmarked ? `${inr(earmarked)} against ${Object.keys(chosen).length} bill(s)` : 'None ticked: oldest bills first'}</span>
+              </div>
+              <ul className="max-h-48 divide-y divide-border overflow-auto text-sm">
+                {bills.map((b) => (
+                  <li key={b.id} className="flex items-center gap-2 px-3 py-1.5">
+                    <input type="checkbox" checked={chosen[b.id] != null} onChange={() => toggle(b.id, b.due)} data-testid="pay-bill-check" />
+                    <span className="flex-1">
+                      <b>{b.supplier_bill_no ?? b.number}</b> <span className="text-xs text-muted">{fmtDate(b.date)} · bill {inr(b.total)}</span>
+                    </span>
+                    <span className="text-xs text-muted">due {inr(b.due)}</span>
+                    {chosen[b.id] != null && (
+                      <MoneyInput className="w-28" value={chosen[b.id]} onChange={(v) => setChosen((c) => ({ ...c, [b.id]: Math.min(v, b.due) }))} data-testid="pay-bill-amount" />
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {earmarked > amount && <p className="px-3 py-1.5 text-xs text-bad">The bills add up to more than the amount paid.</p>}
+              {earmarked > 0 && amount > earmarked && <p className="px-3 py-1.5 text-xs text-muted">The remaining {inr(amount - earmarked)} settles the oldest bills.</p>}
+            </div>
+          )}
           <button className="text-xs text-muted hover:text-ink" onClick={() => setPicking(true)}>Change {direction === 'in' ? 'customer' : 'supplier'}</button>
         </div>
       </Dialog>

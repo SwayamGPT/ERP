@@ -184,6 +184,7 @@ test('purchase entry creates a batch with expiry', async ({ page }) => {
   await page.getByTestId('pur-batch').first().fill('PN777');
   await page.getByTestId('pur-expiry').first().fill('2030-01-15');
   await expect(page.getByTestId('purchase-total')).toHaveText('₹1,400.00');
+  await page.getByTestId('purchase-billno').fill('MD/9001');
   await page.getByTestId('purchase-save').click();
   await expect(page.getByTestId('toast').filter({ hasText: /Purchase PUR-\d+ saved/ })).toBeVisible();
 
