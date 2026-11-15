@@ -176,6 +176,7 @@ fn lan_reply(rid: u64, body: String, lan: State<'_, Lan>) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?.join("data");
             let store = Store::new(dir, 7).map_err(|e| Box::<dyn std::error::Error>::from(e))?;

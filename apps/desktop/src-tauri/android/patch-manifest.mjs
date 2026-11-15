@@ -1,7 +1,7 @@
 // After `tauri android init`: let the app talk plain HTTP to the shop computer on the local
 // Wi-Fi (e.g. http://192.168.1.5:8787). Android blocks clear-text HTTP in release builds unless
 // the app says otherwise, and shop computers have no HTTPS certificate.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -29,3 +29,47 @@ writeFileSync(
 `,
 );
 console.log('Android manifest patched for the shop Wi-Fi.');
+
+// The app draws edge to edge on new Android versions, so its page slid under the status bar,
+// camera cut-out and navigation bar. Pad the app's view by those bars (and the keyboard).
+const find = (dir) => {
+  for (const f of readdirSync(dir)) {
+    const p = join(dir, f);
+    if (statSync(p).isDirectory()) {
+      const r = find(p);
+      if (r) return r;
+    } else if (f === 'MainActivity.kt') return p;
+  }
+  return null;
+};
+const activity = find(join(main, 'java'));
+if (!activity) throw new Error('MainActivity.kt not found');
+const old = readFileSync(activity, 'utf8');
+const pkg = /^package .*$/m.exec(old)?.[0];
+if (!pkg) throw new Error('No package line in MainActivity.kt');
+const edge = old.includes('enableEdgeToEdge');
+writeFileSync(
+  activity,
+  `${pkg}
+
+import android.os.Bundle
+${edge ? 'import androidx.activity.enableEdgeToEdge\n' : ''}import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+
+class MainActivity : TauriActivity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+${edge ? '    enableEdgeToEdge()\n' : ''}    super.onCreate(savedInstanceState)
+    // Keep Hisaab clear of the status bar, camera cut-out, navigation bar and the keyboard.
+    val root = findViewById<android.view.View>(android.R.id.content)
+    ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+      val bars = insets.getInsets(
+        WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime()
+      )
+      v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      WindowInsetsCompat.CONSUMED
+    }
+  }
+}
+`,
+);
+console.log('MainActivity: content kept clear of system bars.');

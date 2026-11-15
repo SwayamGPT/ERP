@@ -36,7 +36,7 @@ export function MobileApp({ company, session, onDesktop }: { company: Company; s
 
   return (
     <div className="flex h-full flex-col bg-bg" data-testid="mobile-app">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-4">
+      <header className="flex min-h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-4 pt-[env(safe-area-inset-top)]">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{company.name}</p>
           <p className="text-[11px] text-muted">{session.name} · <span className="capitalize">{session.role}</span></p>

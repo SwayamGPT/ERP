@@ -11,6 +11,8 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 db.onSave((state, at) => useUi.getState().setSaveState(state, at));
 // The main computer answers phones on the shop Wi-Fi (desktop app only; a no-op in a browser).
 if (!LAN) void import('./lan/host').then((m) => m.startLanHost());
+// WhatsApp / UPI / web links open in the phone's or computer's own apps.
+void import('./native/links').then((m) => m.routeExternalLinks());
 
 const root = createRoot(document.getElementById('root')!);
 

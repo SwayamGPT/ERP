@@ -146,9 +146,9 @@ export function Switch({ checked, onChange, label, hint }: { checked: boolean; o
   );
 }
 
-export function Segmented<T extends string>({ value, onChange, options, size = 'md' }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: ReactNode }>; size?: 'sm' | 'md' }) {
+export function Segmented<T extends string>({ value, onChange, options, size = 'md', full = false }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: ReactNode }>; size?: 'sm' | 'md'; full?: boolean }) {
   return (
-    <div className="inline-flex rounded-lg bg-surface-2 p-0.5">
+    <div className={cn('rounded-lg bg-surface-2 p-0.5', full ? 'grid w-full auto-cols-fr grid-flow-col' : 'inline-flex')}>
       {options.map((o) => (
         <button
           key={o.value}

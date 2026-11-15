@@ -21,19 +21,19 @@ export function whatsappLink(phone: string | null | undefined, text: string) {
 
 export function billMessage(o: { shop: string; number: string; date: string; total: number; items: number; balance?: number; upi?: string | null }) {
   const lines = [
-    `🧾 *${o.shop}*`,
+    `*${o.shop}*`,
     `Bill ${o.number} · ${o.date}`,
     `${o.items} item${o.items === 1 ? '' : 's'} · Total *${formatINR(o.total)}*`,
   ];
   if (o.balance && o.balance > 0) lines.push(`Pending: ${formatINR(o.balance)}`);
   if (o.upi) lines.push(`Pay via UPI: ${o.upi}`);
-  lines.push('', 'Thank you for shopping with us! 🙏');
+  lines.push('', 'Thank you for shopping with us!');
   return lines.join('\n');
 }
 
 export function reminderMessage(o: { shop: string; name: string; amount: number; upi?: string | null }) {
   return [
-    `Namaste ${o.name} 🙏`,
+    `Namaste ${o.name},`,
     `This is a gentle reminder from *${o.shop}* that ${formatINR(o.amount)} is pending on your account.`,
     o.upi ? `You can pay by UPI to ${o.upi}.` : 'Please pay at your convenience.',
     'Thank you!',

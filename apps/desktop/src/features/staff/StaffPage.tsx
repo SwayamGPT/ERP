@@ -409,6 +409,6 @@ function salarySlip(shop: string, name: string, month: string, amount: number, a
     `Employee: ${name}`,
     `Net salary for the month: ${inr(amount)}`,
     advance > 0 ? `Advance still outstanding: ${inr(advance)}` : 'No advance outstanding.',
-    'Thank you for your work! 🙏',
+    'Thank you for your work!',
   ].join('\n');
 }
