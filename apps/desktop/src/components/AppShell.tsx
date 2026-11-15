@@ -51,6 +51,7 @@ import { useApi } from '../lib/useApi';
 import { usePos } from '../features/pos/store';
 import { queryClient } from '../db/client';
 import { useAutoCloudBackup } from '../features/cloud/backup';
+import { useScheduledDriveBackup } from '../backup/schedule';
 
 type NavItem = { to: string; label: string; icon: ReactNode; perm?: Permission; kbd?: string; end?: boolean; badge?: number };
 
@@ -111,6 +112,7 @@ export function AppShell({ company, children }: { company: Company; children: Re
   const loc = useLocation();
   const t = useT();
   useAutoCloudBackup();
+  useScheduledDriveBackup();
   const { sidebarCollapsed, toggleSidebar, setPaletteOpen, setShortcutsOpen, session, setTheme, lang, setLang, saveState } = useUi();
   const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => {

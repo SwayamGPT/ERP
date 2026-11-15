@@ -9,6 +9,8 @@ import { BUSINESS_TYPES } from '../../db/templates';
 import type { BusinessType } from '../../db/repos/company';
 import { PrintSetup } from './PrintSetup';
 import { Hardware } from './Hardware';
+import { ThermalGuide } from './ThermalGuide';
+import { GoogleDriveCard } from '../../backup/GoogleDriveCard';
 import { CloudSettings } from '../cloud/CloudSettings';
 import { SalesSettings } from './SalesSettings';
 import { downloadBlob } from '../../lib/download';
@@ -41,7 +43,7 @@ export function SettingsPage() {
       {tab === 'print' && (
         <>
           <PrintSetup company={company} />
-          <div className="mt-5 max-w-3xl"><Hardware /></div>
+          <div className="mt-5 max-w-3xl space-y-4"><ThermalGuide /><Hardware /></div>
         </>
       )}
       <div className="max-w-3xl">
@@ -211,6 +213,7 @@ function Backup() {
         <p className="mt-3 text-xs text-faint">{last ? `Last backup: ${fmtDate(last)}` : 'No backup taken yet.'}</p>
         <input ref={fileRef} type="file" accept=".hisaab,.sqlite,.db" className="hidden" onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)} />
       </Card>
+      <GoogleDriveCard />
       <Card title={<span className="flex items-center gap-2"><HeartPulse className="h-4 w-4" /> Books health</span>}>
         {health.data && (
           <div className="flex items-center gap-3 text-sm">
