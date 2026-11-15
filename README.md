@@ -1,51 +1,147 @@
 # Hisaab
 
-**Billing, stock & GST that just works** — a fast, offline-first business app for Indian kirana
-stores, supermarkets and wholesalers. A modern alternative to legacy ERPs: plain language, a
-keyboard-first counter, and GST returns in one click.
+**Billing, stock, money and GST for Indian shops — fast at the counter, honest in the books.**
 
-> Release R1 (this repo): the complete offline desktop app. See [`docs/ROADMAP.md`](docs/ROADMAP.md)
-> for the full product checklist and what comes next (cloud sync, mobile apps, native printing).
+Hisaab is an offline-first business app for kirana stores, supermarkets, medical and general
+stores, and wholesalers. It runs on the shop computer (Windows / Mac), on phones over the shop's
+Wi-Fi (Android app or any phone browser), and can sync and back up through its own cloud server
+or the owner's Google Drive. It speaks the shop's language — *udhaar*, *khata*, *bills to pay* —
+instead of accounting jargon, while keeping proper double-entry books underneath.
 
-## What's inside
+---
 
-| | |
-|---|---|
-| **Counter billing** | Several bills open at once (F2 new, F3 next, Alt+1…9) · split cash + UPI · one search box for name / code / barcode / weighing-scale stickers · F4 cash, F5 UPI QR, F6 udhaar, F8 discount, F9 save & print · GST breakup always visible · tier prices, schemes, FIFO batches |
-| **Printing** | 5 templates — classic & big-print receipts, GST tax invoice, modern A4, half-page A5 — with live preview; choose full GST breakup, totals only, or none (B2B bills always keep tax totals) |
-| **Stock** | Multi-unit (piece / box / carton, kg & g), batches & expiry with FIFO, low-stock & expiry alerts, adjustments, barcode labels |
-| **Purchases** | Keyboard grid with batch, expiry, MRP, free qty; IGST input for other-state suppliers; debit notes |
-| **Expenses & staff** | Rent, electricity, salaries and every other cost — paid now or as bills with due dates · recurring bills · budgets · GST input credit · salary run with advances, incentives & festival bonuses · staff requests from their own PIN · cash ↔ bank, owner withdrawals, drawer count |
-| **Money trail** | Money log (who, when, running balance), cash-flow statement, profit & loss, plain-language activity log |
-| **Khata** | Customers & suppliers, credit limits, running statements, WhatsApp reminders, money in / out, expenses, cash & bank book |
-| **GST** | CGST/SGST/IGST/cess, GSTR-1 & GSTR-3B JSON (GSTN offline-tool format), HSN summary, e-Way Bill JSON, GST 2.0 slabs |
-| **Insights** | Live dashboard, 30-day trend, top items, item & bill profit (FIFO cost), registers, day book, outstanding — every report to CSV |
-| **Control** | Owner / Manager / Cashier PINs enforced in the data layer, audit log, backup & restore |
+## Why Hisaab, compared with traditional ERPs
 
-## Architecture
+| Everyday situation | Traditional desktop ERP | Hisaab |
+|---|---|---|
+| **Billing speed** | Many screens and voucher types; training needed | One search box (name / code / barcode / scale sticker), Enter-Enter-F9. Several bills open at once for a queue at the counter |
+| **Selling pan masala at ₹190 that costs ₹195, because every 5 packs carry a ₹50 coupon** | Shows a ₹5 loss on every pack | Supplier coupons lower the real cost to ₹185 — shows ₹5 profit; coupons in hand are tracked and redeemed for cash, off the distributor's bill, or for free goods |
+| **Buying one missing item from the shop next door, without a bill** | Needs a supplier ledger, GST fields, workarounds | "Bought outside?" right on the billing screen — stock comes in at the price paid, no input GST, the sale goes through |
+| **A purchase typed at ₹8,000 instead of ₹800** | Wrong profit stays in old reports | Edit the purchase bill — every sale made from that stock is re-costed automatically |
+| **Fixing a saved bill** | Cancel and re-enter (new number) | Edit the bill — same number; stock, accounts, payments and loyalty are corrected in one go, and the change is audited |
+| **Selling below cost by mistake** | Found out at month end, if at all | Warned on the line as you bill ("Loss ₹12"); cashiers see "below cost" without seeing purchase rates |
+| **Daily rent of ₹600, paid when convenient** | Monthly-only recurring entries | Rent daily / every N days / weekly / monthly…, skip Sundays and holidays, then pay "4 days due" (or an amount, or a week ahead) in one go |
+| **Paying a supplier against specific bills** | Separate bill-wise adjustment screens | Tick the bills while paying; supplier invoice number is required on every purchase |
+| **Phones for staff** | Extra licences, remote desktop, or a separate app with its own data | Pair a phone with a 6-digit code over the shop Wi-Fi; staff bill, collect and check stock on the computer's own data, and print on the counter printer or WhatsApp the bill |
+| **Who can do what** | Fixed roles | Roles (owner, manager, cashier, salesman) **plus** per-person switches — e.g. a salesman who may not give credit gets cash-only orders |
+| **Many staff at the counter** | Long user list | Searchable sign-in grid, last person first, 4-digit PIN that unlocks on the 4th digit |
+| **Cash, banks and cheques** | One bank ledger per company, cheques as journal entries | Several bank accounts, deposit slips (cash + cheques), cheques count only when they clear, statement import with auto-matching |
+| **Backups** | Manual copy to a pen drive | Automatic, encrypted, to the owner's own Google Drive on a schedule — and encrypted cloud backups |
+| **Moving in** | Re-type everything | Import items, stock and dues from Marg / Tally / Busy / Excel exports with a smart column matcher |
+| **GST** | Separate utilities or a CA's software | GSTR-1, GSTR-3B, HSN summary, e-Way Bill and e-Invoice (IRN + signed QR), GSTR-2B matching — from the same data |
+| **Correct numbers** | Floating-point totals, rounding surprises | Every amount is whole paise; GST rounds half-up per line; every voucher balances to the paisa; a bill saves in one transaction or not at all |
+
+---
+
+## Features
+
+### Counter billing
+- One search for name, short code, barcode, PLU and weighing-scale stickers (by weight or by price)
+- Up to 9 bills open at once (F2 new, F3 next, Alt+1…9); bills survive a restart
+- Cash, UPI QR, card, **split** (part cash, part UPI), **udhaar** with credit limits
+- Tier prices (retail / wholesale / super-stockist), customer price lists, schemes (buy N get M, slab discounts), coupons, loyalty points
+- FIFO batches with expiry, multi-unit (piece / box / carton, kg / g), negative-stock control
+- **Loss warning** when a line sells below its stock cost; GST breakup always visible
+- **Edit saved bills** (same number) and returns / credit notes; "served by" staff for incentives
+- **Bought outside?** — bring in an out-of-stock item fetched from a nearby shop without a bill
+- Bills with no customer say **Cash**
+
+### Printing & hardware (desktop app)
+- 5 templates: classic and big-print receipts (58 / 80 mm), GST tax invoice, modern A4, half-page A5 — live preview, choose how much GST to show
+- Silent ESC/POS printing to the receipt printer (F9), cash drawer kick, auto-cut, barcode labels (TSPL / ZPL), weighing scale over serial / USB
+- Step-by-step guide for 80 mm printers in Settings → Print setup
+
+### Purchases & stock
+- Keyboard purchase grid: batch, expiry, MRP, free qty, discounts; supplier invoice number required; IGST for other-state suppliers
+- **Edit purchase bills** — corrected rates flow into the cost of everything already sold from that stock
+- **Supplier coupons / schemes** per item or per purchase line; coupons in hand; redeem for cash / UPI, off the next bill, or free goods
+- **Purchases without a GST bill** (local seller): full price is the cost, no input credit, kept out of 2B matching
+- Purchase orders with partial receipts, reorder suggestions, bill import from distributor CSV
+- Godowns with transfers and godown rent; stock overview and detailed stock report; stock count from a phone
+
+### Money
+- **Cash & bank**: cash in drawer, several bank accounts (default account for UPI / card), cheques in hand and waiting to clear
+- **Deposit slips**: cash from the drawer plus cheques, into a chosen account; cheques reach the bank when they clear (or bounce and the due comes back)
+- Cash ↔ bank and bank ↔ bank transfers, owner withdrawals / capital, other income, drawer count
+- Bank statement import (CSV / Excel) with auto-matching, per account
+- Money log (who, when, running balance), cash-flow statement, profit & loss
+- Payments against chosen bills; WhatsApp payment reminders on a schedule
+
+### Expenses & staff
+- Expenses paid now or as bills with due dates; approvals above a limit; petty cash; bill photos; GST input credit
+- **Repeating expenses** — daily, every N days / weeks / months, skip weekdays and closed days, pay several days at once or in advance
+- Salaries with advances, incentives and festival bonuses; staff money requests from their own PIN
+
+### Khata (customers & suppliers)
+- Running statements, credit limits, WhatsApp reminders, bill-wise payments, outstanding reports
+
+### GST
+- CGST / SGST / IGST / cess, GST 2.0 slabs with an HSN helper
+- GSTR-1 and GSTR-3B JSON (GSTN offline-tool format), HSN summary
+- e-Invoice (IRN, signed QR) and e-Way Bill — test mode built in, live through a GSP
+- GSTR-2B import and matching: what's matched, what credit is at risk
+
+### People & control
+- Owner / Manager / Cashier / Salesman roles, enforced in the data layer (the screen can't bypass them)
+- **Per-person permissions** on top of the role — e.g. *Give credit (udhaar)*, *See purchase cost*, *Cancel or edit bills*
+- Delete users (history keeps their name); 4-digit PINs; searchable sign-in grid for many staff
+- Plain-language activity log of every change
+
+### Devices, sync & backup
+- **Phones on Wi-Fi**: the shop computer serves its data to paired phones on the local network — bill, collect, check stock; print on the counter printer, a Wi-Fi printer, the phone itself, or WhatsApp
+- **Android app** (built by CI) — the phone client for the shop Wi-Fi, prints straight to Wi-Fi thermal printers, Save as PDF
+- **Cloud sync** (optional, Go server): several counters and phones share one shop, each working offline
+- Automatic encrypted backups to **Google Drive** on a schedule; encrypted cloud backups; restore as a separate business
+- Several businesses on one computer, each with its own database, staff and open bills
+
+### Moving in
+- Import items, opening stock and party balances from Marg, Tally, Busy or any Excel / CSV export — the smart matcher finds the columns
+- "Bring in your shop" quick grids for shops that were already running
+
+### Insights
+- Live dashboard, 30-day trend, top items, item & bill profit (real FIFO cost after coupons), registers, day book, cash book, outstanding — every report to CSV
+
+---
+
+## How it works
 
 ```
-packages/core     Pure TypeScript business rules — money (integer paise), GST, units, pricing,
-                  schemes, FIFO, barcodes, GSTR builders, RBAC. No DOM; reused by mobile/backends.
-apps/desktop      React + Tailwind UI (Vite). SQLite (sql.js WASM) runs in a Web Worker:
-  src/db/         adapter → migrations → repositories → api (permission-checked)
-  src-tauri/      Tauri v2 native shell (scaffold)
-e2e/              Playwright user journeys
-docs/ROADMAP.md   Full product checklist
+ Shop computer (desktop app)                     Phones on the shop Wi-Fi
+ ┌───────────────────────────────┐   pair code   ┌───────────────────────────┐
+ │ React UI                      │◄─────────────►│ Android app / phone browser│
+ │ SQLite (sql.js) in a worker   │  HTTP on LAN  │ no local data: every call  │
+ │ Rust: printers, scale, drawer,│               │ runs on the computer       │
+ │ files, Wi-Fi server for phones│               └───────────────────────────┘
+ └──────────────┬────────────────┘
+                │ optional
+     ┌──────────▼──────────┐        ┌──────────────────────┐
+     │ Hisaab cloud (Go +  │        │ Owner's Google Drive │
+     │ Postgres): sync +   │        │ encrypted backups    │
+     │ encrypted backups   │        └──────────────────────┘
+     └─────────────────────┘
 ```
 
 **Invariants** — every amount is integer paise; GST is rounded half-up per line so
 `taxable + CGST + SGST + IGST + cess = line total` exactly; round-off is an explicit ledger line;
 every voucher is double-entry and balances to the paisa; a bill (invoice, lines, batch deductions,
-stock moves, payments, ledger) commits in one SQLite transaction; nested failures roll back to a
-savepoint. Snapshots go to IndexedDB 150 ms after each write and are flushed when the window hides
-or closes. Permissions are enforced inside the worker, so the UI cannot bypass them.
+stock moves, payments, ledger) commits in one SQLite transaction. Snapshots are written to disk
+right after each change and flushed when the window hides or closes. Permissions are enforced inside
+the database worker, so no screen can bypass them.
 
-**Why no Go/Rust server yet?** R1 has no server: billing speed comes from SQLite on the shop PC.
-The R2 cloud backend will be **Go** (simple, fast, cheap to run, easy to hire for). **Rust** is used
-where it pays off — inside the Tauri shell for printers, scales and the cash drawer. Tax maths stays
-in `@hisaab/core` so desktop, mobile and web agree; the backend checks itself against the shared
-golden fixtures in `packages/core/fixtures`.
+## Repository
+
+```
+packages/core        Pure TypeScript rules: money (paise), GST, units, pricing, schemes, FIFO,
+                     barcodes, GSTR builders, roles & permissions. Shared by every client.
+apps/desktop         React + Tailwind UI (Vite); SQLite (sql.js WASM) in a Web Worker
+  src/db/            adapter → migrations → repositories → permission-checked API
+  src/lan/           phones on Wi-Fi: computer bridge and phone client
+  src-tauri/         Tauri v2 shell (Rust); src-tauri/hw: printing, scale, file store, Wi-Fi server
+server/              Go + Postgres cloud sync and backup service
+e2e/                 Playwright journeys (incl. two-browser phone ↔ computer and cloud sync)
+.github/workflows/   desktop installers (Windows / macOS) and Android APK
+docs/ROADMAP.md      Product checklist
+```
 
 ## Run it
 
@@ -56,56 +152,51 @@ npm test             # unit + database tests (Vitest)
 npm run typecheck
 npm run build && npm run e2e   # Playwright journeys against the production build
 npm run perf         # performance budget: bill save < 50 ms with 50k items / 100k bills
+cargo test --manifest-path apps/desktop/src-tauri/hw/Cargo.toml   # hardware + Wi-Fi server
 ```
 
-First launch opens **Create enterprise**: business & contact details, GSTIN, FSSAI licence and the
-owner PIN are mandatory and validated (GSTIN check digit, 14-digit FSSAI, mobile, email, PIN code).
-Several enterprises can live on one computer, each with its own database, staff PINs and open bills —
-switch from the name at the top of the sidebar. The app ships with no sample data; the test suites
-build their own fixture shop.
+First launch opens **Create enterprise**: business & contact details, GSTIN and the owner PIN are
+validated (GSTIN check digit, mobile, email, PIN code; FSSAI optional). The app ships with no sample
+data; the test suites build their own fixture shop.
 
-### Desktop installer (Tauri)
+## Installers
 
-Needs Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS.
+**Desktop (Windows / macOS)** — the `Desktop build` workflow builds the Windows `.exe` + `.msi` and a
+universal macOS `.dmg` on every push. Download the `hisaab-windows` / `hisaab-macos` artifacts from
+the Actions tab, or push a tag such as `v0.1.0` for a draft GitHub Release. Locally:
+`cd apps/desktop && npm run tauri build` (needs Rust and the Tauri prerequisites). Builds are unsigned,
+so SmartScreen / Gatekeeper warn on first launch.
 
-**From GitHub (recommended):** the `Desktop build` workflow (`.github/workflows/desktop-build.yml`)
-builds the Windows `.exe` setup + `.msi` and a universal macOS `.dmg`. Run it from the Actions tab
-(*Run workflow*) and download the `hisaab-windows` / `hisaab-macos` artifacts, or push a tag such as
-`v0.1.0` to get a draft GitHub Release with the installers attached.
+**Android** — the `Android build` workflow builds the APK on every push (artifact `hisaab-android`).
+Without signing secrets it is debug-signed and installs directly; add `ANDROID_KEYSTORE_BASE64`,
+`ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` to get a signed release APK.
 
-**Locally:**
-
-```bash
-cd apps/desktop
-npm run tauri build      # → src-tauri/target/release/bundle
-```
-
-Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper will warn on first launch (on a Mac:
-right-click → Open). Code signing can be added to the workflow later with a certificate and Apple
-Developer account.
+**Phones on Wi-Fi** — on the shop computer open *Settings → Phones on Wi-Fi*, turn it on and press
+*Pair a phone*. Allow Hisaab through the Windows firewall on private networks when asked. Keep the
+shop Wi-Fi password-protected; don't forward the port to the internet.
 
 ## Cloud sync server (`server/`)
 
-A small Go service (net/http + Postgres 16) that keeps a shop's counters, phones and backups in step.
-Each device keeps its full local database and bills offline; the server holds the latest version of
-every row and a change feed. It checks what devices send: known tables, ids inside the device's own
-block, invoice lines whose taxes add up, and vouchers that balance to the paisa. Backups are encrypted
-on the device; the server stores bytes it cannot read.
+A small Go service (net/http + Postgres 16). Each device keeps its full local database and bills
+offline; the server holds the latest version of every row and a change feed, and checks what devices
+send (known tables, ids inside the device's own block, invoice lines that add up, vouchers that
+balance). Backups are encrypted on the device; the server stores bytes it cannot read.
 
 ```bash
 cd server
 HISAAB_DB=postgres://user:pass@localhost:5432/hisaab go run .          # :8080
-HISAAB_TEST_DB=postgres://user:pass@localhost:5432/hisaab_test go test ./...   # wipes that database
+HISAAB_TEST_DB=postgres://user:pass@localhost:5432/hisaab_test go test ./...
 HISAAB_DB_PASSWORD=change-me docker compose up -d                       # server + Postgres
 ```
 
-Host it close to the shops (e.g. an India region such as Mumbai) behind HTTPS. Point the desktop app
-at it in **Settings → Cloud** (or build with `VITE_HISAAB_SERVER=https://your-host`).
+Point the app at it in **Settings → Cloud & devices** (or build with `VITE_HISAAB_SERVER=https://your-host`).
+Google Drive backup needs a Google OAuth client ID (Settings → Backup & data, or `VITE_GOOGLE_CLIENT_ID`).
 
 ## Keyboard map
 
 `Ctrl K` search anything · `?` shortcuts · `Alt N` new bill · `Alt P` purchase · `Alt S` sales ·
-`Alt I` items · `Alt C` parties · `Alt M` money · `Alt R` reports · `Alt G` GST · `Alt L` lock.
+`Alt I` items · `Alt C` parties · `Alt M` money · `Alt R` reports · `Alt G` GST · `Alt L` lock ·
+billing: `F4` cash · `F5` UPI · `F6` udhaar · `F7` customer · `F8` discount · `F9` save & print · `F10` save.
 
 ## Notes
 
