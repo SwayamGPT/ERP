@@ -340,9 +340,9 @@ export function expenseOverview(ctx: Ctx, month?: string) {
   const today = ctx.today();
   const hideSalary = !allowed(ctx, 'payroll.manage');
   const salaryFilter = hideSalary ? 'AND e.employee_id IS NULL' : '';
-  const due = ctx.db.query<{ id: number; category: string; payee: string | null; description: string | null; amount: number; paid: number; due_date: string | null; date: string; employee_id: number | null }>(
-    `SELECT e.id, c.name AS category, e.payee, e.description, e.amount, e.paid, e.due_date, e.date, e.employee_id FROM expenses e JOIN expense_categories c ON c.id = e.category_id
-     WHERE e.status IN ('unpaid','partial') ${salaryFilter} ORDER BY COALESCE(e.due_date, e.date) LIMIT 50`,
+  const due = ctx.db.query<{ id: number; category: string; payee: string | null; description: string | null; amount: number; paid: number; due_date: string | null; date: string; employee_id: number | null; recurring_id: number | null }>(
+    `SELECT e.id, c.name AS category, e.payee, e.description, e.amount, e.paid, e.due_date, e.date, e.employee_id, e.recurring_id FROM expenses e JOIN expense_categories c ON c.id = e.category_id
+     WHERE e.status IN ('unpaid','partial') ${salaryFilter} ORDER BY COALESCE(e.due_date, e.date) LIMIT 400`,
   );
   const spent = ctx.db.get<{ total: number; count: number }>(
     `SELECT COALESCE(SUM(e.amount), 0) AS total, COUNT(*) AS count FROM expenses e WHERE e.status <> 'cancelled' AND substr(e.date, 1, 7) = ? ${salaryFilter}`,

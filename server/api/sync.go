@@ -17,7 +17,7 @@ var syncTables = map[string]bool{
 	"staff_requests": true, "audit_log": true, "sale_orders": true, "sale_order_lines": true,
 	"purchase_orders": true, "purchase_order_lines": true, "godowns": true, "stock_transfers": true, "bank_lines": true,
 	"cheques": true, "price_lists": true, "price_list_items": true, "loyalty_moves": true, "coupons": true, "coupon_uses": true,
-	"reminders": true, "attachments": true, "gstr2b_rows": true, "payment_allocations": true,
+	"reminders": true, "attachments": true, "gstr2b_rows": true, "payment_allocations": true, "recurring_skips": true,
 }
 
 const (

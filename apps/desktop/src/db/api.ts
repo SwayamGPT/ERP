@@ -164,6 +164,8 @@ export const api = {
   'expenses.saveCategory': (ctx: Ctx, a: Parameters<typeof expenses.saveCategory>[1]) => expenses.saveCategory(ctx, a),
   'expenses.payees': (ctx: Ctx) => expenses.payees(ctx),
   'expenses.recurring': (ctx: Ctx) => expenses.listRecurring(ctx),
+  'expenses.recurringDue': (ctx: Ctx, a: { recurringId: number; aheadDays?: number }) => expenses.recurringDue(ctx, a.recurringId, a.aheadDays),
+  'expenses.payRecurring': (ctx: Ctx, a: Parameters<typeof expenses.payRecurring>[1]) => expenses.payRecurring(ctx, a),
   'expenses.saveRecurring': (ctx: Ctx, a: Parameters<typeof expenses.saveRecurring>[1]) => expenses.saveRecurring(ctx, a),
 
   // staff & salary

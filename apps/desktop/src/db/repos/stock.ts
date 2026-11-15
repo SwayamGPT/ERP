@@ -44,7 +44,7 @@ export function listGodowns(ctx: Ctx): GodownRow[] {
  */
 export function saveGodownRent(
   ctx: Ctx,
-  input: { godownId: number; rented: boolean; landlord?: string; rent?: number; dueDay?: number; startMonth?: string; gstRate?: number; landlordGstin?: string | null; autoPayMode?: PayMode | null },
+  input: { godownId: number; rented: boolean; landlord?: string; rent?: number; per?: 'month' | 'day'; startDate?: string; dueDay?: number; startMonth?: string; gstRate?: number; landlordGstin?: string | null; autoPayMode?: PayMode | null },
 ) {
   guard(ctx, 'expense.create');
   const g = ctx.db.get<{ id: number; name: string; recurring_id: number | null }>('SELECT id, name, recurring_id FROM godowns WHERE id = ?', [input.godownId]);
@@ -57,16 +57,17 @@ export function saveGodownRent(
       return g.id;
     }
     const rent = input.rent ?? 0;
-    if (!(rent > 0) || !Number.isSafeInteger(rent)) throw new AppError('Enter the monthly rent.');
+    if (!(rent > 0) || !Number.isSafeInteger(rent)) throw new AppError(input.per === 'day' ? 'Enter the rent per day.' : 'Enter the monthly rent.');
     const landlord = input.landlord?.trim();
     if (!landlord) throw new AppError("Enter the landlord's name.");
+    const daily = input.per === 'day';
     const day = Math.round(input.dueDay ?? 1);
-    if (day < 1 || day > 28) throw new AppError('Rent due day must be between 1 and 28.');
+    if (!daily && (day < 1 || day > 28)) throw new AppError('Rent due day must be between 1 and 28.');
     const month = input.startMonth ?? ctx.today().slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(month)) throw new AppError('Pick the month rent starts.');
     const cat = ctx.db.get<{ id: number }>("SELECT id FROM expense_categories WHERE name = 'Godown rent'")!.id;
     const recurringId = saveRecurring(ctx, {
-      id: g.recurring_id ?? undefined, categoryId: cat, amount: rent, every: 'month', anchorDate: `${month}-${String(day).padStart(2, '0')}`,
+      id: g.recurring_id ?? undefined, categoryId: cat, amount: rent, every: daily ? 'day' : 'month', anchorDate: daily ? input.startDate ?? ctx.today() : `${month}-${String(day).padStart(2, '0')}`,
       payee: landlord, description: `Rent — ${g.name}`, gstRate: input.gstRate ?? 0, payeeGstin: input.landlordGstin ?? null, autoPayMode: input.autoPayMode ?? null, active: true,
     }, g.id);
     ctx.db.exec('UPDATE godowns SET rented = 1, landlord = ?, rent = ?, rent_due_day = ?, recurring_id = ? WHERE id = ?', [landlord, rent, day, recurringId, g.id]);

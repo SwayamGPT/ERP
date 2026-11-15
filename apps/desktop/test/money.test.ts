@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { SqlJsAdapter } from '../src/db/adapter';
 import { api } from '../src/db/api';
 import type { Ctx } from '../src/db/repos/base';
-import { occurrence } from '../src/db/repos/expenses';
+import { dueDates, occurrence } from '../src/db/repos/expenses';
 import { migrate, MIGRATIONS } from '../src/db/schema';
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>>;
@@ -282,6 +282,71 @@ describe('staff requests, festival bonus and staff on bills', () => {
     api['auth.login'](ctx, { userId: api['app.status'](ctx).users.find((u) => u.name === 'Counter 2')!.id, pin: '3333' });
     expect(api['staff.billers'](ctx)[0]).toEqual({ id: ravi, name: 'Ravi', designation: null });
     expect(() => api['reports.salesByStaff'](ctx, { from: '2026-11-01', to: '2026-11-30' })).toThrow(/permission/);
+    balanced(ctx);
+  });
+});
+
+describe('daily rent and flexible repeating expenses', () => {
+  const rent = { amount: 60000, every: 'day' as const, payee: 'Landlord' };
+
+  it('works out due dates: every N, skipped weekdays, closed days, month-ends', () => {
+    const r = { anchor_date: '2026-11-09', every: 'day' as const, end_date: null, every_n: 1, skip_weekdays: '0' };
+    expect(dueDates(r, [], '2026-11-09', '2026-11-16')).toEqual(['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-16']);
+    expect(dueDates({ ...r, skip_weekdays: null, every_n: 2 }, [], '2026-11-09', '2026-11-16')).toEqual(['2026-11-09', '2026-11-11', '2026-11-13', '2026-11-15']);
+    expect(dueDates(r, [{ from_date: '2026-11-11', to_date: '2026-11-12' }], '2026-11-09', '2026-11-14')).toEqual(['2026-11-09', '2026-11-10', '2026-11-13', '2026-11-14']);
+    expect(dueDates({ ...r, every: 'day', skip_weekdays: null, every_n: 15 }, [], '2026-11-09', '2026-12-31')).toEqual(['2026-11-09', '2026-11-24', '2026-12-09', '2026-12-24']);
+    expect(dueDates({ anchor_date: '2026-01-31', every: 'month', end_date: null, every_n: 2 }, [], '2026-01-01', '2026-07-31')).toEqual(['2026-01-31', '2026-03-31', '2026-05-31', '2026-07-31']);
+    // a daily schedule years old jumps straight to the window
+    expect(dueDates({ ...r, anchor_date: '2020-01-01', skip_weekdays: null }, [], '2026-11-14', '2026-11-15')).toEqual(['2026-11-14', '2026-11-15']);
+  });
+
+  it('daily ₹600 rent: bills up to today only, missed days paid together, part payment, pay ahead', () => {
+    const { ctx, cat, bal, setToday } = shop('2026-11-09');
+    const id = api['expenses.saveRecurring'](ctx, { categoryId: cat('Shop rent'), ...rent, anchorDate: '2026-11-09', skipWeekdays: [0] });
+    let st = api['expenses.recurringDue'](ctx, { recurringId: id });
+    expect(st.unpaid.map((x) => x.date)).toEqual(['2026-11-09']); // no week-ahead flood for daily
+
+    setToday('2026-11-12'); // missed 10, 11, 12
+    api['expenses.sync'](ctx);
+    st = api['expenses.recurringDue'](ctx, { recurringId: id });
+    expect(st.unpaid).toHaveLength(4);
+    expect(st.total).toBe(240000);
+    const cash0 = bal('CASH');
+    const r1 = api['expenses.payRecurring'](ctx, { recurringId: id, days: 3, mode: 'cash' });
+    expect(r1).toMatchObject({ days: 3, amount: 180000, from: '2026-11-09', to: '2026-11-11' });
+    expect(cash0 - bal('CASH')).toBe(180000);
+    st = api['expenses.recurringDue'](ctx, { recurringId: id });
+    expect(st.unpaid.map((x) => x.date)).toEqual(['2026-11-12']);
+
+    setToday('2026-11-14');
+    api['expenses.sync'](ctx); // 13, 14 (15 is Sunday)
+    const r2 = api['expenses.payRecurring'](ctx, { recurringId: id, amount: 100000, mode: 'upi' });
+    expect(r2.days).toBe(2); // 12th in full, 13th part
+    st = api['expenses.recurringDue'](ctx, { recurringId: id });
+    expect(st.unpaid.map((x) => [x.date, x.due])).toEqual([['2026-11-13', 20000], ['2026-11-14', 60000]]);
+    expect(st.ahead.slice(0, 2)).toEqual(['2026-11-16', '2026-11-17']); // Sunday skipped
+
+    const r3 = api['expenses.payRecurring'](ctx, { recurringId: id, days: 0, ahead: 3, mode: 'cash' });
+    expect(r3).toMatchObject({ days: 5, amount: 20000 + 60000 + 3 * 60000, to: '2026-11-18' });
+    expect(api['expenses.recurringDue'](ctx, { recurringId: id }).unpaid).toHaveLength(0);
+    setToday('2026-11-18');
+    expect(api['expenses.sync'](ctx)).toBe(0); // paid-ahead days aren't billed again
+    expect(() => api['expenses.payRecurring'](ctx, { recurringId: id, days: 1, mode: 'cash' })).toThrow(/Only 0 days/);
+    balanced(ctx);
+  });
+
+  it('closed days and newly skipped weekdays cancel their unpaid bills; missed days before setup on request', () => {
+    const { ctx, cat, setToday } = shop('2026-11-12');
+    const id = api['expenses.saveRecurring'](ctx, { categoryId: cat('Shop rent'), ...rent, anchorDate: '2026-11-09', billsFrom: '2026-11-09' });
+    expect(api['expenses.recurringDue'](ctx, { recurringId: id }).unpaid.map((x) => x.date)).toEqual(['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12']);
+    api['expenses.saveRecurring'](ctx, { id, categoryId: cat('Shop rent'), ...rent, anchorDate: '2026-11-09', billsFrom: '2026-11-09', skips: [{ from_date: '2026-11-10', to_date: '2026-11-11', note: 'Diwali' }] });
+    expect(api['expenses.recurringDue'](ctx, { recurringId: id }).unpaid.map((x) => x.date)).toEqual(['2026-11-09', '2026-11-12']);
+    setToday('2026-11-16');
+    api['expenses.saveRecurring'](ctx, { id, categoryId: cat('Shop rent'), ...rent, anchorDate: '2026-11-09', billsFrom: '2026-11-09', skipWeekdays: [0], skips: [{ from_date: '2026-11-10', to_date: '2026-11-11' }] });
+    const list = api['expenses.recurring'](ctx).find((r) => r.id === id)!;
+    expect(list.skips).toHaveLength(1);
+    expect(list.due_count).toBe(5); // 9, 12, 13, 14, 16
+    expect(list.next_due).toBe('2026-11-17');
     balanced(ctx);
   });
 });

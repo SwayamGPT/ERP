@@ -768,6 +768,47 @@ UPDATE invoices SET party_name = 'Cash' WHERE party_name = 'Walk-in Customer';
 UPDATE sale_orders SET party_name = 'Cash' WHERE party_name = 'Walk-in Customer';
 `,
   },
+  {
+    version: 13,
+    name: 'flexible repeating expenses: daily, every N, skipped weekdays, closed days',
+    // Rebuilding recurring_expenses (to allow 'day') needs foreign keys off.
+    fkOff: true,
+    sql: /* sql */ `
+CREATE TABLE recurring_expenses_new (
+  id INTEGER PRIMARY KEY,
+  category_id INTEGER NOT NULL REFERENCES expense_categories(id),
+  payee TEXT,
+  description TEXT,
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  every TEXT NOT NULL CHECK (every IN ('day','week','month','quarter','year')),
+  every_n INTEGER NOT NULL DEFAULT 1 CHECK (every_n >= 1),
+  skip_weekdays TEXT,
+  bills_from TEXT,
+  anchor_date TEXT NOT NULL,
+  end_date TEXT,
+  auto_pay_mode TEXT,
+  gst_rate REAL NOT NULL DEFAULT 0,
+  payee_gstin TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  godown_id INTEGER REFERENCES godowns(id)
+);
+INSERT INTO recurring_expenses_new (id, category_id, payee, description, amount, every, anchor_date, end_date, auto_pay_mode, gst_rate, payee_gstin, active, created_by, created_at, godown_id)
+  SELECT id, category_id, payee, description, amount, every, anchor_date, end_date, auto_pay_mode, gst_rate, payee_gstin, active, created_by, created_at, godown_id FROM recurring_expenses;
+DROP TABLE recurring_expenses;
+ALTER TABLE recurring_expenses_new RENAME TO recurring_expenses;
+CREATE TABLE recurring_skips (
+  id INTEGER PRIMARY KEY,
+  recurring_id INTEGER NOT NULL REFERENCES recurring_expenses(id),
+  from_date TEXT NOT NULL,
+  to_date TEXT NOT NULL,
+  note TEXT,
+  CHECK (to_date >= from_date)
+);
+CREATE INDEX idx_recurring_skips ON recurring_skips(recurring_id);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

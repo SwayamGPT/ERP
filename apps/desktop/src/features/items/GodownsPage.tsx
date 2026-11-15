@@ -123,20 +123,27 @@ function History() {
 
 /** Rent for a godown: a monthly bill to the landlord appears in Expenses → Bills to pay on the due day. */
 function RentDialog({ g, onClose }: { g: GodownRow; onClose: () => void }) {
-  const [f, setF] = useState({ rented: true, landlord: g.landlord ?? '', rent: g.rent || 0, dueDay: g.rent_due_day || 5, startMonth: today().slice(0, 7), autoPay: '' as '' | 'bank' | 'upi' });
+  const [f, setF] = useState({ rented: true, landlord: g.landlord ?? '', rent: g.rent || 0, dueDay: g.rent_due_day || 5, startMonth: today().slice(0, 7), startDate: today(), per: 'month' as 'month' | 'day', autoPay: '' as '' | 'bank' | 'upi' });
   const bills = useApi('stock.rentBills', { godownId: g.id }).data ?? [];
   const save = useAction('stock.godownRent', { success: () => (f.rented ? `Rent set for ${g.name}` : `Rent stopped for ${g.name}`), onSuccess: onClose });
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()} title={`Rent — ${g.name}`} size="md"
-      footer={<Button variant="primary" loading={save.isPending} onClick={() => save.mutate({ godownId: g.id, rented: f.rented, landlord: f.landlord, rent: f.rent, dueDay: f.dueDay, startMonth: f.startMonth, autoPayMode: f.autoPay || null })} data-testid="rent-save">Save</Button>}>
+      footer={<Button variant="primary" loading={save.isPending} onClick={() => save.mutate({ godownId: g.id, rented: f.rented, landlord: f.landlord, rent: f.rent, per: f.per, startDate: f.startDate, dueDay: f.dueDay, startMonth: f.startMonth, autoPayMode: f.autoPay || null })} data-testid="rent-save">Save</Button>}>
       <div className="space-y-3">
         <Switch checked={f.rented} onChange={(rented) => setF({ ...f, rented })} label="This godown is rented" hint="Each month a rent bill to the landlord appears in Expenses → Bills to pay. Pay it like any bill; it shows in cash flow and profit & loss." />
         {f.rented && (
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Landlord"><Input value={f.landlord} onChange={(e) => setF({ ...f, landlord: e.target.value })} data-testid="rent-landlord" /></Field>
-            <Field label="Monthly rent"><MoneyInput value={f.rent} onChange={(rent) => setF({ ...f, rent })} data-testid="rent-amount" /></Field>
-            <Field label="Due on day of month"><Input type="number" min={1} max={28} value={f.dueDay} onChange={(e) => setF({ ...f, dueDay: Number(e.target.value) })} data-testid="rent-day" /></Field>
-            <Field label="Starting month"><Input type="month" value={f.startMonth} onChange={(e) => setF({ ...f, startMonth: e.target.value })} /></Field>
+            <Field label="Rent is charged"><Segmented value={f.per} onChange={(per) => setF({ ...f, per })} options={[{ value: 'month', label: 'Per month' }, { value: 'day', label: 'Per day' }]} /></Field>
+            <Field label={f.per === 'day' ? 'Rent per day' : 'Monthly rent'}><MoneyInput value={f.rent} onChange={(rent) => setF({ ...f, rent })} data-testid="rent-amount" /></Field>
+            {f.per === 'month' ? (
+              <>
+                <Field label="Due on day of month"><Input type="number" min={1} max={28} value={f.dueDay} onChange={(e) => setF({ ...f, dueDay: Number(e.target.value) })} data-testid="rent-day" /></Field>
+                <Field label="Starting month"><Input type="month" value={f.startMonth} onChange={(e) => setF({ ...f, startMonth: e.target.value })} /></Field>
+              </>
+            ) : (
+              <Field label="Starting from" hint="Skip Sundays or holidays in Expenses → Recurring"><Input type="date" value={f.startDate} onChange={(e) => setF({ ...f, startDate: e.target.value })} /></Field>
+            )}
             <div className="sm:col-span-2">
               <span className="label">How it is paid</span>
               <Segmented value={f.autoPay || 'manual'} onChange={(v) => setF({ ...f, autoPay: v === 'manual' ? '' : (v as 'bank' | 'upi') })} options={[{ value: 'manual', label: 'I pay it myself' }, { value: 'bank', label: 'Bank auto-debit' }, { value: 'upi', label: 'UPI autopay' }]} />

@@ -2,6 +2,7 @@ import type { SqlJsAdapter } from '../adapter';
 import { seriesCode } from '../sync/engine';
 import { computeLine, isInterState, validateGstin } from '@hisaab/core';
 import type { PayMode } from '../types';
+import { dueDates, isOff, occurrence } from '../schedule';
 import { addDays, allowed, AppError, audit, guard, localNow, modeAccount, postVoucher, requireSession, reverseVoucher, type Ctx } from './base';
 import { mustCompany } from './company';
 
@@ -335,7 +336,13 @@ export interface Recurring {
   payee: string | null;
   description: string | null;
   amount: number;
-  every: 'week' | 'month' | 'quarter' | 'year';
+  every: 'day' | 'week' | 'month' | 'quarter' | 'year';
+  /** Repeat every N days / weeks / months… */
+  every_n: number;
+  /** Weekdays with nothing due, comma list (0 = Sunday). */
+  skip_weekdays: string | null;
+  /** Earliest date bills are made for (to add missed days from before the schedule was set up). */
+  bills_from: string | null;
   anchor_date: string;
   end_date: string | null;
   auto_pay_mode: PayMode | null;
@@ -344,31 +351,27 @@ export interface Recurring {
   active: number;
   created_at: string;
   next_due?: string | null;
+  skips?: RecurringSkip[];
+  /** Unpaid bills of this schedule: how many and how much. */
+  due_count?: number;
+  due_amount?: number;
 }
 
-function addMonthsClamped(iso: string, n: number, day: number): string {
-  const y = +iso.slice(0, 4);
-  const m = +iso.slice(5, 7) - 1 + n;
-  const yy = y + Math.floor(m / 12);
-  const mm = ((m % 12) + 12) % 12;
-  const last = new Date(Date.UTC(yy, mm + 1, 0)).getUTCDate();
-  return `${yy}-${String(mm + 1).padStart(2, '0')}-${String(Math.min(day, last)).padStart(2, '0')}`;
+export interface RecurringSkip {
+  id?: number;
+  from_date: string;
+  to_date: string;
+  note?: string | null;
 }
 
-/** k-th occurrence of a schedule (k = 0 is the anchor date). Month-ends clamp (31 Jan → 28 Feb). */
-export function occurrence(anchor: string, every: Recurring['every'], k: number): string {
-  if (every === 'week') return addDays(anchor, 7 * k);
-  const day = +anchor.slice(8, 10);
-  return addMonthsClamped(anchor, k * (every === 'month' ? 1 : every === 'quarter' ? 3 : 12), day);
+function skipsOf(ctx: Ctx, recurringId: number): RecurringSkip[] {
+  return ctx.db.query<RecurringSkip>('SELECT id, from_date, to_date, note FROM recurring_skips WHERE recurring_id = ? ORDER BY from_date', [recurringId]);
 }
 
-function nextDue(r: Pick<Recurring, 'anchor_date' | 'every' | 'end_date'>, after: string): string | null {
-  for (let k = 0; k < 2000; k++) {
-    const d = occurrence(r.anchor_date, r.every, k);
-    if (r.end_date && d > r.end_date) return null;
-    if (d > after) return d;
-  }
-  return null;
+export { dueDates, occurrence };
+
+function nextDue(r: Pick<Recurring, 'anchor_date' | 'every' | 'end_date' | 'every_n' | 'skip_weekdays'>, skips: RecurringSkip[], after: string): string | null {
+  return dueDates(r, skips, addDays(after, 1), '9999-12-31', 1)[0] ?? null;
 }
 
 export const LEAD_DAYS = 7;
@@ -380,33 +383,51 @@ export function listRecurring(ctx: Ctx): Recurring[] {
     .query<Recurring>('SELECT r.*, c.name AS category FROM recurring_expenses r JOIN expense_categories c ON c.id = r.category_id ORDER BY r.active DESC, r.id')
     .map((r) => {
       const last = ctx.db.get<{ k: string | null }>('SELECT MAX(recurring_key) AS k FROM expenses WHERE recurring_id = ?', [r.id])?.k;
-      return { ...r, next_due: r.active ? nextDue(r, last ?? addDays(today, -1)) : null };
+      const skips = skipsOf(ctx, r.id);
+      const due = ctx.db.get<{ n: number; s: number }>("SELECT COUNT(*) AS n, COALESCE(SUM(amount - paid), 0) AS s FROM expenses WHERE recurring_id = ? AND status IN ('unpaid','partial')", [r.id])!;
+      return { ...r, skips, due_count: due.n, due_amount: due.s, next_due: r.active ? nextDue(r, skips, last && last > addDays(today, -1) ? last : addDays(today, -1)) : null };
     });
 }
 
 export function saveRecurring(
   ctx: Ctx,
-  input: { id?: number; categoryId: number; amount: number; every: Recurring['every']; anchorDate: string; endDate?: string | null; payee?: string; description?: string; autoPayMode?: PayMode | null; gstRate?: number; payeeGstin?: string | null; active?: boolean },
+  input: {
+    id?: number; categoryId: number; amount: number; every: Recurring['every']; everyN?: number; skipWeekdays?: number[]; skips?: RecurringSkip[]; billsFrom?: string | null;
+    anchorDate: string; endDate?: string | null; payee?: string; description?: string; autoPayMode?: PayMode | null; gstRate?: number; payeeGstin?: string | null; active?: boolean;
+  },
   godownId?: number,
 ) {
   guard(ctx, 'expense.create');
   if (!(input.amount > 0)) throw new AppError('Enter the amount.');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.anchorDate ?? '')) throw new AppError('Pick the first due date.');
   if (input.endDate && input.endDate < input.anchorDate) throw new AppError('End date is before the first due date.');
-  if (!['week', 'month', 'quarter', 'year'].includes(input.every)) throw new AppError('Pick how often it repeats.');
+  if (!['day', 'week', 'month', 'quarter', 'year'].includes(input.every)) throw new AppError('Pick how often it repeats.');
+  const everyN = Math.round(input.everyN ?? 1);
+  if (!(everyN >= 1 && everyN <= 365)) throw new AppError('Repeat every 1 to 365.');
+  const skipWd = [...new Set(input.skipWeekdays ?? [])].filter((d) => d >= 0 && d <= 6).sort();
+  if (skipWd.length === 7) throw new AppError('Every day of the week is skipped, so nothing would ever be due.');
+  const skips = (input.skips ?? []).map((x) => ({ from_date: x.from_date, to_date: x.to_date || x.from_date, note: x.note?.trim() || null }));
+  for (const x of skips) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(x.from_date) || x.to_date < x.from_date) throw new AppError('A closed-days range has a wrong date.');
+  }
   const gstin = input.payeeGstin?.trim().toUpperCase() || null;
   if (gstin && !validateGstin(gstin)) throw new AppError("The payee's GSTIN is not valid.");
-  const vals = [input.categoryId, input.payee?.trim() || null, input.description?.trim() || null, input.amount, input.every, input.anchorDate, input.endDate || null, input.autoPayMode || null, input.gstRate ?? 0, gstin, input.active === false ? 0 : 1];
+  const vals = [input.categoryId, input.payee?.trim() || null, input.description?.trim() || null, input.amount, input.every, everyN, skipWd.join(',') || null, input.billsFrom || null, input.anchorDate, input.endDate || null, input.autoPayMode || null, input.gstRate ?? 0, gstin, input.active === false ? 0 : 1];
   return ctx.db.transaction(() => {
     let id = input.id;
     if (id) {
-      ctx.db.exec('UPDATE recurring_expenses SET category_id=?, payee=?, description=?, amount=?, every=?, anchor_date=?, end_date=?, auto_pay_mode=?, gst_rate=?, payee_gstin=?, active=? WHERE id = ?', [...vals, id] as never);
+      ctx.db.exec('UPDATE recurring_expenses SET category_id=?, payee=?, description=?, amount=?, every=?, every_n=?, skip_weekdays=?, bills_from=?, anchor_date=?, end_date=?, auto_pay_mode=?, gst_rate=?, payee_gstin=?, active=? WHERE id = ?', [...vals, id] as never);
       audit(ctx, 'recurring.update', 'recurring', id, { amount: input.amount, every: input.every, active: input.active !== false });
     } else {
-      id = ctx.db.exec('INSERT INTO recurring_expenses (category_id, payee, description, amount, every, anchor_date, end_date, auto_pay_mode, gst_rate, payee_gstin, active, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', [...vals, ctx.session!.userId, `${ctx.today()} ${localNow().slice(11)}`] as never).lastId;
+      id = ctx.db.exec('INSERT INTO recurring_expenses (category_id, payee, description, amount, every, every_n, skip_weekdays, bills_from, anchor_date, end_date, auto_pay_mode, gst_rate, payee_gstin, active, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [...vals, ctx.session!.userId, `${ctx.today()} ${localNow().slice(11)}`] as never).lastId;
       audit(ctx, 'recurring.create', 'recurring', id, { amount: input.amount, every: input.every });
     }
     if (godownId) ctx.db.exec('UPDATE recurring_expenses SET godown_id = ? WHERE id = ?', [godownId, id]);
+    if (input.skips) {
+      ctx.db.exec('DELETE FROM recurring_skips WHERE recurring_id = ?', [id]);
+      for (const x of skips) ctx.db.exec('INSERT INTO recurring_skips (recurring_id, from_date, to_date, note) VALUES (?,?,?,?)', [id, x.from_date, x.to_date, x.note]);
+    }
+    dropOffDays(ctx, id);
     syncRecurring(ctx);
     return id;
   });
@@ -427,11 +448,12 @@ export function syncRecurring(ctx: Ctx): number {
   let created = 0;
   ctx.db.transaction(() => {
     for (const r of rows) {
-      const from = r.created_at.slice(0, 10) > r.anchor_date ? r.created_at.slice(0, 10) : r.anchor_date;
-      for (let k = 0; k < 600; k++) {
-        const due = occurrence(r.anchor_date, r.every, k);
-        if (due > horizon || (r.end_date && due > r.end_date)) break;
-        if (due < from) continue;
+      const setUp = r.created_at.slice(0, 10);
+      // From the day it was set up (no surprise back-dated bills), or from `bills_from` if the owner asked for missed days.
+      const from = r.bills_from ?? (setUp > r.anchor_date ? setUp : r.anchor_date);
+      // Daily bills are made on the day; others a week ahead so they show up in Bills to pay in time.
+      const until = r.every === 'day' ? today : horizon;
+      for (const due of dueDates(r, skipsOf(ctx, r.id), from < r.anchor_date ? r.anchor_date : from, until)) {
         if (ctx.db.get('SELECT 1 FROM expenses WHERE recurring_id = ? AND recurring_key = ?', [r.id, due])) continue;
         // Auto-pay happens on the due date, not before.
         const autopay = r.auto_pay_mode && due <= today;
@@ -445,6 +467,81 @@ export function syncRecurring(ctx: Ctx): number {
     }
   });
   return created;
+}
+
+/** Unpaid bills of a schedule that now fall on an off day (skipped weekday / closed days) are cancelled. */
+function dropOffDays(ctx: Ctx, recurringId: number) {
+  const r = ctx.db.get<Recurring>('SELECT * FROM recurring_expenses WHERE id = ?', [recurringId])!;
+  const skips = skipsOf(ctx, recurringId);
+  const open = ctx.db.query<{ id: number; recurring_key: string }>("SELECT id, recurring_key FROM expenses WHERE recurring_id = ? AND status = 'unpaid' AND paid = 0", [recurringId]);
+  for (const e of open) if (isOff(r, skips, e.recurring_key)) cancelExpense(ctx, { id: e.id, reason: 'Nothing due that day (shop closed / skipped)' });
+}
+
+/** A schedule's unpaid days (oldest first) and the next days that could be paid ahead. */
+export function recurringDue(ctx: Ctx, recurringId: number, aheadDays = 14) {
+  guard(ctx, 'expense.view');
+  const r = ctx.db.get<Recurring>('SELECT r.*, c.name AS category FROM recurring_expenses r JOIN expense_categories c ON c.id = r.category_id WHERE r.id = ?', [recurringId]);
+  if (!r) throw new AppError('Repeating expense not found.');
+  const unpaid = ctx.db.query<{ id: number; date: string; amount: number; paid: number; due: number }>(
+    "SELECT id, recurring_key AS date, amount, paid, amount - paid AS due FROM expenses WHERE recurring_id = ? AND status IN ('unpaid','partial') AND COALESCE(approval, 'ok') <> 'pending' ORDER BY recurring_key",
+    [recurringId],
+  );
+  const last = ctx.db.get<{ k: string | null }>('SELECT MAX(recurring_key) AS k FROM expenses WHERE recurring_id = ?', [recurringId])?.k ?? addDays(ctx.today(), -1);
+  const ahead = r.active ? dueDates(r, skipsOf(ctx, recurringId), addDays(last > ctx.today() ? last : ctx.today(), 1), '9999-12-31', aheadDays) : [];
+  const lastPaid = ctx.db.get<{ d: string | null }>("SELECT MAX(recurring_key) AS d FROM expenses WHERE recurring_id = ? AND status = 'paid'", [recurringId])?.d ?? null;
+  return { recurring: r, unpaid, total: unpaid.reduce((a, x) => a + x.due, 0), ahead, lastPaid };
+}
+
+const shortDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+/**
+ * Pay several days of a repeating expense at once (e.g. four days of missed rent), oldest first.
+ * Either a number of days, or an amount (the last day may be paid in part). `ahead` also pays
+ * that many upcoming days in advance.
+ */
+export function payRecurring(ctx: Ctx, input: { recurringId: number; days?: number; amount?: number; ahead?: number; mode: PayMode; date?: string; reference?: string }) {
+  guard(ctx, 'expense.create');
+  const st = recurringDue(ctx, input.recurringId, Math.max(0, input.ahead ?? 0));
+  if ((input.days ?? 0) <= 0 && (input.amount ?? 0) <= 0 && (input.ahead ?? 0) <= 0) throw new AppError('Choose the days or the amount to pay.');
+  if ((input.ahead ?? 0) > st.ahead.length) throw new AppError(`Only ${st.ahead.length} upcoming days can be paid ahead.`);
+  return ctx.db.transaction(() => {
+    const r = st.recurring;
+    // Bills for the days paid in advance.
+    for (const due of st.ahead.slice(0, input.ahead ?? 0)) {
+      createExpenseAsSystem(ctx, {
+        date: due, categoryId: r.category_id, amount: r.amount, payee: r.payee, description: r.description ?? r.category, gstRate: r.gst_rate,
+        payeeGstin: r.payee_gstin, claimItc: !!r.payee_gstin && r.gst_rate > 0, dueDate: due, payNow: null, recurringId: r.id, recurringKey: due,
+      });
+    }
+    const open = recurringDue(ctx, input.recurringId, 0).unpaid;
+    let pick = open;
+    if (input.amount && input.amount > 0) {
+      const total = open.reduce((a, x) => a + x.due, 0);
+      if (input.amount > total) throw new AppError(`Only ₹${(total / 100).toFixed(2)} is due. Pay days in advance to pay more.`);
+    } else if (input.days && input.days > 0 && !input.ahead) {
+      // Without `ahead`: the oldest N unpaid days. With `ahead`: everything due plus the days ahead.
+      if (input.days > open.length) throw new AppError(`Only ${open.length} ${open.length === 1 ? 'day is' : 'days are'} due.`);
+      pick = open.slice(0, input.days);
+    }
+    let left = input.amount && input.amount > 0 ? input.amount : Infinity;
+    const paid: Array<{ date: string; amount: number }> = [];
+    for (const e of pick) {
+      if (left <= 0) break;
+      const amt = Math.min(e.due, left);
+      paid.push({ date: e.date, amount: amt });
+      left -= amt;
+    }
+    if (!paid.length) throw new AppError('Nothing to pay.');
+    const label = paid.length === 1 ? shortDate(paid[0].date) : `${shortDate(paid[0].date)} – ${shortDate(paid[paid.length - 1].date)}`;
+    const note = `${r.payee ?? r.category} ${label} (${paid.length} ${r.every === 'day' ? (paid.length === 1 ? 'day' : 'days') : 'bills'})`;
+    for (const x of paid) {
+      const e = pick.find((y) => y.date === x.date)!;
+      payExpense(ctx, { id: e.id, amount: x.amount, mode: input.mode, date: input.date, reference: input.reference || note });
+    }
+    const total = paid.reduce((a, x) => a + x.amount, 0);
+    audit(ctx, 'recurring.pay', 'recurring', r.id, { days: paid.length, amount: total, from: paid[0].date, to: paid[paid.length - 1].date });
+    return { days: paid.length, amount: total, from: paid[0].date, to: paid[paid.length - 1].date, note };
+  });
 }
 
 /** Recurring bills are created on behalf of whoever opened the app; permission was checked when the schedule was made. */
