@@ -11,3 +11,4 @@ export * from './escpos';
 export * from './einvoice';
 export * from './gstr2b';
 export * from './sha256';
+export * from './smartImport';

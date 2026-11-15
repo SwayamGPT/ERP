@@ -4,28 +4,20 @@ import { Badge, Button, Dialog, toast } from '../../components/ui';
 import { call } from '../../db/client';
 import type { Item } from '../../db/types';
 import { inr } from '../../lib/format';
-import { guessColumns, readSheet, toIsoDate, toPaiseLoose } from '../../lib/sheet';
+import { detect, toItems } from '@hisaab/core';
+import { readSheet } from '../../lib/sheet';
 
 type Loaded = { item: Item; qty: number; rate?: number; batch?: string; expiry?: string; mrp?: number };
 type Match = Awaited<ReturnType<typeof matchRows>>[number];
 
-const WANT = {
-  name: /item|product|desc|particular|name/,
-  barcode: /barcode|ean|upc/,
-  hsn: /hsn/,
-  qty: /^qty|quantity|qnty|pcs/,
-  rate: /rate|price|cost/,
-  mrp: /mrp/,
-  batch: /batch/,
-  expiry: /exp/,
-};
-
-async function matchRows(rows: Array<Record<string, string | undefined>>) {
-  const parsed = rows.map((r) => ({
-    name: r.name, barcode: r.barcode, hsn: r.hsn, qty: Number((r.qty ?? '').replace(/[^\d.]/g, '')) || 0,
-    rate: toPaiseLoose(r.rate), mrp: toPaiseLoose(r.mrp), batch: r.batch, expiry: toIsoDate(r.expiry),
-  }));
-  return call('purchases.matchImport', { rows: parsed.filter((p) => p.qty > 0 && (p.name || p.barcode)) });
+/** A distributor's bill: the smart parser finds the lines; on a bill "Rate" is what you pay. */
+async function matchRows(sheet: string[][]) {
+  const { records } = toItems(detect(sheet, 'items'));
+  const rows = records
+    .filter((r) => (r.qty ?? 0) > 0)
+    .map((r) => ({ name: r.name, barcode: r.barcode, hsn: r.hsn, qty: r.qty, rate: r.cost ?? r.rate, mrp: r.mrp, batch: r.batch, expiry: r.expiry, gst: r.gst }));
+  if (!rows.length) throw new Error('Could not find item lines with quantities in this file.');
+  return call('purchases.matchImport', { rows });
 }
 
 /** Load a distributor's bill (CSV or Excel) into the purchase grid. Items are matched by barcode, then name. */
@@ -37,11 +29,7 @@ export function ImportBillButton({ onLoad }: { onLoad: (rows: Loaded[]) => void 
   const read = async (f: File) => {
     setBusy(true);
     try {
-      const sheet = await readSheet(f);
-      const { header, cols } = guessColumns(sheet, WANT);
-      if (cols.qty == null || (cols.name == null && cols.barcode == null)) throw new Error('Could not find the item name and quantity columns in this file.');
-      const rows = sheet.slice(header + 1).map((r) => Object.fromEntries(Object.entries(cols).map(([k, i]) => [k, r[i as number]])));
-      setMatches(await matchRows(rows));
+      setMatches(await matchRows(await readSheet(f)));
     } catch (e) {
       toast.error(e);
     } finally {

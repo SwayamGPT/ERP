@@ -1,5 +1,5 @@
 import { describeQty, describeScheme, marginPct, toCsv } from '@hisaab/core';
-import { Download, Package, Plus, Search } from 'lucide-react';
+import { Download, Package, Plus, Search, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, EmptyState, Input, Loading, PageHeader, Segmented, Select, Stat } from '../../components/ui';
@@ -11,6 +11,7 @@ import { ItemEditor } from './ItemEditor';
 
 export function ItemsPage() {
   const canDo = useCan();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
@@ -38,6 +39,7 @@ export function ItemsPage() {
         subtitle={`${rows.length} items`}
         actions={
           <>
+            {canDo('settings.edit') && <Button variant="outline" icon={<Upload className="h-4 w-4" />} onClick={() => navigate('/import')} data-testid="items-import">Import</Button>}
             <Button variant="outline" icon={<Download className="h-4 w-4" />} onClick={exportCsv}>Export</Button>
             {canDo('item.edit') && <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => open(0)} data-testid="item-new">Add item</Button>}
           </>

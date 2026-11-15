@@ -1,7 +1,7 @@
 import { panFromGstin, ROLE_LABELS, STATES, validateEnterprise, type Role } from '@hisaab/core';
 import { Building2, Database, Download, FileBadge, HeartPulse, Landmark, Plus, Settings, ShieldCheck, Store, Trash2, Upload, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, ConfirmDialog, Dialog, Field, Input, Loading, PageHeader, Segmented, Select, Switch, Tabs, toast } from '../../components/ui';
 import { db } from '../../db/client';
 import type { Company } from '../../db/types';
@@ -206,6 +206,7 @@ function Backup() {
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" icon={<Download className="h-4 w-4" />} onClick={backup} data-testid="backup">Download backup</Button>
           <Button variant="outline" icon={<Upload className="h-4 w-4" />} onClick={() => fileRef.current?.click()}>Restore from file</Button>
+          <Link to="/import" className="inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3.5 text-sm font-medium hover:bg-surface-2" data-testid="settings-import">Import from Marg / Tally / Excel</Link>
         </div>
         <p className="mt-3 text-xs text-faint">{last ? `Last backup: ${fmtDate(last)}` : 'No backup taken yet.'}</p>
         <input ref={fileRef} type="file" accept=".hisaab,.sqlite,.db" className="hidden" onChange={(e) => setRestoreFile(e.target.files?.[0] ?? null)} />

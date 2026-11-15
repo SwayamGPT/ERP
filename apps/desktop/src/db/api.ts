@@ -18,6 +18,7 @@ import * as pricing from './repos/pricing';
 import * as attachments from './repos/attachments';
 import * as gst from './repos/gst';
 import { stockReport } from './repos/stockReport';
+import * as imports from './repos/imports';
 import type { DraftInvoice } from './types';
 import { searchHsn } from '@hisaab/core';
 
@@ -194,6 +195,8 @@ export const api = {
   'reports.itemProfit': (ctx: Ctx, a: { from: string; to: string }) => reports.itemProfit(ctx, a),
   'reports.billProfit': (ctx: Ctx, a: { from: string; to: string }) => reports.billProfit(ctx, a),
   'reports.stock': (ctx: Ctx) => reports.stockSummary(ctx),
+  'import.items': (ctx: Ctx, a: Parameters<typeof imports.importItems>[1]) => imports.importItems(ctx, a),
+  'import.parties': (ctx: Ctx, a: Parameters<typeof imports.importParties>[1]) => imports.importParties(ctx, a),
   'reports.stockDetail': (ctx: Ctx, a: { category?: string; godownId?: number }) => stockReport(ctx, a ?? {}),
   'reports.expiry': (ctx: Ctx, a: { days?: number }) => reports.expiryReport(ctx, a),
   'reports.daybook': (ctx: Ctx, a: { date: string }) => reports.dayBook(ctx, a.date),

@@ -1,6 +1,6 @@
-import { Plus, Search, Send, Users } from 'lucide-react';
+import { Plus, Search, Send, Users, Upload } from 'lucide-react';
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, Dialog, EmptyState, Input, Loading, Money, PageHeader, Segmented } from '../../components/ui';
 import { fmtDate, inr } from '../../lib/format';
 import { useCan } from '../../lib/perm';
@@ -27,7 +27,12 @@ export function PartiesPage() {
         icon={<Users className="h-5 w-5" />}
         title="Customers & suppliers"
         subtitle={kind === 'customer' ? `To collect ${inr(Math.max(0, sum), false)}` : `To pay ${inr(Math.max(0, -sum), false)}`}
-        actions={canDo('party.edit') && <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setParams({ new: '1' })} data-testid="party-new">Add {kind}</Button>}
+        actions={
+          <>
+            {canDo('settings.edit') && <Link to="/import" className="inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3.5 text-sm font-medium hover:bg-surface-2" data-testid="parties-import"><Upload className="h-4 w-4" /> Import</Link>}
+            {canDo('party.edit') && <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => setParams({ new: '1' })} data-testid="party-new">Add {kind}</Button>}
+          </>
+        }
       />
       <Card padded={false}>
         <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">

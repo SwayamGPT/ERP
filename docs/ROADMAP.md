@@ -155,6 +155,7 @@ release delivers each piece. Tick items as they ship.
 - [ ] R3 · Approval workflows (e.g. discount above a set % needs approval)
 
 ## 9. Platform & UX
+- [x] R2 · Import from Marg, Tally, Busy or any Excel / CSV: items with batch-wise opening stock, customers & suppliers with Dr/Cr opening balances; smart parser (finds headings, maps columns by name and by value, Indian amounts, dates, units, GST), preview and fix before saving
 - [x] R1 · Create-enterprise wizard with mandatory GSTIN, FSSAI, contact number, email and address (validated); FSSAI renewal reminder
 - [x] R1 · Multiple enterprises on one computer, each with its own database, staff and settings
 - [x] R1 · Ctrl+K command palette, `?` shortcut sheet, Alt-key navigation

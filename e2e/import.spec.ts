@@ -1,0 +1,53 @@
+import { expect, test } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openShop } from './helpers';
+
+test('import items with stock and parties with balances from Marg-style exports', async ({ page }) => {
+  await openShop(page);
+  const dir = tmpdir();
+  const items = join(dir, `marg-stock-${Date.now()}.csv`);
+  const parties = join(dir, `marg-outstanding-${Date.now()}.csv`);
+  await writeFile(items, [
+    'SHARMA GENERAL STORE',
+    'Stock Statement as on 15/11/2026',
+    'Item Name,Unit,Batch,Exp.,Qty,M.R.P.,P.Rate,S.Rate,GST %,HSN',
+    'DRY FRUITS',
+    'Kaju W240 500g,NOS,KJ01,12/27,20,"650.00","520.00","620.00",5,0801',
+    'Badam California 500g,NOS,BD07,Mar-28,15,"560.00","430.00","540.00",5,0802',
+    'Total,,,,35,,,,,',
+  ].join('\n'));
+  await writeFile(parties, [
+    'Party Name,Station,Mobile No.,GSTIN,Balance,Dr/Cr',
+    'SUNDRY DEBTORS',
+    'Kulkarni Caterers,Pune,9822099001,,"3,450.00",Dr',
+    'SUNDRY CREDITORS',
+    'Shree Dry Fruits Traders,Mumbai,9822099002,,"18,000.00",Cr',
+  ].join('\n'));
+
+  await page.goto('/#/items');
+  await page.getByTestId('items-import').click();
+  await page.getByTestId('import-file').setInputFiles([items, parties]);
+
+  // First file: detected as items, header found under the titles, groups become categories.
+  await expect(page.getByTestId('map-mrp')).toHaveValue('5');
+  await expect(page.getByTestId('import-preview')).toContainText('Kaju W240 500g');
+  await expect(page.getByTestId('import-preview')).toContainText('DRY FRUITS');
+  await page.getByTestId('import-go').click();
+  await expect(page.getByTestId('import-summary')).toContainText('2 added');
+  await expect(page.getByTestId('import-summary')).toContainText('2 opening stock batches');
+
+  // Second file: customers & suppliers with Dr / Cr.
+  await page.getByRole('button', { name: /marg-outstanding/ }).click();
+  await expect(page.getByTestId('import-preview')).toContainText('Dr (owes you)');
+  await expect(page.getByTestId('import-preview')).toContainText('Cr (you owe)');
+  await page.getByTestId('import-go').click();
+  await expect(page.getByTestId('import-summary')).toContainText('2 added');
+
+  await page.goto('/#/items/stock');
+  await page.getByTestId('stock-search').fill('Kaju');
+  await expect(page.getByTestId('stock-row').first()).toContainText('20 Pcs');
+  await page.goto('/#/parties');
+  await expect(page.getByText('Kulkarni Caterers')).toBeVisible();
+});
