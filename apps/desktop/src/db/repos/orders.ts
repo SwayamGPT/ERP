@@ -1,6 +1,7 @@
 import { lineGross, priceForUnit, resolvePrice, roundQty, type PriceTier } from '@hisaab/core';
 import type { SqlJsAdapter } from '../adapter';
 import { nextSeriesNo, seriesCode } from '../sync/engine';
+import { partyPrices } from './pricing';
 import { AppError, allowed, audit, guard, localNow, type Ctx } from './base';
 
 /**
@@ -67,11 +68,13 @@ export function createOrder(ctx: Ctx, input: OrderInput) {
   const lines = input.lines.filter((l) => l.qty > 0);
   if (!lines.length) throw new AppError('Add at least one item to the order.');
   const date = ctx.today();
+  const listPrices = partyPrices(ctx, party.id);
   return ctx.db.transaction(() => {
     const code = seriesCode(ctx.db as SqlJsAdapter);
     const number = `SO-${code ? `${code}-` : ''}${nextSeriesNo(ctx.db as SqlJsAdapter, 'sale_order')}`;
     const priced = lines.map((l) => {
       const pp = priceFor(ctx, l.itemId, l.unit, party.price_tier);
+      if (listPrices[l.itemId] != null) pp.rate = Math.round(listPrices[l.itemId] * pp.unit.factor);
       const unit = pp.unit.name;
       // Only someone allowed to give any discount may change the price on an order.
       const rate = l.rate != null && allowed(ctx, 'discount.any') ? Math.max(0, Math.round(l.rate)) : pp.rate;

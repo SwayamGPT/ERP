@@ -30,6 +30,19 @@ export const SYNC_TABLES: Array<{ name: string; local?: string[] }> = [
   { name: 'stock_moves' },
   { name: 'staff_requests' },
   { name: 'audit_log' },
+  { name: 'purchase_orders' },
+  { name: 'purchase_order_lines' },
+  { name: 'godowns' },
+  { name: 'stock_transfers' },
+  { name: 'bank_lines' },
+  { name: 'cheques' },
+  { name: 'price_lists' },
+  { name: 'price_list_items' },
+  { name: 'loyalty_moves' },
+  { name: 'coupons' },
+  { name: 'coupon_uses' },
+  { name: 'reminders' },
+  { name: 'attachments' },
 ];
 
 export const SYNCED = new Set(SYNC_TABLES.map((t) => t.name));

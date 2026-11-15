@@ -1,3 +1,5 @@
+import { NO_PROMO, recordPromo, resolvePromo, reversePromo, type Promo } from './pricing';
+import { defaultGodown, receivePO, unreceivePO } from './purchasing';
 import { markBilled } from './orders';
 import type { SqlJsAdapter } from '../adapter';
 import { nextSeriesNo, seriesCode } from '../sync/engine';
@@ -110,8 +112,8 @@ function buildInvoice(ctx: Ctx, draft: DraftInvoice) {
   const party = draft.partyId ? getParty(ctx, draft.partyId) : walkinParty(ctx);
   const pos = party.state_code || company.state_code;
   const interState = isInterState(company.state_code, pos);
-  const billDisc = draft.billDiscountPct ?? 0;
   const items = new Map<number, ItemMaster>();
+  const make = (billDisc: number) => {
   const lines = draft.lines
     .filter((l) => l.qty > 0 || (l.freeQty ?? 0) > 0)
     .map((l) => {
@@ -135,7 +137,24 @@ function buildInvoice(ctx: Ctx, draft: DraftInvoice) {
     lines.map((l) => l.tax),
     { otherCharges: draft.otherCharges ?? 0, roundOff: !!company.round_off },
   );
-  return { company, party, pos, interState, lines, totals };
+  return { lines, totals };
+  };
+  let { lines, totals } = make(draft.billDiscountPct ?? 0);
+  // Coupon / loyalty redemption: an extra bill discount (it reduces the taxable value, as GST expects
+  // for a discount known at the time of sale).
+  let promo: Promo = NO_PROMO;
+  let promoDiscount = 0;
+  if (draft.kind === 'sale' && (draft.couponCode?.trim() || (draft.redeemPoints ?? 0) > 0)) {
+    promo = resolvePromo(ctx, company, party, draft, totals.grand, draft.date ?? ctx.today());
+    const extra = promo.couponAmount + promo.pointsAmount;
+    if (extra > 0 && totals.grand > 0) {
+      const before = totals.payable;
+      const pct = Math.min(100, (extra / totals.grand) * 100);
+      ({ lines, totals } = make((1 - (1 - (draft.billDiscountPct ?? 0) / 100) * (1 - pct / 100)) * 100));
+      promoDiscount = before - totals.payable;
+    }
+  }
+  return { company, party, pos, interState, lines, totals, promo, promoDiscount };
 }
 
 export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
@@ -191,6 +210,9 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
       if (kind !== 'sale') throw new AppError('Only sales bills can come from an order.');
       markBilled(ctx, draft.orderId, invoiceId);
     }
+    if (kind === 'sale') recordPromo(ctx, b.company, b.party, invoiceId, total, b.promo, b.promoDiscount, date);
+    const sellFrom = defaultGodown(ctx);
+    const intoGodown = draft.godownId ?? sellFrom;
 
     let costTotal = 0;
     for (const l of b.lines) {
@@ -202,15 +224,20 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
       let mrp: number | null = null;
 
       if (kind === 'sale') {
-        const batches = ctx.db.query<{ id: number; qty: number; expiry: string | null; received_at: string; cost: number; batch_no: string | null; mrp: number | null }>(
-          'SELECT id, qty, expiry, received_at, cost, batch_no, mrp FROM batches WHERE item_id = ?',
+        const batches = ctx.db.query<{ id: number; qty: number; expiry: string | null; received_at: string; cost: number; batch_no: string | null; mrp: number | null; godown_id: number }>(
+          'SELECT id, qty, expiry, received_at, cost, batch_no, mrp, godown_id FROM batches WHERE item_id = ?',
           [l.item.id],
         );
-        const r = allocateFifo(
-          batches.map((x) => ({ id: x.id, qty: x.qty, expiry: x.expiry, receivedAt: x.received_at, cost: x.cost })),
-          baseQty,
-          { preferBatchId: l.draft.batchId, skipExpired: true, today: date },
-        );
+        // Sell from the shop's default godown first; other godowns only cover a shortfall.
+        const fifo = (list: typeof batches, qty: number, prefer?: number | null) =>
+          allocateFifo(list.map((x) => ({ id: x.id, qty: x.qty, expiry: x.expiry, receivedAt: x.received_at, cost: x.cost })), qty, { preferBatchId: prefer, skipExpired: true, today: date });
+        const own = batches.filter((x) => x.godown_id === sellFrom || x.id === l.draft.batchId);
+        const rest = batches.filter((x) => !own.includes(x));
+        let r = fifo(own, baseQty, l.draft.batchId);
+        if (r.shortfall > 0 && rest.length) {
+          const r2 = fifo(rest, r.shortfall);
+          r = { ...r, allocations: [...r.allocations, ...r2.allocations], shortfall: r2.shortfall };
+        }
         allocations = r.allocations;
         if (r.shortfall > 0) {
           if (!b.company.allow_negative_stock) throw new AppError(`Not enough stock of ${l.item.name}.`, 'NO_STOCK');
@@ -239,8 +266,8 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
         batchNo = l.draft.batchNo?.trim() || null;
         expiry = l.draft.expiry || null;
         mrp = l.draft.mrp ?? l.item.mrp ?? null;
-        const batchId = ctx.db.exec('INSERT INTO batches (item_id, batch_no, expiry, mrp, cost, qty, received_at, source_invoice_id) VALUES (?,?,?,?,?,?,?,?)', [
-          l.item.id, batchNo, expiry, mrp, cost, baseQty, `${date} ${nowTime()}`, invoiceId,
+        const batchId = ctx.db.exec('INSERT INTO batches (item_id, batch_no, expiry, mrp, cost, qty, received_at, source_invoice_id, godown_id) VALUES (?,?,?,?,?,?,?,?,?)', [
+          l.item.id, batchNo, expiry, mrp, cost, baseQty, `${date} ${nowTime()}`, invoiceId, intoGodown,
         ]).lastId;
         allocations = [{ batchId, qty: baseQty, cost }];
         ctx.db.exec("INSERT INTO stock_moves (item_id, batch_id, qty, cost, reason, ref_id, date) VALUES (?,?,?,?, 'purchase', ?, ?)", [l.item.id, batchId, baseQty, cost, invoiceId, date]);
@@ -267,6 +294,10 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
     postVoucher(ctx, kind, invoiceId, date, invoicePostings(kind, inv, `${kind === 'sale' ? 'Sale' : 'Purchase'} ${number}`));
     for (const p of payments) {
       recordPayment(ctx, { direction: kind === 'sale' ? 'in' : 'out', partyId: b.party.id, invoiceId, amount: p.amount, mode: p.mode, reference: p.reference, note: `${number}`, date });
+    }
+    if (draft.poId) {
+      if (kind !== 'purchase') throw new AppError('Only a purchase can receive a purchase order.');
+      receivePO(ctx, draft.poId, invoiceId, b.lines.map((l) => ({ itemId: l.item.id, baseQty: roundQty(l.draft.qty * l.draft.factor) })));
     }
     audit(ctx, `${kind}.create`, 'invoice', invoiceId, { number, total });
     return getInvoice(ctx, invoiceId);
@@ -407,6 +438,9 @@ export function cancelInvoice(ctx: Ctx, id: number, reason: string) {
       ctx.db.exec("INSERT INTO stock_moves (item_id, batch_id, qty, cost, reason, ref_id, date, note) VALUES (?,?,?,?, 'cancel', ?, ?, ?)", [m.item_id, m.batch_id, -m.qty, m.cost, id, date, reason]);
     }
     ctx.db.exec("UPDATE invoices SET status = 'cancelled', notes = COALESCE(notes || ' · ', '') || ? WHERE id = ?", [`Cancelled: ${reason}`, id]);
+    reversePromo(ctx, id, date);
+    if (inv.kind === 'purchase') unreceivePO(ctx, id);
+    ctx.db.exec("UPDATE sale_orders SET status = 'open', invoice_id = NULL, billed_at = NULL WHERE invoice_id = ?", [id]);
     audit(ctx, `${inv.kind}.cancel`, 'invoice', id, { reason });
     return getInvoice(ctx, id);
   });

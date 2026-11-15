@@ -15,6 +15,9 @@ var syncTables = map[string]bool{
 	"employees": true, "expense_categories": true, "recurring_expenses": true, "invoices": true, "invoice_lines": true,
 	"expenses": true, "money_moves": true, "payments": true, "ledger_entries": true, "stock_moves": true,
 	"staff_requests": true, "audit_log": true, "sale_orders": true, "sale_order_lines": true,
+	"purchase_orders": true, "purchase_order_lines": true, "godowns": true, "stock_transfers": true, "bank_lines": true,
+	"cheques": true, "price_lists": true, "price_list_items": true, "loyalty_moves": true, "coupons": true, "coupon_uses": true,
+	"reminders": true, "attachments": true,
 }
 
 const (
@@ -25,11 +28,11 @@ const (
 )
 
 type change struct {
-	T string          `json:"t"`
+	T  string          `json:"t"`
 	ID int64           `json:"id"`
-	D bool            `json:"d,omitempty"`
-	R json.RawMessage `json:"r,omitempty"`
-	X int64           `json:"x"`
+	D  bool            `json:"d,omitempty"`
+	R  json.RawMessage `json:"r,omitempty"`
+	X  int64           `json:"x"`
 }
 
 type pushIn struct {

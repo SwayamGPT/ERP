@@ -2,7 +2,7 @@ import type { SqlJsAdapter } from '../adapter';
 import { seriesCode } from '../sync/engine';
 import { computeLine, isInterState, validateGstin } from '@hisaab/core';
 import type { PayMode } from '../types';
-import { addDays, allowed, AppError, audit, guard, localNow, modeAccount, postVoucher, reverseVoucher, type Ctx } from './base';
+import { addDays, allowed, AppError, audit, guard, localNow, modeAccount, postVoucher, requireSession, reverseVoucher, type Ctx } from './base';
 import { mustCompany } from './company';
 
 /*
@@ -67,6 +67,8 @@ export interface ExpenseInput {
   claimItc?: boolean;
   /** Paid now in full with this mode, or leave unpaid with a due date. */
   payNow?: { mode: PayMode } | null;
+  /** Paid from the counter's petty-cash box (cash only). */
+  petty?: boolean;
   dueDate?: string | null;
   employeeId?: number | null;
   salaryPeriod?: string | null;
@@ -159,6 +161,16 @@ export function createExpense(ctx: Ctx, input: ExpenseInput): Expense {
       { account: 'EXPENSE_PAYABLE', amount: -input.amount, narration: label },
     ]);
     audit(ctx, 'expense.create', 'expense', id, { category: cat.name, amount: input.amount, payee: input.payee, paid: !!input.payNow });
+    if (input.petty) {
+      if (input.payNow?.mode !== 'cash') throw new AppError('Petty cash expenses are paid in cash.');
+      ctx.db.exec('UPDATE expenses SET petty = 1 WHERE id = ?', [id]);
+    }
+    // Above the owner's limit, staff expenses wait for the owner's approval before they can be paid.
+    const limit = ctx.db.get<{ l: number }>('SELECT expense_approval_limit AS l FROM company WHERE id = 1')?.l ?? 0;
+    if (limit > 0 && input.amount > limit && s.role !== 'owner' && !input.employeeId) {
+      ctx.db.exec("UPDATE expenses SET approval = 'pending' WHERE id = ?", [id]);
+      return getExpense(ctx, id);
+    }
     if (input.payNow) payExpense(ctx, { id, amount: input.amount, mode: input.payNow.mode, date });
     return getExpense(ctx, id);
   });
@@ -179,6 +191,9 @@ export function payExpense(ctx: Ctx, input: { id: number; amount: number; mode: 
   if (!e) throw new AppError('Expense not found.');
   const s = guard(ctx, e.employee_id ? 'payroll.manage' : 'expense.create');
   if (e.status === 'cancelled') throw new AppError('This expense is cancelled.');
+  const approval = ctx.db.get<{ a: string | null }>('SELECT approval AS a FROM expenses WHERE id = ?', [input.id])!.a;
+  if (approval === 'pending') throw new AppError('This expense is waiting for the owner’s approval.', 'NEEDS_APPROVAL');
+  if (approval === 'rejected') throw new AppError('The owner rejected this expense.');
   const recover = input.recoverAdvance ?? 0;
   const due = e.amount - e.paid;
   if (input.amount < 0 || recover < 0) throw new AppError('Amounts cannot be negative.');
@@ -446,3 +461,50 @@ export function employeeAdvance(ctx: Ctx, employeeId: number): number {
 }
 
 export { salaryCategoryId };
+
+/* ───────── approvals & petty cash ───────── */
+
+export function approveExpense(ctx: Ctx, input: { id: number; approve: boolean; payNow?: { mode: PayMode } | null }) {
+  guard(ctx, 'users.manage'); // owner
+  const e = ctx.db.get<{ approval: string | null; amount: number; petty: number }>('SELECT approval, amount, petty FROM expenses WHERE id = ?', [input.id]);
+  if (!e) throw new AppError('Expense not found.');
+  if (e.approval !== 'pending') throw new AppError('This expense is not waiting for approval.');
+  return ctx.db.transaction(() => {
+    const s = requireSession(ctx);
+    ctx.db.exec('UPDATE expenses SET approval = ?, approved_by = ? WHERE id = ?', [input.approve ? 'approved' : 'rejected', s.userId, input.id]);
+    if (!input.approve) cancelExpense(ctx, { id: input.id, reason: 'Rejected by the owner' });
+    else if (input.payNow) payExpense(ctx, { id: input.id, amount: e.amount, mode: input.payNow.mode });
+    audit(ctx, input.approve ? 'expense.approve' : 'expense.reject', 'expense', input.id);
+    return getExpense(ctx, input.id);
+  });
+}
+
+export function pendingApprovals(ctx: Ctx) {
+  guard(ctx, 'expense.view');
+  return ctx.db.query<Expense>(`${SELECT} WHERE e.approval = 'pending' AND e.status <> 'cancelled' ORDER BY e.date`);
+}
+
+/**
+ * Petty cash (imprest): the counter keeps a fixed float; small expenses are paid from it; topping
+ * it back up restores the float. The cash is part of the shop's cash in the books throughout.
+ */
+export function pettyCash(ctx: Ctx) {
+  guard(ctx, 'expense.view');
+  const float = ctx.db.get<{ f: number }>('SELECT petty_cash_float AS f FROM company WHERE id = 1')!.f;
+  // Top-ups are recorded in the audit log with the shop's local time (expenses use local time too).
+  const last = ctx.db.get<{ at: string }>("SELECT json_extract(details, '$.at') AS at FROM audit_log WHERE action = 'petty.topup' ORDER BY id DESC LIMIT 1")?.at ?? '0000';
+  const spent = ctx.db.query<{ id: number; date: string; category: string; payee: string | null; amount: number }>(
+    `SELECT e.id, e.date, c.name AS category, e.payee, e.amount FROM expenses e JOIN expense_categories c ON c.id = e.category_id
+     WHERE e.petty = 1 AND e.status <> 'cancelled' AND e.created_at > ? ORDER BY e.created_at`,
+    [last],
+  );
+  const total = spent.reduce((a, x) => a + x.amount, 0);
+  return { float, spent: total, inBox: float - total, since: last === '0000' ? null : last, items: spent };
+}
+
+export function pettyTopUp(ctx: Ctx) {
+  guard(ctx, 'money.move');
+  const p = pettyCash(ctx);
+  audit(ctx, 'petty.topup', 'company', 1, { amount: p.spent, at: localNow() });
+  return p.spent;
+}

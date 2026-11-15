@@ -11,6 +11,11 @@ import * as expenses from './repos/expenses';
 import * as staff from './repos/staff';
 import * as money from './repos/money';
 import * as orders from './repos/orders';
+import * as purchasing from './repos/purchasing';
+import * as stock from './repos/stock';
+import * as banking from './repos/banking';
+import * as pricing from './repos/pricing';
+import * as attachments from './repos/attachments';
 import type { DraftInvoice } from './types';
 import { searchHsn } from '@hisaab/core';
 
@@ -25,6 +30,52 @@ export const api = {
     const c = company.getCompany(ctx);
     return { company: c, session: ctx.session, users: c ? company.listUsersForLogin(ctx) : [], me: c ? staff.myEmployee(ctx) : null, pendingRequests: c ? staff.pendingRequestCount(ctx) : 0, openOrders: c && ctx.session ? orders.openOrderCount(ctx) : 0, sync: statusLine(ctx.db as SqlJsAdapter), ...ctx.meta };
   },
+  // purchase orders, reorder, bill import
+  'po.create': (ctx: Ctx, a: purchasing.PoInput) => purchasing.createPO(ctx, a),
+  'po.list': (ctx: Ctx, a: { status?: 'open' | 'all' }) => purchasing.listPOs(ctx, a ?? {}),
+  'po.get': (ctx: Ctx, a: { id: number }) => purchasing.getPO(ctx, a.id),
+  'po.cancel': (ctx: Ctx, a: { id: number }) => purchasing.cancelPO(ctx, a.id),
+  'po.reorder': (ctx: Ctx, a: { days?: number; coverDays?: number }) => purchasing.reorderSuggestions(ctx, a ?? {}),
+  'po.fromSuggestions': (ctx: Ctx, a: { lines: Array<{ itemId: number; qty: number; supplierId: number }> }) => purchasing.ordersFromSuggestions(ctx, a),
+  'purchases.matchImport': (ctx: Ctx, a: { rows: purchasing.ImportRow[] }) => purchasing.matchImport(ctx, a),
+  // godowns, transfers, variants
+  'stock.godowns': (ctx: Ctx) => stock.listGodowns(ctx),
+  'stock.saveGodown': (ctx: Ctx, a: Parameters<typeof stock.saveGodown>[1]) => stock.saveGodown(ctx, a),
+  'stock.byGodown': (ctx: Ctx, a: { itemId: number }) => stock.itemByGodown(ctx, a.itemId),
+  'stock.transfer': (ctx: Ctx, a: Parameters<typeof stock.transferStock>[1]) => stock.transferStock(ctx, a),
+  'stock.transfers': (ctx: Ctx) => stock.listTransfers(ctx),
+  'items.createVariants': (ctx: Ctx, a: Parameters<typeof stock.createVariants>[1]) => stock.createVariants(ctx, a),
+  'items.variants': (ctx: Ctx, a: { parentId: number }) => stock.variantsOf(ctx, a.parentId),
+  // bank reconciliation & cheques
+  'bank.import': (ctx: Ctx, a: { rows: banking.StatementRow[]; source?: string }) => banking.importStatement(ctx, a),
+  'bank.autoMatch': (ctx: Ctx) => banking.autoMatch(ctx),
+  'bank.match': (ctx: Ctx, a: { lineId: number; entryId: number | null }) => banking.matchLine(ctx, a),
+  'bank.reconciliation': (ctx: Ctx) => banking.reconciliation(ctx),
+  'cheques.add': (ctx: Ctx, a: Parameters<typeof banking.addCheque>[1]) => banking.addCheque(ctx, a),
+  'cheques.list': (ctx: Ctx, a: { status?: 'open' | 'all' }) => banking.listCheques(ctx, a ?? {}),
+  'cheques.setStatus': (ctx: Ctx, a: Parameters<typeof banking.setChequeStatus>[1]) => banking.setChequeStatus(ctx, a),
+  // price lists, coupons, loyalty, reminders
+  'pricing.lists': (ctx: Ctx) => pricing.listPriceLists(ctx),
+  'pricing.saveList': (ctx: Ctx, a: Parameters<typeof pricing.savePriceList>[1]) => pricing.savePriceList(ctx, a),
+  'pricing.setPrices': (ctx: Ctx, a: Parameters<typeof pricing.setListPrices>[1]) => pricing.setListPrices(ctx, a),
+  'pricing.prices': (ctx: Ctx, a: { listId: number }) => pricing.listPrices(ctx, a.listId),
+  'pricing.assign': (ctx: Ctx, a: { partyId: number; listId: number | null }) => pricing.assignPriceList(ctx, a),
+  'pricing.partyPrices': (ctx: Ctx, a: { partyId: number }) => (guard(ctx, 'party.view'), pricing.partyPrices(ctx, a.partyId)),
+  'coupons.list': (ctx: Ctx) => pricing.listCoupons(ctx),
+  'coupons.save': (ctx: Ctx, a: Parameters<typeof pricing.saveCoupon>[1]) => pricing.saveCoupon(ctx, a),
+  'loyalty.get': (ctx: Ctx, a: { partyId: number }) => pricing.loyaltyFor(ctx, a.partyId),
+  'loyalty.adjust': (ctx: Ctx, a: { partyId: number; points: number; note?: string }) => pricing.adjustPoints(ctx, a),
+  'reminders.refresh': (ctx: Ctx) => pricing.refreshReminders(ctx),
+  'reminders.due': (ctx: Ctx) => pricing.dueReminders(ctx),
+  'reminders.mark': (ctx: Ctx, a: { id: number; status: 'sent' | 'skipped' }) => pricing.markReminder(ctx, a),
+  // expense extras
+  'expenses.approve': (ctx: Ctx, a: Parameters<typeof expenses.approveExpense>[1]) => expenses.approveExpense(ctx, a),
+  'expenses.approvals': (ctx: Ctx) => expenses.pendingApprovals(ctx),
+  'expenses.petty': (ctx: Ctx) => expenses.pettyCash(ctx),
+  'expenses.pettyTopUp': (ctx: Ctx) => expenses.pettyTopUp(ctx),
+  'attachments.add': (ctx: Ctx, a: Parameters<typeof attachments.addAttachment>[1]) => attachments.addAttachment(ctx, a),
+  'attachments.list': (ctx: Ctx, a: Parameters<typeof attachments.listAttachments>[1]) => attachments.listAttachments(ctx, a),
+  'attachments.delete': (ctx: Ctx, a: { id: number }) => attachments.deleteAttachment(ctx, a.id),
   // sale orders (salesman on the phone → counter)
   'orders.create': (ctx: Ctx, a: orders.OrderInput) => orders.createOrder(ctx, a),
   'orders.list': (ctx: Ctx, a: Parameters<typeof orders.listOrders>[1]) => orders.listOrders(ctx, a),
@@ -68,7 +119,7 @@ export const api = {
   // invoices
   'invoices.preview': (ctx: Ctx, a: DraftInvoice) => {
     const b = invoices.previewInvoice(ctx, a);
-    return { totals: b.totals, interState: b.interState, party: b.party, lines: b.lines.map((l) => ({ ...l.tax, gstRate: l.item.gst_rate, cessRate: l.item.cess_rate, hsn: l.item.hsn, taxInclusive: l.taxInclusive, freeQty: l.freeQty, discountPct: l.discountPct, scheme: l.schemeLabel })) };
+    return { totals: b.totals, interState: b.interState, party: b.party, promo: b.promo, promoDiscount: b.promoDiscount, lines: b.lines.map((l) => ({ ...l.tax, gstRate: l.item.gst_rate, cessRate: l.item.cess_rate, hsn: l.item.hsn, taxInclusive: l.taxInclusive, freeQty: l.freeQty, discountPct: l.discountPct, scheme: l.schemeLabel })) };
   },
   'invoices.create': (ctx: Ctx, a: DraftInvoice) => invoices.createInvoice(ctx, a),
   'invoices.get': (ctx: Ctx, a: { id: number }) => invoices.getInvoice(ctx, a.id),

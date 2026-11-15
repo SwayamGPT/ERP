@@ -519,6 +519,176 @@ CREATE TABLE sale_order_lines (
 CREATE INDEX idx_order_lines_order ON sale_order_lines(order_id);
 `,
   },
+  {
+    version: 8,
+    name: 'shop_features',
+    sql: /* sql */ `
+-- Purchase orders → goods received (a purchase bill can receive part of an order)
+CREATE TABLE purchase_orders (
+  id INTEGER PRIMARY KEY,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  party_id INTEGER NOT NULL REFERENCES parties(id),
+  party_name TEXT NOT NULL,
+  expected_date TEXT,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','partial','received','cancelled')),
+  total INTEGER NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE TABLE purchase_order_lines (
+  id INTEGER PRIMARY KEY,
+  po_id INTEGER NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id),
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  factor REAL NOT NULL DEFAULT 1,
+  qty REAL NOT NULL CHECK (qty > 0),
+  received_qty REAL NOT NULL DEFAULT 0,
+  rate INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_po_lines ON purchase_order_lines(po_id);
+ALTER TABLE invoices ADD COLUMN po_id INTEGER REFERENCES purchase_orders(id);
+ALTER TABLE items ADD COLUMN lead_days INTEGER NOT NULL DEFAULT 7;
+
+-- Godowns (stock locations) and transfers between them
+CREATE TABLE godowns (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO godowns (id, name, is_default) VALUES (1, 'Shop', 1);
+ALTER TABLE batches ADD COLUMN godown_id INTEGER NOT NULL DEFAULT 1 REFERENCES godowns(id);
+CREATE TABLE stock_transfers (
+  id INTEGER PRIMARY KEY,
+  date TEXT NOT NULL,
+  from_godown INTEGER NOT NULL REFERENCES godowns(id),
+  to_godown INTEGER NOT NULL REFERENCES godowns(id),
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+
+-- Item variants: each variant is its own item (SKU, barcode, price, stock) under a parent
+ALTER TABLE items ADD COLUMN parent_id INTEGER REFERENCES items(id);
+ALTER TABLE items ADD COLUMN variant TEXT;
+CREATE INDEX idx_items_parent ON items(parent_id);
+
+-- Bank reconciliation
+ALTER TABLE ledger_entries ADD COLUMN cleared_on TEXT;
+CREATE TABLE bank_lines (
+  id INTEGER PRIMARY KEY,
+  date TEXT NOT NULL,
+  description TEXT,
+  reference TEXT,
+  amount INTEGER NOT NULL,            -- + money in, − money out (paise)
+  entry_id INTEGER REFERENCES ledger_entries(id),
+  imported_at TEXT NOT NULL,
+  source TEXT
+);
+CREATE INDEX idx_bank_lines_date ON bank_lines(date);
+
+-- Cheques received and issued
+CREATE TABLE cheques (
+  id INTEGER PRIMARY KEY,
+  direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+  party_id INTEGER NOT NULL REFERENCES parties(id),
+  number TEXT NOT NULL,
+  bank TEXT,
+  cheque_date TEXT NOT NULL,
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','deposited','cleared','bounced','cancelled')),
+  payment_id INTEGER REFERENCES payments(id),
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  status_at TEXT
+);
+CREATE INDEX idx_cheques_status ON cheques(status, cheque_date);
+
+-- Customer price lists
+CREATE TABLE price_lists (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE price_list_items (
+  id INTEGER PRIMARY KEY,
+  list_id INTEGER NOT NULL REFERENCES price_lists(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id),
+  price INTEGER NOT NULL CHECK (price >= 0)
+);
+CREATE UNIQUE INDEX idx_price_list_item ON price_list_items(list_id, item_id);
+ALTER TABLE parties ADD COLUMN price_list_id INTEGER REFERENCES price_lists(id);
+
+-- Loyalty points and coupons
+ALTER TABLE company ADD COLUMN loyalty_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE company ADD COLUMN loyalty_points_per_100 REAL NOT NULL DEFAULT 1;
+ALTER TABLE company ADD COLUMN loyalty_point_value INTEGER NOT NULL DEFAULT 100; -- paise per point
+CREATE TABLE loyalty_moves (
+  id INTEGER PRIMARY KEY,
+  party_id INTEGER NOT NULL REFERENCES parties(id),
+  invoice_id INTEGER REFERENCES invoices(id),
+  points REAL NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('earn','redeem','reverse','adjust')),
+  date TEXT NOT NULL
+);
+CREATE INDEX idx_loyalty_party ON loyalty_moves(party_id);
+CREATE TABLE coupons (
+  id INTEGER PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  kind TEXT NOT NULL CHECK (kind IN ('pct','flat')),
+  value REAL NOT NULL CHECK (value > 0),
+  min_bill INTEGER NOT NULL DEFAULT 0,
+  max_uses INTEGER,
+  valid_from TEXT,
+  valid_to TEXT,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE coupon_uses (
+  id INTEGER PRIMARY KEY,
+  coupon_id INTEGER NOT NULL REFERENCES coupons(id),
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+  amount INTEGER NOT NULL
+);
+ALTER TABLE invoices ADD COLUMN promo_discount INTEGER NOT NULL DEFAULT 0;
+
+-- Reminders to send (WhatsApp / SMS)
+CREATE TABLE reminders (
+  id INTEGER PRIMARY KEY,
+  party_id INTEGER NOT NULL REFERENCES parties(id),
+  due_on TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT 'whatsapp' CHECK (channel IN ('whatsapp','sms')),
+  amount INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sent','skipped')),
+  created_at TEXT NOT NULL,
+  sent_at TEXT
+);
+CREATE INDEX idx_reminders_due ON reminders(status, due_on);
+ALTER TABLE company ADD COLUMN reminder_after_days INTEGER NOT NULL DEFAULT 0;   -- 0 = off
+ALTER TABLE company ADD COLUMN reminder_every_days INTEGER NOT NULL DEFAULT 7;
+
+-- Expense extras: photos of bills, approvals, petty cash
+CREATE TABLE attachments (
+  id INTEGER PRIMARY KEY,
+  entity TEXT NOT NULL,
+  entity_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  data TEXT NOT NULL,            -- base64 (photos are shrunk on the device first)
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_attachments ON attachments(entity, entity_id);
+ALTER TABLE company ADD COLUMN expense_approval_limit INTEGER NOT NULL DEFAULT 0; -- 0 = off
+ALTER TABLE company ADD COLUMN petty_cash_float INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE expenses ADD COLUMN approval TEXT CHECK (approval IN ('pending','approved','rejected'));
+ALTER TABLE expenses ADD COLUMN approved_by INTEGER REFERENCES users(id);
+ALTER TABLE expenses ADD COLUMN petty INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

@@ -184,3 +184,22 @@ describe('cloud sync between devices', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+describe('sync speed', () => {
+  it('1,000 new bills travel from one counter to another quickly', async () => {
+    const { a, b, ta, tb } = await twoCounters();
+    const item = a.db.get<{ id: number; price: number }>('SELECT id, retail_price AS price FROM items WHERE is_loose = 0 AND retail_price > 0 ORDER BY id LIMIT 1')!;
+    for (let i = 0; i < 1000; i++) {
+      api['invoices.create'](a, { kind: 'sale', lines: [{ itemId: item.id, unit: 'Pcs', factor: 1, qty: 1, rate: item.price }], payments: [{ mode: 'cash', amount: item.price }] });
+    }
+    const t0 = performance.now();
+    await syncOnce(a, ta);
+    const push = performance.now() - t0;
+    const t1 = performance.now();
+    const r = await syncOnce(b, tb);
+    const pull = performance.now() - t1;
+    console.log(JSON.stringify({ bills: 1000, rows: r.pulled, pushMs: Math.round(push), pullMs: Math.round(pull) }));
+    expect(count(b, 'invoices')).toBe(count(a, 'invoices'));
+    expect(push + pull).toBeLessThan(10_000);
+  }, 120_000);
+});

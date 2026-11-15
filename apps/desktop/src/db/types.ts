@@ -50,6 +50,13 @@ export interface Company {
   print_show_signature: number;
   print_terms: string | null;
   billing_staff_mode: 'off' | 'optional';
+  loyalty_enabled: number;
+  loyalty_points_per_100: number;
+  loyalty_point_value: number;
+  reminder_after_days: number;
+  reminder_every_days: number;
+  expense_approval_limit: number;
+  petty_cash_float: number;
 }
 
 export type PrintTemplate = 'receipt' | 'receipt-large' | 'a4-classic' | 'a4-modern' | 'a5-simple';
@@ -171,6 +178,12 @@ export interface DraftInvoice {
   servedBy?: number | null;
   /** Bill made from a sale order (marks it billed in the same transaction). */
   orderId?: number | null;
+  /** Purchase receiving goods against a purchase order. */
+  poId?: number | null;
+  /** Purchase: the godown the goods go into (default godown when absent). */
+  godownId?: number | null;
+  couponCode?: string | null;
+  redeemPoints?: number | null;
 }
 
 export interface InvoiceLine {
