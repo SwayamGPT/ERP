@@ -159,6 +159,12 @@ function buildInvoice(ctx: Ctx, draft: DraftInvoice) {
 
 export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
   const s = guard(ctx, draft.kind === 'sale' ? 'sale.create' : 'purchase.create');
+  draft = checkDraft(ctx, s, draft);
+  return ctx.db.transaction(() => writeInvoice(ctx, s, draft));
+}
+
+/** Checks that don't need the transaction. `editingId`: the bill being edited (not its own duplicate). */
+function checkDraft(ctx: Ctx, s: { role: string }, draft: DraftInvoice, editingId = -1): DraftInvoice {
   if (!draft.lines.length) throw new AppError('Add at least one item.');
   if (draft.date && draft.date !== ctx.today() && s.role === 'cashier') throw new AppError('Only the owner or manager can bill on another date.');
   if (draft.kind === 'purchase') {
@@ -166,7 +172,7 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
     const billNo = draft.supplierBillNo?.trim();
     if (!billNo) throw new AppError("Enter the supplier's invoice number.", 'BILL_NO');
     const dup = draft.partyId
-      ? ctx.db.get<{ number: string }>("SELECT number FROM invoices WHERE kind = 'purchase' AND status = 'final' AND party_id = ? AND UPPER(supplier_bill_no) = UPPER(?)", [draft.partyId, billNo])
+      ? ctx.db.get<{ number: string }>("SELECT number FROM invoices WHERE kind = 'purchase' AND status = 'final' AND party_id = ? AND UPPER(supplier_bill_no) = UPPER(?) AND id != ?", [draft.partyId, billNo, editingId])
       : undefined;
     if (dup) throw new AppError(`Invoice ${billNo} from this supplier is already entered as ${dup.number}.`, 'DUP_BILL_NO');
     draft = { ...draft, supplierBillNo: billNo };
@@ -181,15 +187,29 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
       if (it && it.mrp > 0 && l.rate > roundHalfUp(it.mrp * l.factor)) throw new AppError(`Rate for ${it.name} is above MRP.`);
     }
   }
+  return draft;
+}
 
-  return ctx.db.transaction(() => {
+/** What an edit carries over from the bill it replaces. */
+interface Replacing {
+  id: number;
+  number: string;
+  /** Purchase: batches the old bill brought in, per item, to refill instead of making new ones. */
+  batches: Map<number, number[]>;
+  /** The bill's own payments are unchanged, so they stay as they are. */
+  keepPayments: boolean;
+}
+
+/** Saves a bill (inside a transaction): a new one, or the new contents of one being edited. */
+function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, existing?: Replacing): Invoice {
+  {
     const b = buildInvoice(ctx, draft);
     const date = draft.date ?? ctx.today();
     const payments = (draft.payments ?? []).filter((p) => p.amount > 0);
     const paid = payments.reduce((a, p) => a + p.amount, 0);
     const total = b.totals.payable;
     if (paid > total) throw new AppError('Payment is more than the bill amount. Enter the amount to keep, not the cash tendered.');
-    if (draft.kind === 'sale' && b.party.is_walkin && paid < total) throw new AppError('Walk-in bills must be paid in full. Pick a customer to give credit (udhaar).', 'WALKIN_CREDIT');
+    if (draft.kind === 'sale' && b.party.is_walkin && paid < total) throw new AppError('Cash bills (no customer) must be paid in full. Pick a customer to give credit (udhaar).', 'WALKIN_CREDIT');
     // Only a bill that adds to their dues can push a customer over the limit; paying in full is always fine.
     if (draft.kind === 'sale' && b.party.credit_limit > 0 && total - paid > 0 && !draft.overrideCreditLimit) {
       const after = partyBalance(ctx, b.party.id) + total - paid;
@@ -198,10 +218,21 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
     if (draft.overrideCreditLimit && !allowed(ctx, 'discount.any')) throw new AppError('Only the owner or manager can go over a credit limit.');
 
     const kind = draft.kind;
-    const number = nextNumber(ctx, kind);
+    const number = existing?.number ?? nextNumber(ctx, kind);
     const mode = payments.length === 0 ? 'credit' : payments.length > 1 ? 'split' : payments[0].mode;
     const t = b.totals;
-    const invoiceId = ctx.db.exec(
+    if (existing) {
+      ctx.db.exec(
+        `UPDATE invoices SET date = ?, party_id = ?, party_name = ?, party_gstin = ?, party_phone = ?, place_of_supply = ?, inter_state = ?, gross = ?, discount = ?,
+          taxable = ?, cgst = ?, sgst = ?, igst = ?, cess = ?, other_charges = ?, round_off = ?, total = ?, paid = ?, payment_mode = ?, supplier_bill_no = ?, notes = ?,
+          served_by = NULL, promo_discount = 0, edited_at = ?, edited_by = ? WHERE id = ?`,
+        [
+          date, b.party.id, b.party.name, b.party.gstin, b.party.phone, b.pos, b.interState ? 1 : 0, t.gross, t.discount, t.taxable, t.cgst, t.sgst, t.igst, t.cess,
+          draft.otherCharges ?? 0, t.roundOff, total, paid, mode, draft.supplierBillNo ?? null, draft.notes ?? null, `${ctx.today()} ${nowTime()}`, s.userId, existing.id,
+        ],
+      );
+    }
+    const invoiceId = existing ? existing.id : ctx.db.exec(
       `INSERT INTO invoices (kind, number, date, party_id, party_name, party_gstin, party_phone, place_of_supply, inter_state, gross, discount, taxable,
         cgst, sgst, igst, cess, other_charges, round_off, total, paid, payment_mode, supplier_bill_no, notes, created_by, created_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -217,7 +248,7 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
       if (!emp) throw new AppError('That staff member is no longer active. Pick someone else.');
       ctx.db.exec('UPDATE invoices SET served_by = ? WHERE id = ?', [draft.servedBy, invoiceId]);
     }
-    if (draft.orderId) {
+    if (draft.orderId && !existing) {
       if (kind !== 'sale') throw new AppError('Only sales bills can come from an order.');
       markBilled(ctx, draft.orderId, invoiceId);
     }
@@ -277,9 +308,13 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
         batchNo = l.draft.batchNo?.trim() || null;
         expiry = l.draft.expiry || null;
         mrp = l.draft.mrp ?? l.item.mrp ?? null;
-        const batchId = ctx.db.exec('INSERT INTO batches (item_id, batch_no, expiry, mrp, cost, qty, received_at, source_invoice_id, godown_id) VALUES (?,?,?,?,?,?,?,?,?)', [
-          l.item.id, batchNo, expiry, mrp, cost, baseQty, `${date} ${nowTime()}`, invoiceId, intoGodown,
-        ]).lastId;
+        // Editing: refill a batch the old bill brought in (sales from it keep pointing at it).
+        const reuse = existing?.batches.get(l.item.id)?.shift();
+        const batchId = reuse
+          ? (ctx.db.exec('UPDATE batches SET batch_no = ?, expiry = ?, mrp = ?, cost = ?, qty = ROUND(qty + ?, 3), godown_id = ? WHERE id = ?', [batchNo, expiry, mrp, cost, baseQty, intoGodown, reuse]), reuse)
+          : ctx.db.exec('INSERT INTO batches (item_id, batch_no, expiry, mrp, cost, qty, received_at, source_invoice_id, godown_id) VALUES (?,?,?,?,?,?,?,?,?)', [
+              l.item.id, batchNo, expiry, mrp, cost, baseQty, `${date} ${nowTime()}`, invoiceId, intoGodown,
+            ]).lastId;
         allocations = [{ batchId, qty: baseQty, cost }];
         ctx.db.exec("INSERT INTO stock_moves (item_id, batch_id, qty, cost, reason, ref_id, date) VALUES (?,?,?,?, 'purchase', ?, ?)", [l.item.id, batchId, baseQty, cost, invoiceId, date]);
         lineCost = l.tax.taxable;
@@ -303,15 +338,100 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
 
     const inv = { party_id: b.party.id, taxable: t.taxable, cgst: t.cgst, sgst: t.sgst, igst: t.igst, cess: t.cess, other_charges: draft.otherCharges ?? 0, round_off: t.roundOff, total };
     postVoucher(ctx, kind, invoiceId, date, invoicePostings(kind, inv, `${kind === 'sale' ? 'Sale' : 'Purchase'} ${number}`));
-    for (const p of payments) {
+    for (const p of existing?.keepPayments ? [] : payments) {
       recordPayment(ctx, { direction: kind === 'sale' ? 'in' : 'out', partyId: b.party.id, invoiceId, amount: p.amount, mode: p.mode, reference: p.reference, note: `${number}`, date });
     }
     if (draft.poId) {
       if (kind !== 'purchase') throw new AppError('Only a purchase can receive a purchase order.');
       receivePO(ctx, draft.poId, invoiceId, b.lines.map((l) => ({ itemId: l.item.id, baseQty: roundQty(l.draft.qty * l.draft.factor) })));
     }
-    audit(ctx, `${kind}.create`, 'invoice', invoiceId, { number, total });
+    if (!existing) audit(ctx, `${kind}.create`, 'invoice', invoiceId, { number, total });
     return getInvoice(ctx, invoiceId);
+  }
+}
+
+/** A saved bill turned back into what the billing screen needs to edit it. */
+export function editDraft(ctx: Ctx, id: number) {
+  const inv = getInvoice(ctx, id);
+  guard(ctx, inv.kind === 'sale' ? 'sale.cancel' : 'purchase.create');
+  if (inv.status !== 'final' || (inv.kind !== 'sale' && inv.kind !== 'purchase')) throw new AppError('Only saved sales and purchases can be edited.');
+  const couponCode = ctx.db.get<{ code: string }>('SELECT c.code FROM coupon_uses u JOIN coupons c ON c.id = u.coupon_id WHERE u.invoice_id = ?', [id])?.code ?? null;
+  const redeemPoints = -(ctx.db.get<{ p: number }>("SELECT COALESCE(SUM(points), 0) AS p FROM loyalty_moves WHERE invoice_id = ? AND kind = 'redeem'", [id])?.p ?? 0);
+  // The saved discount % folds in the item's scheme and the coupon / points; take those out
+  // again (they are worked out afresh when the edited bill is saved).
+  const promo = (inv as Invoice & { promo_discount?: number }).promo_discount ?? 0;
+  const promoKeep = promo > 0 ? 1 - promo / (inv.total + promo) : 1;
+  const lines = inv.lines!.map((l) => {
+    const sch = inv.kind === 'sale' ? applyScheme(JSON.parse(ctx.db.get<{ scheme: string | null }>('SELECT scheme FROM items WHERE id = ?', [l.item_id])?.scheme ?? 'null') as Scheme | null, l.qty).discountPct : 0;
+    const rest = (1 - l.discount_pct / 100) / ((1 - sch / 100) * promoKeep);
+    return { ...l, line_discount_pct: Math.max(0, Math.min(100, Math.round((1 - rest) * 1e6) / 1e4)) };
+  });
+  const godownId = ctx.db.get<{ g: number }>('SELECT godown_id AS g FROM batches WHERE source_invoice_id = ? LIMIT 1', [id])?.g ?? null;
+  return { invoice: inv, lines, couponCode, redeemPoints, godownId, payments: (inv.payments ?? []).filter((p) => !p.cancelled) };
+}
+
+/**
+ * Edit a saved sale or purchase. The bill keeps its number and date series; its old effects
+ * (ledger, stock, loyalty, its own payments) are taken back and the new contents saved in their
+ * place, all in one transaction. Payments made later against the bill stay and are re-applied.
+ */
+export function updateInvoice(ctx: Ctx, id: number, draft: DraftInvoice): Invoice {
+  const old = getInvoice(ctx, id);
+  if (old.kind !== 'sale' && old.kind !== 'purchase') throw new AppError('Returns cannot be edited. Cancel the return and make a new one.');
+  const s = guard(ctx, old.kind === 'sale' ? 'sale.cancel' : 'purchase.create');
+  if (old.status !== 'final') throw new AppError('A cancelled bill cannot be edited.');
+  if (draft.kind !== old.kind) throw new AppError('A sale cannot be turned into a purchase.');
+  if (old.irn && !old.irn_test) throw new AppError('This bill has an e-invoice (IRN). Cancel the IRN first, then edit the bill.', 'HAS_IRN');
+  if (ctx.db.get("SELECT 1 FROM invoices WHERE ref_invoice_id = ? AND status = 'final'", [id])) throw new AppError('This bill has returns against it. Cancel those first.');
+  draft = checkDraft(ctx, s, { ...draft, date: draft.date ?? old.date }, id);
+  const before = { total: old.total, party: old.party_name, lines: old.lines!.map((l) => `${l.name} ${l.qty} ${l.unit} @ ${l.rate}`) };
+
+  return ctx.db.transaction(() => {
+    const today = ctx.today();
+    // Its own payments: kept if the new bill is paid the same way, else cancelled and recorded again.
+    const pays = ctx.db.query<{ id: number; mode: string; amount: number }>('SELECT id, mode, amount FROM payments WHERE invoice_id = ? AND cancelled = 0 ORDER BY id', [id]);
+    const sig = (xs: Array<{ mode: string; amount: number }>) => xs.map((p) => `${p.mode}:${p.amount}`).sort().join(',');
+    const keepPayments = draft.partyId === old.party_id && sig(pays) === sig((draft.payments ?? []).filter((p) => p.amount > 0));
+    if (!keepPayments) {
+      for (const p of pays) {
+        reverseVoucher(ctx, 'payment', p.id, today, 'cancel_payment');
+        ctx.db.exec("UPDATE payments SET cancelled = 1, note = COALESCE(note || ' · ', '') || 'bill edited' WHERE id = ?", [p.id]);
+      }
+    }
+    ctx.db.exec('DELETE FROM ledger_entries WHERE voucher_type = ? AND voucher_id = ?', [old.kind, id]);
+
+    // Stock: put back what the sale took; take out what the purchase brought in.
+    const moves = ctx.db.query<{ id: number; batch_id: number | null; qty: number }>('SELECT id, batch_id, qty FROM stock_moves WHERE ref_id = ? AND reason = ?', [id, old.kind]);
+    for (const m of moves) {
+      if (m.batch_id) ctx.db.exec('UPDATE batches SET qty = ROUND(qty - ?, 3) WHERE id = ?', [m.qty, m.batch_id]);
+      ctx.db.exec('DELETE FROM stock_moves WHERE id = ?', [m.id]);
+    }
+    const batches = new Map<number, number[]>();
+    if (old.kind === 'purchase') {
+      for (const b of ctx.db.query<{ id: number; item_id: number }>('SELECT id, item_id FROM batches WHERE source_invoice_id = ? ORDER BY id', [id])) {
+        batches.set(b.item_id, [...(batches.get(b.item_id) ?? []), b.id]);
+      }
+    }
+    ctx.db.exec('DELETE FROM loyalty_moves WHERE invoice_id = ?', [id]);
+    ctx.db.exec('DELETE FROM coupon_uses WHERE invoice_id = ?', [id]);
+    ctx.db.exec('DELETE FROM invoice_lines WHERE invoice_id = ?', [id]);
+
+    const oldBatches = [...batches.values()].flat();
+    const inv = writeInvoice(ctx, s, draft, { id, number: old.number, batches, keepPayments });
+
+    // Batches of the old purchase that the new one no longer has.
+    const allowNegative = !!mustCompany(ctx).allow_negative_stock;
+    for (const bid of oldBatches) {
+      const b = ctx.db.get<{ qty: number; name: string }>('SELECT b.qty, i.name FROM batches b JOIN items i ON i.id = b.item_id WHERE b.id = ?', [bid])!;
+      const used = ctx.db.get('SELECT 1 FROM stock_moves WHERE batch_id = ? LIMIT 1', [bid]);
+      if (!used) ctx.db.exec('DELETE FROM batches WHERE id = ?', [bid]);
+      else if (b.qty < -1e-9 && !allowNegative) throw new AppError(`More ${b.name} from this bill is already sold than the edited bill brings in.`, 'NO_STOCK');
+    }
+    const k = old.kind as 'sale' | 'purchase';
+    if (old.party_id !== inv.party_id) allocateToBills(ctx, old.party_id, k);
+    allocateToBills(ctx, inv.party_id, k);
+    audit(ctx, `${old.kind}.edit`, 'invoice', id, { number: old.number, before, after: { total: inv.total, party: inv.party_name } });
+    return getInvoice(ctx, id);
   });
 }
 

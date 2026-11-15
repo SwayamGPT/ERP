@@ -757,6 +757,17 @@ CREATE INDEX idx_alloc_invoice ON payment_allocations(invoice_id);
 CREATE INDEX idx_invoices_supplier_bill ON invoices(party_id, supplier_bill_no);
 `,
   },
+  {
+    version: 12,
+    name: 'bill edits; walk-in customer is called Cash',
+    sql: `
+ALTER TABLE invoices ADD COLUMN edited_at TEXT;
+ALTER TABLE invoices ADD COLUMN edited_by INTEGER;
+UPDATE parties SET name = 'Cash' WHERE is_walkin = 1 AND name = 'Walk-in Customer';
+UPDATE invoices SET party_name = 'Cash' WHERE party_name = 'Walk-in Customer';
+UPDATE sale_orders SET party_name = 'Cash' WHERE party_name = 'Walk-in Customer';
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

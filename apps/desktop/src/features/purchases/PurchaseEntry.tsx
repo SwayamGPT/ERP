@@ -59,6 +59,38 @@ export function PurchaseEntry() {
   const godowns = useApi('stock.godowns').data ?? [];
   const [params] = useSearchParams();
   const poParam = Number(params.get('po')) || null;
+  const editParam = Number(params.get('edit')) || null;
+  const [editing, setEditing] = useState<{ id: number; number: string } | null>(null);
+  useEffect(() => {
+    if (!editParam) return;
+    void (async () => {
+      try {
+        const d = await call('invoices.forEdit', { id: editParam });
+        const v = d.invoice;
+        const [party, items] = await Promise.all([call('parties.get', { id: v.party_id }), Promise.all(d.lines.map((l) => call('items.get', { id: l.item_id })))]);
+        setSupplier(party);
+        setPick(false);
+        setEditing({ id: v.id, number: v.number });
+        setBillNo(v.supplier_bill_no ?? '');
+        setDate(v.date);
+        setOther(v.other_charges ?? 0);
+        setGodownId(d.godownId);
+        const paid = d.payments.reduce((a, p) => a + p.amount, 0);
+        const m = d.payments[0]?.mode;
+        setPayNow(paid > 0 && (m === 'cash' || m === 'bank' || m === 'upi') ? m : 'none');
+        setRows([
+          ...d.lines.map((l, i) => ({
+            ...rowFor(items[i], { qty: l.qty, rate: l.rate, unit: l.unit, factor: l.factor, batch: l.batch_no ?? '', expiry: l.expiry ?? '', mrp: l.mrp ?? undefined }),
+            free: l.free_qty ? String(l.free_qty) : '',
+            disc: l.line_discount_pct ? String(l.line_discount_pct) : '',
+          })),
+          blank(),
+        ]);
+      } catch (e) {
+        toast.error(e);
+      }
+    })();
+  }, [editParam]);
   useEffect(() => {
     if (!poParam) return;
     void (async () => {
@@ -127,8 +159,9 @@ export function PurchaseEntry() {
     setSaving(true);
     try {
       const payable = t?.payable ?? 0;
-      const inv = await call('invoices.create', { ...draft, payments: payNow !== 'none' && payable > 0 ? [{ mode: payNow, amount: payable }] : [] });
-      toast.success(`Purchase ${inv.number} saved`, `Stock updated for ${inv.lines?.length} items`);
+      const full = { ...draft, payments: payNow !== 'none' && payable > 0 ? [{ mode: payNow, amount: payable }] : [] };
+      const inv = editing ? await call('invoices.update', { id: editing.id, draft: { ...full, poId: null } }) : await call('invoices.create', full);
+      toast.success(`Purchase ${inv.number} ${editing ? 'updated' : 'saved'}`, `Stock updated for ${inv.lines?.length} items`);
       navigate(`/purchases/${inv.id}`);
     } catch (e) {
       toast.error(e);
@@ -159,7 +192,7 @@ export function PurchaseEntry() {
 
   return (
     <div className="animate-slide-up">
-      <PageHeader icon={<Truck className="h-5 w-5" />} title="New purchase" subtitle="Enter the supplier's bill. Stock, batches, cost and input GST update automatically." actions={<><ImportBillButton onLoad={(list) => setRows([...list.map((x) => rowFor(x.item, x)), blank()])} /><Button variant="primary" icon={<Save className="h-4 w-4" />} kbd="F9" loading={saving} onClick={save} data-testid="purchase-save">Save purchase</Button></>} />
+      <PageHeader icon={<Truck className="h-5 w-5" />} title={editing ? `Edit purchase ${editing.number}` : 'New purchase'} subtitle={editing ? 'Change anything on this bill and save. Stock, cost, the supplier account and payments are corrected; the bill keeps its number.' : "Enter the supplier's bill. Stock, batches, cost and input GST update automatically."} actions={<><ImportBillButton onLoad={(list) => setRows([...list.map((x) => rowFor(x.item, x)), blank()])} /><Button variant="primary" icon={<Save className="h-4 w-4" />} kbd="F9" loading={saving} onClick={save} data-testid="purchase-save">{editing ? 'Save changes' : 'Save purchase'}</Button></>} />
       {po && (
         <p className="mb-3 flex items-center gap-2 rounded-lg bg-primary/5 px-3 py-2 text-sm text-primary" data-testid="purchase-from-po">
           <ClipboardList className="h-4 w-4" /> Receiving goods against {po.number}. Change quantities to what actually arrived.

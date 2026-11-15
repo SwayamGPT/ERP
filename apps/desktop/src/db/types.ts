@@ -226,6 +226,8 @@ export interface Invoice {
   irn_ack_date?: string | null;
   irn_qr?: string | null;
   irn_test?: number;
+  edited_at?: string | null;
+  edited_by?: number | null;
   irn_cancelled?: number;
   ewb_no?: string | null;
   ewb_date?: string | null;

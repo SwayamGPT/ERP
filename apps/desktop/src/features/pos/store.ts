@@ -51,6 +51,9 @@ export interface Bill {
   /** Bill made from a salesman's sale order. */
   orderId?: number | null;
   orderNumber?: string | null;
+  /** Editing a saved bill: saving replaces it, keeping its number. */
+  editId?: number | null;
+  editNumber?: string | null;
   couponCode?: string;
   redeemPoints?: number;
   /** The customer's price list (item id → base-unit price), if they have one. */
@@ -63,6 +66,7 @@ let k = 0;
 const uid = () => `${Date.now().toString(36)}-${(++k).toString(36)}`;
 const blankBill = (no: number): Bill => ({
   id: uid(), no, lines: [], party: null, selected: -1, mode: 'cash', tendered: 0, paidNow: 0, billDiscountPct: 0, otherCharges: 0, notes: '', openedAt: Date.now(),
+  orderId: null, orderNumber: null, editId: null, editNumber: null,
 });
 
 const tierOf = (p: Party | null): PriceTier => (p?.price_tier as PriceTier) ?? 'retail';
@@ -117,7 +121,7 @@ interface PosState {
   select: (i: number) => void;
   setParty: (p: Party | null, listPrices?: Record<number, number>) => void;
   setMode: (m: PayMode) => void;
-  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'paidNowMode' | 'splitCash' | 'splitOther' | 'billDiscountPct' | 'otherCharges' | 'notes' | 'servedBy' | 'orderId' | 'orderNumber' | 'couponCode' | 'redeemPoints'>>) => void;
+  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'paidNowMode' | 'splitCash' | 'splitOther' | 'billDiscountPct' | 'otherCharges' | 'notes' | 'servedBy' | 'orderId' | 'orderNumber' | 'editId' | 'editNumber' | 'couponCode' | 'redeemPoints'>>) => void;
   clear: () => void;
   /** After a bill is saved: close its tab if others are open, otherwise start fresh. */
   completed: () => void;

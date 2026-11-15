@@ -17,6 +17,7 @@ import {
   Split,
   Trash2,
   X,
+  Pencil,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -165,19 +166,21 @@ export function PosPage() {
         payments = [{ mode: 'cash', amount: cash }, { mode: bill.splitOther ?? 'upi', amount: payable - cash }];
       } else payments = [{ mode, amount: payable }];
       payments = payments.filter((p) => p.amount > 0);
-      const inv = await call('invoices.create', {
+      const full = {
         ...draft,
         notes: bill.notes || undefined,
         servedBy: company?.billing_staff_mode === 'optional' ? bill.servedBy?.id ?? null : null,
         orderId: bill.orderId ?? null,
         payments,
         overrideCreditLimit: override,
-      });
+      };
+      const edited = bill.editId;
+      const inv = edited ? await call('invoices.update', { id: edited, draft: { ...full, orderId: null } }) : await call('invoices.create', full);
       setLast(inv);
       displayThanks(company, inv.total, mode === 'cash' && bill.tendered > inv.total ? bill.tendered - inv.total : 0);
       pos.completed();
       setAdvanced(false);
-      toast.success(`Bill ${inv.number} saved · ${formatINR(inv.total)}`, mode === 'cash' && bill.tendered > inv.total ? `Return change ${formatINR(bill.tendered - inv.total)}` : undefined);
+      toast.success(`Bill ${inv.number} ${edited ? 'updated' : 'saved'} · ${formatINR(inv.total)}`, mode === 'cash' && bill.tendered > inv.total ? `Return change ${formatINR(bill.tendered - inv.total)}` : undefined);
       if (print && company) printInvoice(inv, company);
       focusSearch();
     } catch (e) {
@@ -248,6 +251,12 @@ export function PosPage() {
           </div>
           {canDo('order.view') && <OrdersButton />}
         </div>
+        {bill.editNumber && (
+          <div className="flex items-center gap-2 border-b border-border bg-warn/10 px-5 py-1.5 text-xs text-warn" data-testid="bill-editing">
+            <Pencil className="h-3.5 w-3.5" /> Editing bill {bill.editNumber}. Saving replaces it (same number); stock, accounts and payments are corrected.
+            <button className="ml-auto underline" onClick={() => (pos.closeBill(pos.active), focusSearch())}>Stop editing</button>
+          </div>
+        )}
         {bill.orderNumber && (
           <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-5 py-1.5 text-xs text-primary" data-testid="bill-from-order">
             <ClipboardList className="h-3.5 w-3.5" /> Billing order {bill.orderNumber}. Saving marks it billed.

@@ -140,6 +140,8 @@ export const api = {
   'invoices.get': (ctx: Ctx, a: { id: number }) => invoices.getInvoice(ctx, a.id),
   'invoices.list': (ctx: Ctx, a: Parameters<typeof invoices.listInvoices>[1]) => invoices.listInvoices(ctx, a),
   'invoices.return': (ctx: Ctx, a: Parameters<typeof invoices.createReturn>[1]) => invoices.createReturn(ctx, a),
+  'invoices.forEdit': (ctx: Ctx, a: { id: number }) => invoices.editDraft(ctx, a.id),
+  'invoices.update': (ctx: Ctx, a: { id: number; draft: DraftInvoice }) => invoices.updateInvoice(ctx, a.id, a.draft),
   'invoices.cancel': (ctx: Ctx, a: { id: number; reason: string }) => invoices.cancelInvoice(ctx, a.id, a.reason),
 
   // money

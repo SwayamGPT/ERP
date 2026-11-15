@@ -116,7 +116,7 @@ export function setupCompany(ctx: Ctx, input: SetupInput): Session {
   return ctx.db.transaction(() => {
     ctx.db.exec(`INSERT INTO company (id, ${keys.join(', ')}) VALUES (1, ${keys.map(() => '?').join(', ')})`, keys.map((k) => (c[k] ?? null) as never));
     const { lastId } = ctx.db.exec('INSERT INTO users (name, role, pin) VALUES (?, ?, ?)', [input.ownerName.trim(), 'owner', hashPin(input.ownerPin)]);
-    ctx.db.exec("INSERT INTO parties (kind, name, is_walkin, state_code) VALUES ('customer', 'Walk-in Customer', 1, ?)", [c.state_code!]);
+    ctx.db.exec("INSERT INTO parties (kind, name, is_walkin, state_code) VALUES ('customer', 'Cash', 1, ?)", [c.state_code!]);
     const session: Session = { userId: lastId, name: input.ownerName.trim(), role: 'owner' };
     ctx.session = session;
     if (input.openingCash && input.openingCash > 0) {

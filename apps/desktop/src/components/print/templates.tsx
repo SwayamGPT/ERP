@@ -66,7 +66,7 @@ function buildCtx(inv: Invoice, c: Company): Ctx {
   };
 }
 
-const walkIn = (inv: Invoice) => inv.party_name.startsWith('Walk-in');
+const walkIn = (inv: Invoice) => inv.party_name === 'Cash' || inv.party_name.startsWith('Walk-in');
 const mode = (m: string | null) => (m === 'upi' ? 'UPI' : m === 'credit' ? 'Credit (udhaar)' : m ? m[0].toUpperCase() + m.slice(1) : '—');
 const unitLabel = (l: InvoiceLine) => l.unit;
 const addressLine = (c: Company) => [c.address, c.city, c.pincode].filter(Boolean).join(', ');

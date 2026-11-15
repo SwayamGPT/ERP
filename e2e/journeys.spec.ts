@@ -287,7 +287,7 @@ test('split payment: part cash, rest by UPI, both land in the right books', asyn
   const toast = page.getByTestId('toast').filter({ hasText: /Bill (INV-\d+) saved · ₹280.00/ });
   await expect(toast).toBeVisible();
   await page.getByTestId('last-bill').getByRole('link', { name: 'View' }).click();
-  await expect(page.getByText('Cash', { exact: true })).toBeVisible();
+  await expect(page.getByRole('main').locator('span.text-muted', { hasText: /^Cash\s*$/ })).toBeVisible();
   await expect(page.getByText('UPI', { exact: true })).toBeVisible();
   await expect(page.getByText('₹180.00').first()).toBeVisible();
   await page.goto('/#/money?tab=log');

@@ -1,5 +1,5 @@
 import { EWAY_LIMIT } from '@hisaab/core';
-import { ArrowLeft, Ban, FileJson, Printer, Receipt, RotateCcw, Send, Truck } from 'lucide-react';
+import { ArrowLeft, Ban, FileJson, Pencil, Printer, Receipt, RotateCcw, Send, Truck } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { printInvoice } from '../../components/print/PrintInvoice';
@@ -14,6 +14,7 @@ import { billMessage, whatsappLink } from '../../lib/share';
 import { useAction, useApi } from '../../lib/useApi';
 import { EinvoicePanel } from './EinvoicePanel';
 import { PaymentDialog } from '../money/MoneyPage';
+import { loadSaleForEdit } from '../pos/editBill';
 
 export function InvoiceView() {
   const { id } = useParams();
@@ -36,6 +37,16 @@ export function InvoiceView() {
   const due = v.total - v.paid;
   const canReturn = v.status === 'final' && (v.kind === 'sale' ? canDo('sale.return') : v.kind === 'purchase' && canDo('purchase.create'));
   const canCancel = v.status === 'final' && (isSale ? canDo('sale.cancel') : canDo('purchase.create'));
+  const canEdit = v.status === 'final' && (v.kind === 'sale' ? canDo('sale.cancel') && canDo('sale.create') : v.kind === 'purchase' && canDo('purchase.create')) && !(v.irn && !v.irn_test);
+  const edit = async () => {
+    if (v.kind === 'purchase') return navigate(`/purchases/new?edit=${v.id}`);
+    try {
+      await loadSaleForEdit(v.id);
+      navigate('/pos');
+    } catch (e) {
+      toast.error(e);
+    }
+  };
   const profit = v.cost_total !== undefined && v.kind === 'sale' ? v.taxable - v.cost_total : null;
 
   return (
@@ -48,6 +59,7 @@ export function InvoiceView() {
           <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
             {v.number}
             {v.status === 'cancelled' && <Badge tone="bad">Cancelled</Badge>}
+            {v.edited_at && <span data-testid="bill-edited"><Badge>Edited {fmtDate(v.edited_at.slice(0, 10))}</Badge></span>}
             {v.kind.endsWith('return') && <Badge tone="warn">{isSale ? 'Credit note' : 'Debit note'}</Badge>}
             {v.status === 'final' && !v.kind.endsWith('return') && (due > 0 ? <Badge tone="warn">Unpaid {inr(due)}</Badge> : <Badge tone="good">Paid</Badge>)}
           </h1>
@@ -70,6 +82,7 @@ export function InvoiceView() {
             <Send className="h-4 w-4 text-good" /> WhatsApp
           </a>
         )}
+        {canEdit && <Button variant="outline" icon={<Pencil className="h-4 w-4" />} onClick={edit} data-testid="bill-edit">Edit bill</Button>}
         {canReturn && <Button variant="outline" icon={<RotateCcw className="h-4 w-4" />} onClick={() => setReturnOpen(true)}>Return</Button>}
         {v.kind === 'sale' && v.status === 'final' && canDo('gst.view') && (
           <Button variant="outline" icon={<Truck className="h-4 w-4" />} onClick={() => setEwayOpen(true)}>e-Way Bill</Button>

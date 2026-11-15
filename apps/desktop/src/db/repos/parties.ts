@@ -31,7 +31,7 @@ export function getParty(ctx: Ctx, id: number): Party {
 
 export function walkinParty(ctx: Ctx): Party {
   const p = ctx.db.get<{ id: number }>('SELECT id FROM parties WHERE is_walkin = 1 LIMIT 1');
-  if (!p) throw new AppError('Walk-in customer missing.');
+  if (!p) throw new AppError('The Cash customer is missing.');
   return getParty(ctx, p.id);
 }
 
@@ -67,7 +67,7 @@ export function saveParty(ctx: Ctx, input: PartyInput): number {
   return ctx.db.transaction(() => {
     if (input.id) {
       const existing = ctx.db.get<{ is_walkin: number }>('SELECT is_walkin FROM parties WHERE id = ?', [input.id]);
-      if (existing?.is_walkin) throw new AppError('The walk-in customer cannot be edited.');
+      if (existing?.is_walkin) throw new AppError('The Cash customer cannot be edited.');
       ctx.db.exec(
         'UPDATE parties SET kind=?, name=?, phone=?, gstin=?, state_code=?, address=?, city=?, pincode=?, price_tier=?, credit_limit=?, credit_days=? WHERE id = ?',
         [...vals, input.id] as never,

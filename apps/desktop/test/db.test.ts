@@ -62,7 +62,7 @@ describe('database & posting engine', () => {
 
     const pv = api['invoices.preview'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 7, rate: 3000 }] });
     expect(pv.totals.payable).toBe(21000);
-    expect(() => api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 7, rate: 3000 }] })).toThrow(/Walk-in/);
+    expect(() => api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 7, rate: 3000 }] })).toThrow(/Cash bills/);
 
     const inv = api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 7, rate: 3000 }], payments: [{ mode: 'cash', amount: 21000 }] });
     expect(inv.total).toBe(21000);
@@ -227,5 +227,102 @@ describe('PIN security', () => {
     ctx.db.exec("INSERT INTO users (name, role, pin) VALUES ('Older', 'cashier', '9999')");
     expect(upgradePlainPins(ctx.db)).toBe(1);
     expect(ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM users WHERE pin NOT LIKE 'pbkdf2$%'")!.n).toBe(0);
+  });
+});
+
+describe('editing a saved bill', () => {
+  const balance = (ctx: Ctx, partyId: number) => ctx.db.get<{ b: number }>("SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account = 'PARTY' AND party_id = ?", [partyId])!.b;
+  const cash = (ctx: Ctx) => ctx.db.get<{ b: number }>("SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account = 'CASH'")!.b;
+
+  it('edits a sale: same number, stock, ledger and payment follow the new lines', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Soap', gst_rate: 0, base_unit: 'Pcs', mrp: 5000, retail_price: 5000, purchase_price: 4000 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 4000 }] });
+    const cash0 = cash(ctx);
+    const inv = api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 2, rate: 5000 }], payments: [{ mode: 'cash', amount: 10000 }] });
+    expect(inv.party_name).toBe('Cash');
+    expect(stockOf(ctx, itemId)).toBe(8);
+
+    const ed = api['invoices.update'](ctx, { id: inv.id, draft: { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 3, rate: 5000 }], payments: [{ mode: 'cash', amount: 15000 }] } });
+    expect(ed.number).toBe(inv.number);
+    expect(ed.id).toBe(inv.id);
+    expect(ed.total).toBe(15000);
+    expect(ed.paid).toBe(15000);
+    expect(ed.edited_at).toBeTruthy();
+    expect(ed.lines).toHaveLength(1);
+    expect(stockOf(ctx, itemId)).toBe(7);
+    expect(cash(ctx) - cash0).toBe(15000);
+    expect(ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM ledger_entries WHERE voucher_type = 'sale' AND voucher_id = ?", [inv.id])!.n).toBeGreaterThan(0);
+    expect(ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM invoices WHERE kind = 'sale'")!.n).toBe(1);
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+    expect(ctx.db.get<{ action: string }>("SELECT action FROM audit_log WHERE action = 'sale.edit'")).toBeTruthy();
+  });
+
+  it('edits a credit sale onto another customer and keeps later payments against it', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Rice', gst_rate: 0, base_unit: 'Kg', mrp: 6000, retail_price: 6000, purchase_price: 5000 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Kg', factor: 1, qty: 50, rate: 5000 }] });
+    const a = api['parties.save'](ctx, { kind: 'customer', name: 'Asha', phone: '9822000001' });
+    const b = api['parties.save'](ctx, { kind: 'customer', name: 'Bala', phone: '9822000002' });
+    const inv = api['invoices.create'](ctx, { kind: 'sale', partyId: a, lines: [{ itemId, unit: 'Kg', factor: 1, qty: 10, rate: 6000 }] });
+    expect(balance(ctx, a)).toBe(60000);
+    api['payments.receive'](ctx, { direction: 'in', partyId: a, amount: 20000, mode: 'cash', againstBills: [{ invoiceId: inv.id, amount: 20000 }] });
+    // fewer kg, same customer: the 200 paid stays against the bill
+    let ed = api['invoices.update'](ctx, { id: inv.id, draft: { kind: 'sale', partyId: a, lines: [{ itemId, unit: 'Kg', factor: 1, qty: 5, rate: 6000 }] } });
+    expect(ed.total).toBe(30000);
+    expect(ed.paid).toBe(20000);
+    expect(balance(ctx, a)).toBe(10000);
+    // moved to another customer
+    ed = api['invoices.update'](ctx, { id: inv.id, draft: { kind: 'sale', partyId: b, lines: [{ itemId, unit: 'Kg', factor: 1, qty: 5, rate: 6000 }] } });
+    expect(ed.party_name).toBe('Bala');
+    expect(balance(ctx, b)).toBe(30000);
+    expect(balance(ctx, a)).toBe(-20000); // Asha's 200 is now advance
+    expect(stockOf(ctx, itemId)).toBe(45);
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+  });
+
+  it('edits a purchase: refills its batch, checks the supplier bill number, and protects sold stock', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Oil', gst_rate: 5, base_unit: 'Ltr', mrp: 20000, retail_price: 20000, purchase_price: 15000 });
+    const other = api['items.save'](ctx, { name: 'Ghee', gst_rate: 5, base_unit: 'Pcs', mrp: 60000, retail_price: 60000, purchase_price: 50000 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: 'OLD-1', partyId: sup, lines: [{ itemId: other, unit: 'Pcs', factor: 1, qty: 1, rate: 50000 }] });
+    const p = api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: 'S-9', partyId: sup, lines: [{ itemId, unit: 'Ltr', factor: 1, qty: 10, rate: 15000 }, { itemId: other, unit: 'Pcs', factor: 1, qty: 2, rate: 50000 }] });
+    const sl = [{ itemId, unit: 'Ltr', factor: 1, qty: 4, rate: 20000 }];
+    const due = api['invoices.preview'](ctx, { kind: 'sale', lines: sl }).totals.payable;
+    api['invoices.create'](ctx, { kind: 'sale', lines: sl, payments: [{ mode: 'cash', amount: due }] });
+    const batch = ctx.db.get<{ id: number }>('SELECT id FROM batches WHERE source_invoice_id = ? AND item_id = ?', [p.id, itemId])!.id;
+
+    expect(() => api['invoices.update'](ctx, { id: p.id, draft: { kind: 'purchase', supplierBillNo: 'old-1', partyId: sup, lines: [{ itemId, unit: 'Ltr', factor: 1, qty: 10, rate: 15000 }] } })).toThrow(/already entered/);
+    // with negative stock off, it can't drop below what was already sold
+    ctx.db.exec('UPDATE company SET allow_negative_stock = 0');
+    expect(() => api['invoices.update'](ctx, { id: p.id, draft: { kind: 'purchase', supplierBillNo: 'S-9', partyId: sup, lines: [{ itemId, unit: 'Ltr', factor: 1, qty: 3, rate: 15000 }] } })).toThrow();
+    expect(stockOf(ctx, itemId)).toBe(6); // rolled back
+
+    const ed = api['invoices.update'](ctx, { id: p.id, draft: { kind: 'purchase', supplierBillNo: 'S-9A', partyId: sup, lines: [{ itemId, unit: 'Ltr', factor: 1, qty: 12, rate: 14000 }] } });
+    expect(ed.number).toBe(p.number);
+    expect(ed.supplier_bill_no).toBe('S-9A');
+    expect(stockOf(ctx, itemId)).toBe(8); // 12 in, 4 sold
+    expect(stockOf(ctx, other)).toBe(1); // Ghee line removed: its unused batch is gone
+    const b = ctx.db.get<{ id: number; qty: number; cost: number }>('SELECT id, qty, cost FROM batches WHERE source_invoice_id = ? AND item_id = ?', [p.id, itemId])!;
+    expect(b).toEqual({ id: batch, qty: 8, cost: 14000 });
+    expect(balance(ctx, sup)).toBe(-(50000 * 1.05 + 12 * 14000 * 1.05));
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+  });
+
+  it('only owner or manager edits sales; returns and cancelled bills are locked', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Pen', gst_rate: 0, base_unit: 'Pcs', mrp: 1000, retail_price: 1000, purchase_price: 500 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 500 }] });
+    const line = { itemId, unit: 'Pcs', factor: 1, qty: 2, rate: 1000 };
+    const inv = api['invoices.create'](ctx, { kind: 'sale', lines: [line], payments: [{ mode: 'cash', amount: 2000 }] });
+    api['invoices.return'](ctx, { invoiceId: inv.id, lines: [{ lineId: inv.lines![0].id, qty: 1 }], refundMode: 'cash' });
+    expect(() => api['invoices.update'](ctx, { id: inv.id, draft: { kind: 'sale', lines: [line], payments: [{ mode: 'cash', amount: 2000 }] } })).toThrow(/returns/);
+    const inv2 = api['invoices.create'](ctx, { kind: 'sale', lines: [line], payments: [{ mode: 'cash', amount: 2000 }] });
+    api['invoices.cancel'](ctx, { id: inv2.id, reason: 'x' });
+    expect(() => api['invoices.update'](ctx, { id: inv2.id, draft: { kind: 'sale', lines: [line], payments: [{ mode: 'cash', amount: 2000 }] } })).toThrow(/cancelled/);
   });
 });
