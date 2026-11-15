@@ -1,5 +1,6 @@
 import { isEmail, isPhone, panFromGstin, STATES, validateEnterprise, validateGstin, type EnterpriseDetails } from '@hisaab/core';
-import { ArrowLeft, ArrowRight, Building2, Check, FileBadge, Landmark, ShieldCheck, Upload, UserRound, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building2, Check, FileBadge, Landmark, Link2, ShieldCheck, Upload, UserRound, X } from 'lucide-react';
+import { JoinShop } from '../cloud/JoinShop';
 import { useRef, useState } from 'react';
 import { Logo } from '../../components/Logo';
 import { Button, Field, Input, MoneyInput, toast } from '../../components/ui';
@@ -31,6 +32,7 @@ const STEP_FIELDS: Array<Array<keyof EnterpriseDetails>> = [
 export function Onboarding({ onCancel }: { onCancel?: () => void }) {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [join, setJoin] = useState(false);
   const [showErrors, setShowErrors] = useState<Record<number, boolean>>({});
   const [f, setF] = useState<Form>({
     name: '', businessType: '', phone: '', email: '', address: '', city: '', pincode: '', tagline: '',
@@ -110,7 +112,7 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
         <div className="relative mt-auto max-w-sm">
           <h1 className="text-3xl font-semibold leading-tight tracking-tight">Set up your enterprise once. Bill in seconds forever.</h1>
           <p className="mt-3 text-sm text-white/80">Your GSTIN, FSSAI licence and contact details print on every bill exactly as the law and your customers expect.</p>
-          <p className="mt-8 flex items-center gap-2 text-xs text-white/70"><ShieldCheck className="h-4 w-4" /> Everything is stored on this computer.</p>
+          <p className="mt-8 flex items-center gap-2 text-xs text-white/70"><ShieldCheck className="h-4 w-4" /> Everything is stored on this computer. Cloud sync is optional.</p>
         </div>
       </aside>
 
@@ -239,15 +241,21 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
           {step > 0 ? (
             <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setStep(step - 1)}>Back</Button>
           ) : (
-            <button className="flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={() => fileRef.current?.click()} data-testid="ob-restore">
-              <Upload className="h-4 w-4" /> Restore from a backup file
-            </button>
+            <span className="flex flex-wrap items-center gap-4">
+              <button className="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline" onClick={() => setJoin(true)} data-testid="ob-join">
+                <Link2 className="h-4 w-4" /> Join an existing shop
+              </button>
+              <button className="flex items-center gap-1.5 text-sm text-muted hover:text-ink" onClick={() => fileRef.current?.click()} data-testid="ob-restore">
+                <Upload className="h-4 w-4" /> Restore from a backup file
+              </button>
+            </span>
           )}
           <Button variant="primary" size="lg" loading={busy} onClick={next} data-testid={step < 2 ? 'ob-next' : 'ob-finish'}>
             {step < 2 ? 'Continue' : 'Create enterprise'} <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
         <input ref={fileRef} type="file" accept=".hisaab,.sqlite,.db" className="hidden" data-testid="ob-restore-file" onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} />
+        <JoinShop open={join} onOpenChange={setJoin} phone={typeof window !== 'undefined' && window.innerWidth < 700} />
       </main>
     </div>
   );

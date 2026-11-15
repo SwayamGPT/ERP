@@ -44,7 +44,7 @@ jobs:
         run: npm run perf
 
   server:
-    name: Cloud server (Go + Postgres)
+    name: Cloud server & browser journeys
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -73,6 +73,10 @@ jobs:
         run: go vet ./... && go test -count=1 -p 1 ./...
       - name: Desktop sync engine against the real server
         run: npx vitest run apps/desktop/test/sync.server.test.ts
+      - name: Browser journeys (incl. two counters syncing through the server)
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test --trace off
 
   build:
     name: Build (${{ matrix.name }})

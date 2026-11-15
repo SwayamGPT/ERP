@@ -8,13 +8,14 @@ import type { Company } from '../../db/types';
 import { BUSINESS_TYPES } from '../../db/templates';
 import type { BusinessType } from '../../db/repos/company';
 import { PrintSetup } from './PrintSetup';
+import { CloudSettings } from '../cloud/CloudSettings';
 import { downloadBlob } from '../../lib/download';
 import { fmtDate, today } from '../../lib/format';
 import { useCan } from '../../lib/perm';
 import { useUi } from '../../lib/store';
 import { useAction, useApi } from '../../lib/useApi';
 
-type Tab = 'business' | 'print' | 'billing' | 'users' | 'backup';
+type Tab = 'business' | 'print' | 'billing' | 'users' | 'cloud' | 'backup';
 
 export function SettingsPage() {
   const canDo = useCan();
@@ -27,6 +28,7 @@ export function SettingsPage() {
     { value: 'print' as const, label: 'Print setup', show: canDo('settings.edit') },
     { value: 'billing' as const, label: 'Billing rules', show: canDo('settings.edit') },
     { value: 'users' as const, label: 'Users & PINs', show: canDo('users.manage') },
+    { value: 'cloud' as const, label: 'Cloud & devices', show: canDo('backup.manage') },
     { value: 'backup' as const, label: 'Backup & data', show: canDo('backup.manage') },
   ].filter((t) => t.show);
   return (
@@ -38,6 +40,7 @@ export function SettingsPage() {
         {tab === 'business' && <Business c={company} />}
         {tab === 'billing' && <Billing c={company} />}
         {tab === 'users' && <UsersTab />}
+        {tab === 'cloud' && <CloudSettings />}
         {tab === 'backup' && <Backup />}
       </div>
     </div>
@@ -190,7 +193,7 @@ function Backup() {
   return (
     <div className="space-y-4">
       <Card title={<span className="flex items-center gap-2"><Database className="h-4 w-4" /> Backup</span>}>
-        <p className="mb-4 text-sm text-muted">All your data lives on this computer and saves automatically after every bill. Download a backup file every day or week — automatic cloud backup comes with sync in the next release.</p>
+        <p className="mb-4 text-sm text-muted">All your data lives on this computer and saves automatically after every bill. Download a backup file every week, or turn on encrypted cloud backup under Cloud & devices.</p>
         <div className="flex flex-wrap gap-2">
           <Button variant="primary" icon={<Download className="h-4 w-4" />} onClick={backup} data-testid="backup">Download backup</Button>
           <Button variant="outline" icon={<Upload className="h-4 w-4" />} onClick={() => fileRef.current?.click()}>Restore from file</Button>

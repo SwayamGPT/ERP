@@ -1,6 +1,6 @@
 import type { SqlJsAdapter } from './adapter';
 import { guard, type Ctx } from './repos/base';
-import { conflicts as syncConflicts } from './sync/engine';
+import { conflicts as syncConflicts, syncState } from './sync/engine';
 import { statusLine } from './sync/loop';
 import * as company from './repos/company';
 import * as invoices from './repos/invoices';
@@ -25,6 +25,12 @@ export const api = {
     return { company: c, session: ctx.session, users: c ? company.listUsersForLogin(ctx) : [], me: c ? staff.myEmployee(ctx) : null, pendingRequests: c ? staff.pendingRequestCount(ctx) : 0, sync: statusLine(ctx.db as SqlJsAdapter), ...ctx.meta };
   },
   'sync.status': (ctx: Ctx) => statusLine(ctx.db as SqlJsAdapter),
+  /** The device token, for the owner's cloud screens (devices, pairing codes, backups). */
+  'sync.credentials': (ctx: Ctx) => {
+    guard(ctx, 'backup.manage');
+    const s = syncState(ctx.db as SqlJsAdapter);
+    return s?.shop_id ? { serverUrl: s.server_url!, deviceToken: s.device_token!, shopId: s.shop_id, deviceId: s.device_id! } : null;
+  },
   'sync.conflicts': (ctx: Ctx) => (guard(ctx, 'settings.edit'), syncConflicts(ctx.db as SqlJsAdapter)),
   'sync.clearConflicts': (ctx: Ctx) => (guard(ctx, 'settings.edit'), ctx.db.exec('UPDATE _sync_conflicts SET seen = 1'), true),
   'company.setup': (ctx: Ctx, a: company.SetupInput) => company.setupCompany(ctx, a),
