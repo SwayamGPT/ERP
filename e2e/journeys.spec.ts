@@ -37,6 +37,9 @@ test('creating an enterprise insists on GSTIN, FSSAI and contact details', async
   await page.getByTestId('ob-pin').fill('4321');
   await page.getByTestId('ob-pin2').fill('4321');
   await page.getByTestId('ob-finish').click();
+  await expect(page.getByText('Tell us if the shop is already running')).toBeVisible();
+  await page.getByTestId('ob-new').click();
+  await page.getByTestId('ob-finish').click();
   await expect(page.getByTestId('dash-new-bill')).toBeVisible();
   await expect(page.getByText('Annapurna Sweets').first()).toBeVisible();
 

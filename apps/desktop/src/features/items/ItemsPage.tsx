@@ -40,6 +40,7 @@ export function ItemsPage() {
         actions={
           <>
             {canDo('settings.edit') && <Button variant="outline" icon={<Upload className="h-4 w-4" />} onClick={() => navigate('/import')} data-testid="items-import">Import</Button>}
+            {canDo('settings.edit') && <Button variant="outline" icon={<Plus className="h-4 w-4" />} onClick={() => navigate('/welcome')}>Add many</Button>}
             <Button variant="outline" icon={<Download className="h-4 w-4" />} onClick={exportCsv}>Export</Button>
             {canDo('item.edit') && <Button variant="primary" icon={<Plus className="h-4 w-4" />} onClick={() => open(0)} data-testid="item-new">Add item</Button>}
           </>

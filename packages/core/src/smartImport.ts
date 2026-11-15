@@ -341,7 +341,7 @@ export interface Skipped {
   text: string;
 }
 
-const JUNK = /^(grand ?total|sub ?total|total|page ?\d+|continued|carried over|b\/f|c\/f|opening|closing)\b/i;
+const JUNK = /^(grand ?total|sub ?total|total|page ?\d+|continued|carried over|b\/f|c\/f|opening|closing|example)\b/i;
 
 const isGroupRow = (r: string[], nameCol: number | null) => {
   const filled = r.map((c, i) => [c, i] as const).filter(([c]) => c.trim() !== '');

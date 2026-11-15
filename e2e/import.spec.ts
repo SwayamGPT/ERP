@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openShop } from './helpers';
+import { createEnterprise, openShop } from './helpers';
 
 test('import items with stock and parties with balances from Marg-style exports', async ({ page }) => {
   await openShop(page);
@@ -50,4 +50,43 @@ test('import items with stock and parties with balances from Marg-style exports'
   await expect(page.getByTestId('stock-row').first()).toContainText('20 Pcs');
   await page.goto('/#/parties');
   await expect(page.getByText('Kulkarni Caterers')).toBeVisible();
+});
+
+test('a shop that was already running lands on "bring in your shop" and adds items, stock and dues', async ({ page }) => {
+  await createEnterprise(page, { name: 'Purana Kirana', gstin14: '27AAPFU0939F1Z' }, { boot: true, existing: true });
+  await expect(page.getByTestId('welcome')).toBeVisible();
+  await expect(page.getByTestId('welcome-import')).toBeVisible();
+
+  // The template's example rows are skipped when imported as-is.
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByTestId('template-items').click()]);
+  const file = join(tmpdir(), `tpl-${Date.now()}.csv`);
+  await dl.saveAs(file);
+  await page.goto('/#/import');
+  await page.getByTestId('import-file').setInputFiles(file);
+  await expect(page.getByTestId('import-go')).toBeDisabled(); // 0 rows: only examples
+
+  await page.goto('/#/welcome');
+  await page.getByTestId('welcome-quick-items').click();
+  await page.getByTestId('qi-name').nth(0).fill('Fortune Oil 1L');
+  await page.getByTestId('qi-mrp').nth(0).fill('185');
+  await page.getByTestId('qi-cost').nth(0).fill('160');
+  await page.getByTestId('qi-qty').nth(0).fill('24');
+  await page.getByTestId('qi-name').nth(1).fill('Toor Dal 1kg');
+  await page.getByTestId('qi-rate').nth(1).fill('165');
+  await page.getByTestId('qi-qty').nth(1).fill('10');
+  await page.getByTestId('quick-items-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: '2 items added' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Back' }).click();
+  await page.getByTestId('welcome-quick-parties').click();
+  await page.getByTestId('qp-name').nth(0).fill('Sharma Aunty');
+  await page.getByTestId('qp-phone').nth(0).fill('9822011111');
+  await page.getByTestId('qp-amount').nth(0).fill('750');
+  await page.getByTestId('quick-parties-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: '1 added' })).toBeVisible();
+
+  await page.goto('/#/items/stock');
+  await expect(page.getByTestId('stock-total-items')).toHaveText('2');
+  await page.goto('/#/parties');
+  await expect(page.getByText('Sharma Aunty')).toBeVisible();
 });

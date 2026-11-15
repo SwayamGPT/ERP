@@ -30,7 +30,7 @@ export interface NewEnterprise {
 }
 
 /** Fill the create-enterprise wizard (all mandatory details) and land on the dashboard. */
-export async function createEnterprise(page: Page, e: NewEnterprise, opts: { boot?: boolean } = { boot: true }) {
+export async function createEnterprise(page: Page, e: NewEnterprise, opts: { boot?: boolean; existing?: boolean } = { boot: true }) {
   if (opts.boot) await boot(page);
   await page.getByTestId('ob-name').fill(e.name);
   await page.getByTestId('type-kirana').click();
@@ -46,7 +46,9 @@ export async function createEnterprise(page: Page, e: NewEnterprise, opts: { boo
   await page.getByTestId('ob-owner').fill('Rakesh');
   await page.getByTestId('ob-pin').fill('1234');
   await page.getByTestId('ob-pin2').fill('1234');
+  await page.getByTestId(opts.existing ? 'ob-existing' : 'ob-new').click();
   await page.getByTestId('ob-finish').click();
+  if (opts.existing) return;
   await expect(page.getByTestId('dash-new-bill')).toBeVisible({ timeout: 30_000 });
 }
 

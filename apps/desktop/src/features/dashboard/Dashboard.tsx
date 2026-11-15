@@ -283,7 +283,7 @@ function Checklist() {
   if (!canDo('settings.edit') || dismissed || !status.data?.company) return null;
   const c = status.data.company;
   const steps = [
-    { done: !!items.data?.length, label: 'Add your items', to: '/items?new=1' },
+    { done: !!items.data?.length, label: 'Add or import your items', to: '/welcome' },
     { done: !!sales.data?.length, label: 'Make your first bill', to: '/pos' },
     { done: !!c.upi_id, label: 'Add UPI ID for QR payments', to: '/settings' },
     { done: (users.data?.length ?? 0) > 1, label: 'Add a cashier with a PIN', to: '/settings?tab=users' },

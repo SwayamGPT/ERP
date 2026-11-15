@@ -14,6 +14,7 @@ import { LabelsPage } from './features/items/LabelsPage';
 import { GodownsPage } from './features/items/GodownsPage';
 import { StockReportPage } from './features/items/StockReportPage';
 import { ImportPage } from './features/import/ImportPage';
+import { WelcomePage } from './features/welcome/WelcomePage';
 import { MoneyPage } from './features/money/MoneyPage';
 import { Onboarding } from './features/onboarding/Onboarding';
 import { EnterprisePicker } from './features/enterprise/EnterprisePicker';
@@ -95,6 +96,7 @@ function Boot() {
           <Route path="/items/godowns" element={<GodownsPage />} />
           <Route path="/items/stock" element={<StockReportPage />} />
           <Route path="/import" element={<ImportPage />} />
+          <Route path="/welcome" element={<WelcomePage />} />
           <Route path="/parties" element={<PartiesPage />} />
           <Route path="/parties/:id" element={<PartyDetail />} />
           <Route path="/money" element={<MoneyPage />} />

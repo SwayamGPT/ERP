@@ -20,6 +20,7 @@ type Form = {
   name: string; businessType: BusinessType | ''; phone: string; email: string; address: string; city: string; pincode: string; tagline: string;
   gstin: string; legalName: string; fssai: string; fssaiExpiry: string; upiId: string; bankName: string; bankAccount: string; bankIfsc: string; bankBranch: string;
   ownerName: string; ownerPin: string; pin2: string; openingCash: number;
+  existing: '' | 'new' | 'existing';
 };
 
 const STEP_FIELDS: Array<Array<keyof EnterpriseDetails>> = [
@@ -37,7 +38,7 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
   const [f, setF] = useState<Form>({
     name: '', businessType: '', phone: '', email: '', address: '', city: '', pincode: '', tagline: '',
     gstin: '', legalName: '', fssai: '', fssaiExpiry: '', upiId: '', bankName: '', bankAccount: '', bankIfsc: '', bankBranch: '',
-    ownerName: '', ownerPin: '', pin2: '', openingCash: 0,
+    ownerName: '', ownerPin: '', pin2: '', openingCash: 0, existing: '',
   });
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((s) => ({ ...s, [k]: v }));
   const fileRef = useRef<HTMLInputElement>(null);
@@ -47,6 +48,7 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
     ownerName: !f.ownerName.trim() ? "Enter the owner's name" : undefined,
     ownerPin: !/^\d{4}$/.test(f.ownerPin) ? 'PIN must be exactly 4 digits' : undefined,
     pin2: f.pin2 !== f.ownerPin ? 'PINs do not match' : undefined,
+    existing: !f.existing ? 'Tell us if the shop is already running' : undefined,
   };
   const stepValid = (i: number) => (i === 2 ? !Object.values(ownerErrors).some(Boolean) : STEP_FIELDS[i].every((k) => !errors[k]));
   const err = (k: keyof EnterpriseDetails) => (showErrors[step] ? errors[k] : undefined);
@@ -72,6 +74,8 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
         bankName: f.bankName, bankAccount: f.bankAccount, bankIfsc: f.bankIfsc, bankBranch: f.bankBranch,
         ownerName: f.ownerName, ownerPin: f.ownerPin, openingCash: f.openingCash,
       });
+      // An existing shop goes straight to bringing in its items, stock and customers.
+      if (f.existing === 'existing') window.location.hash = '#/welcome';
       useUi.getState().setSession(s);
       await db.flush();
       await queryClient.invalidateQueries();
@@ -223,6 +227,22 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
                 <Field label="Confirm PIN *" error={oerr('pin2')}>
                   <Input type="password" inputMode="numeric" value={f.pin2} onChange={(e) => set('pin2', e.target.value.replace(/\D/g, '').slice(0, 4))} data-testid="ob-pin2" />
                 </Field>
+              </div>
+              <div>
+                <span className="label">Is this shop already running?</span>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {([
+                    ['existing', 'Yes — bring in my items', 'Import from Marg, Tally, Busy or Excel, or type them in quickly, with opening stock and customer dues.'],
+                    ['new', 'No — a new shop', 'Start empty and add items as you go.'],
+                  ] as const).map(([v, t, d]) => (
+                    <button key={v} type="button" onClick={() => set('existing', v)} data-testid={`ob-${v}`}
+                      className={cn('rounded-xl border-2 p-3 text-left transition', f.existing === v ? 'border-primary bg-primary-soft' : 'border-border hover:border-primary/40')}>
+                      <span className="block text-sm font-semibold">{t}</span>
+                      <span className="block text-xs text-muted">{d}</span>
+                    </button>
+                  ))}
+                </div>
+                {oerr('existing') && <p className="mt-1 text-xs text-bad">{oerr('existing')}</p>}
               </div>
               <Field label="Cash in the drawer right now" hint="Optional — starts your cash book">
                 <MoneyInput value={f.openingCash} onChange={(v) => set('openingCash', v)} />
