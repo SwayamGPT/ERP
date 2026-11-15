@@ -6,7 +6,8 @@ import { isMutation } from './methods';
 import { AppError, localToday, type Ctx } from './repos/base';
 import { migrate } from './schema';
 import { upgradePlainPins } from './crypto';
-import { attach as attachSync } from './sync/engine';
+import { attach as attachSync, connect as connectSync, disconnect as disconnectSync, isConnected, syncState, type ConnectInfo } from './sync/engine';
+import { httpTransport, statusLine, syncOnce, SyncHttpError } from './sync/loop';
 import type { Company, EnterpriseEntry } from './types';
 
 /**
@@ -139,7 +140,59 @@ function scheduleSnapshot() {
   timer = setTimeout(() => void flush(), snapshotDelay());
 }
 
+/* ───────── cloud sync ───────── */
+
+const SYNC_EVERY_MS = 30_000;
+const SYNC_AFTER_CHANGE_MS = 3_000;
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let syncing: Promise<void> | null = null;
+
+function scheduleSync(ms: number) {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = null;
+  if (!adapter || !isConnected(syncState(adapter))) return;
+  syncTimer = setTimeout(() => void runSync(), ms);
+}
+
+/** One push + pull round. Never throws: errors are recorded and shown in the top bar. */
+function runSync(): Promise<void> {
+  if (syncing) return syncing;
+  const a = adapter;
+  const c = ctx;
+  const s = a ? syncState(a) : null;
+  if (!a || !c || !isConnected(s)) return Promise.resolve();
+  syncing = (async () => {
+    const id = currentId;
+    try {
+      const r = await syncOnce(c, httpTransport(s.server_url!, s.device_token!));
+      if (currentId !== id) return;
+      if (r.pulled && !registry.some((e) => e.id === currentId)) syncEntry(); // a joining device just received the shop
+      if (r.pushed || r.pulled) scheduleSnapshot();
+      post({ type: 'sync', status: statusLine(a), pulled: r.pulled });
+    } catch (err) {
+      if (currentId !== id || !adapter) return;
+      const offline = !(err instanceof SyncHttpError);
+      const msg = offline ? 'Offline — will retry' : (err as Error).message;
+      try {
+        a.db.run('UPDATE _sync_state SET last_error = ? WHERE id = 1', [msg]);
+      } catch {
+        /* closed */
+      }
+      post({ type: 'sync', status: statusLine(a), pulled: 0 });
+    } finally {
+      syncing = null;
+      if (currentId === id) scheduleSync(SYNC_EVERY_MS);
+    }
+  })();
+  return syncing;
+}
+
+self.addEventListener('online', () => scheduleSync(500));
+
 async function close() {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = null;
+  await syncing;
   await flush();
   adapter?.db.close();
   adapter = null;
@@ -168,6 +221,7 @@ async function open(id: string, bytes?: Uint8Array | null) {
     syncEntry();
     await flush();
   }
+  scheduleSync(1_000);
 }
 
 function post(msg: unknown) {
@@ -224,6 +278,32 @@ self.onmessage = async (e: MessageEvent) => {
         if (registry.length === 0) await open(newId());
         return reply(meta());
       }
+      case 'sync.connect': {
+        // The first device of a shop uploads what it has; a joining device starts empty and pulls.
+        requireOwner();
+        if (!adapter) throw new AppError('Open an enterprise first.');
+        const info = e.data.info as ConnectInfo;
+        const upload = !!adapter.get('SELECT 1 FROM company');
+        if (!upload && !e.data.joining) throw new AppError('Set up the enterprise before connecting it.');
+        if (upload && e.data.joining) throw new AppError('Join an existing shop from a new, empty enterprise.');
+        connectSync(adapter, info, { uploadExisting: upload });
+        scheduleSnapshot();
+        await runSync();
+        return reply({ status: statusLine(adapter), ...meta() });
+      }
+      case 'sync.disconnect': {
+        requireOwner();
+        if (!adapter) throw new AppError('Open an enterprise first.');
+        await syncing;
+        disconnectSync(adapter);
+        scheduleSnapshot();
+        return reply(statusLine(adapter));
+      }
+      case 'sync.now': {
+        if (!adapter) return reply({ connected: false });
+        await runSync();
+        return reply({ status: statusLine(adapter), ...meta() });
+      }
       case 'flush':
         await flush();
         return reply(true);
@@ -258,6 +338,7 @@ self.onmessage = async (e: MessageEvent) => {
         if (isMutation(method)) {
           if (method === 'company.setup' || method === 'company.save') syncEntry();
           scheduleSnapshot();
+          scheduleSync(SYNC_AFTER_CHANGE_MS);
         }
         return reply(result);
       }

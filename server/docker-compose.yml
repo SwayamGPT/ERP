@@ -1,0 +1,26 @@
+# Local or single-VM deployment: server + Postgres 16.
+#   cd server && HISAAB_DB_PASSWORD=change-me docker compose up -d
+# Put it behind HTTPS (Caddy / a cloud load balancer) before shops connect to it.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: hisaab
+      POSTGRES_PASSWORD: ${HISAAB_DB_PASSWORD:?set HISAAB_DB_PASSWORD}
+      POSTGRES_DB: hisaab
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    environment:
+      HISAAB_DB: postgres://hisaab:${HISAAB_DB_PASSWORD}@db:5432/hisaab?sslmode=disable
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    restart: unless-stopped
+volumes:
+  pgdata:

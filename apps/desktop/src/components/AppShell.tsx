@@ -10,6 +10,7 @@ import {
   ReceiptText,
   ChevronsUpDown,
   Plus,
+  Cloud,
   CloudOff,
   Command,
   FileSpreadsheet,
@@ -210,7 +211,8 @@ export function AppShell({ company, children }: { company: Company; children: Re
             <kbd className="kbd">K</kbd>
           </button>
           <div className="flex-1" />
-          <div className="hidden items-center gap-1.5 text-xs text-muted md:flex" title="Every bill is saved on this computer instantly. Cloud sync arrives in the next release.">
+          <SyncPill />
+          <div className="hidden items-center gap-1.5 text-xs text-muted md:flex" title="Every bill is saved on this computer instantly.">
             {online ? (
               <span className={cn('h-2 w-2 rounded-full', saveState === 'saved' ? 'bg-good' : 'bg-saffron animate-pulse')} />
             ) : (
@@ -304,4 +306,38 @@ function IconBtn({ children, title, onClick }: { children: ReactNode; title: str
       {children}
     </button>
   );
+}
+
+/** Cloud sync status, shown only when this enterprise is connected to a shop. */
+function SyncPill() {
+  const sync = useApi('app.status').data?.sync;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  if (!sync?.connected) return null;
+  const last = sync.lastPullAt ? new Date(`${sync.lastPullAt.replace(' ', 'T')}Z`) : null;
+  const ago = last ? relTime(last) : 'not yet';
+  const err = sync.lastError;
+  const label = err ? (sync.pending ? `${err} · ${sync.pending} waiting` : err) : sync.pending ? `Syncing · ${sync.pending} waiting` : `Synced ${ago}`;
+  return (
+    <button
+      onClick={() => void db.syncNow()}
+      className={cn('hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs md:flex', err ? 'border-warn/40 text-warn' : 'border-border text-muted hover:text-fg')}
+      title={`Cloud sync${sync.deviceName ? ` — ${sync.deviceName}` : ''}. Click to sync now.`}
+      data-testid="sync-state"
+    >
+      {err ? <CloudOff className="h-3.5 w-3.5" /> : <Cloud className="h-3.5 w-3.5" />}
+      {label}
+    </button>
+  );
+}
+
+function relTime(d: Date) {
+  const s = Math.max(0, Math.round((Date.now() - d.getTime()) / 1000));
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return d.toLocaleDateString();
 }

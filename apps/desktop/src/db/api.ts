@@ -1,4 +1,7 @@
-import type { Ctx } from './repos/base';
+import type { SqlJsAdapter } from './adapter';
+import { guard, type Ctx } from './repos/base';
+import { conflicts as syncConflicts } from './sync/engine';
+import { statusLine } from './sync/loop';
 import * as company from './repos/company';
 import * as invoices from './repos/invoices';
 import * as items from './repos/items';
@@ -19,8 +22,11 @@ export const api = {
   // session & company
   'app.status': (ctx: Ctx) => {
     const c = company.getCompany(ctx);
-    return { company: c, session: ctx.session, users: c ? company.listUsersForLogin(ctx) : [], me: c ? staff.myEmployee(ctx) : null, pendingRequests: c ? staff.pendingRequestCount(ctx) : 0, ...ctx.meta };
+    return { company: c, session: ctx.session, users: c ? company.listUsersForLogin(ctx) : [], me: c ? staff.myEmployee(ctx) : null, pendingRequests: c ? staff.pendingRequestCount(ctx) : 0, sync: statusLine(ctx.db as SqlJsAdapter), ...ctx.meta };
   },
+  'sync.status': (ctx: Ctx) => statusLine(ctx.db as SqlJsAdapter),
+  'sync.conflicts': (ctx: Ctx) => (guard(ctx, 'settings.edit'), syncConflicts(ctx.db as SqlJsAdapter)),
+  'sync.clearConflicts': (ctx: Ctx) => (guard(ctx, 'settings.edit'), ctx.db.exec('UPDATE _sync_conflicts SET seen = 1'), true),
   'company.setup': (ctx: Ctx, a: company.SetupInput) => company.setupCompany(ctx, a),
   'company.save': (ctx: Ctx, a: Parameters<typeof company.saveCompany>[1]) => company.saveCompany(ctx, a),
   'auth.login': (ctx: Ctx, a: { userId: number; pin: string }) => company.login(ctx, a.userId, a.pin),

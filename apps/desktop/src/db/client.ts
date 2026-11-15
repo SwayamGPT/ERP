@@ -3,6 +3,7 @@ import { QueryClient } from '@tanstack/react-query';
 import type { ArgsOf, Method, ResultOf } from './api';
 import { isMutation } from './methods';
 import type { EnterpriseEntry } from './types';
+import type { ConnectInfo } from './sync/engine';
 
 export class ApiError extends Error {
   constructor(message: string, public code: string) {
@@ -23,6 +24,11 @@ worker.onmessage = (e: MessageEvent) => {
   const d = e.data;
   if (d.type === 'dirty' || d.type === 'saved') {
     saveListeners.forEach((l) => l(d.type, d.at));
+    return;
+  }
+  if (d.type === 'sync') {
+    // Changes from other devices arrived: refresh what's on screen. Otherwise just the status pill.
+    void queryClient.invalidateQueries(d.pulled ? undefined : { queryKey: ['app.status'] });
     return;
   }
   const p = pending.get(d.id);
@@ -94,6 +100,19 @@ export const db = {
   createEnterprise: () => entOp({ type: 'ent.create' }),
   closeEnterprise: () => entOp({ type: 'ent.close' }),
   deleteEnterprise: () => entOp({ type: 'ent.delete' }),
+  /** Connect this enterprise to a shop in the cloud (see features/cloud). */
+  connectCloud: (info: ConnectInfo, joining = false) => entOp({ type: 'sync.connect', info, joining }),
+  disconnectCloud: async () => {
+    const r = await send({ type: 'sync.disconnect' });
+    await queryClient.invalidateQueries();
+    return r;
+  },
+  syncNow: async () => {
+    const r = await send<Meta>({ type: 'sync.now' });
+    remember(r);
+    await queryClient.invalidateQueries();
+    return r;
+  },
   onSave: (l: SaveListener) => {
     saveListeners.add(l);
     return () => saveListeners.delete(l);

@@ -84,6 +84,24 @@ Builds are unsigned, so Windows SmartScreen and macOS Gatekeeper will warn on fi
 right-click → Open). Code signing can be added to the workflow later with a certificate and Apple
 Developer account.
 
+## Cloud sync server (`server/`)
+
+A small Go service (net/http + Postgres 16) that keeps a shop's counters, phones and backups in step.
+Each device keeps its full local database and bills offline; the server holds the latest version of
+every row and a change feed. It checks what devices send: known tables, ids inside the device's own
+block, invoice lines whose taxes add up, and vouchers that balance to the paisa. Backups are encrypted
+on the device; the server stores bytes it cannot read.
+
+```bash
+cd server
+HISAAB_DB=postgres://user:pass@localhost:5432/hisaab go run .          # :8080
+HISAAB_TEST_DB=postgres://user:pass@localhost:5432/hisaab_test go test ./...   # wipes that database
+HISAAB_DB_PASSWORD=change-me docker compose up -d                       # server + Postgres
+```
+
+Host it close to the shops (e.g. an India region such as Mumbai) behind HTTPS. Point the desktop app
+at it in **Settings → Cloud** (or build with `VITE_HISAAB_SERVER=https://your-host`).
+
 ## Keyboard map
 
 `Ctrl K` search anything · `?` shortcuts · `Alt N` new bill · `Alt P` purchase · `Alt S` sales ·
