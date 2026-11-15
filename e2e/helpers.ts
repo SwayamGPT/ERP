@@ -71,3 +71,20 @@ export async function unlock(page: Page, user: RegExp | string, pin: string) {
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('user-menu')).toBeVisible();
 }
+
+export async function addUser(page: Page, name: string, role: string) {
+  await page.goto('/#/settings?tab=users');
+  await page.getByRole('button', { name: 'Add user' }).click();
+  const dlg = page.getByRole('dialog');
+  await dlg.getByLabel('Name').fill(name);
+  await dlg.getByText(role, { exact: true }).click();
+  await dlg.getByLabel(/PIN/).fill('2468');
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText(name)).toBeVisible();
+}
+
+export async function switchTo(page: Page, name: string, pin = '2468') {
+  await page.keyboard.press('Alt+l');
+  await unlock(page, new RegExp(name), pin);
+}
+

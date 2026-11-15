@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { openShop, unlock } from './helpers';
+import { addUser, openShop, switchTo } from './helpers';
 
 /**
  * Health check: open every screen (and every tab on it) as each role, on desktop and phone, and
@@ -55,22 +55,6 @@ async function crawl(page: Page, errors: string[], role: string) {
     await expect(page.getByTestId('screen-error')).toHaveCount(0);
   }
   expect(errors, `${role} detail pages`).toEqual([]);
-}
-
-async function addUser(page: Page, name: string, role: string) {
-  await page.goto('/#/settings?tab=users');
-  await page.getByRole('button', { name: 'Add user' }).click();
-  const dlg = page.getByRole('dialog');
-  await dlg.getByLabel('Name').fill(name);
-  await dlg.getByText(role, { exact: true }).click();
-  await dlg.getByLabel(/PIN/).fill('2468');
-  await dlg.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText(name)).toBeVisible();
-}
-
-async function switchTo(page: Page, name: string) {
-  await page.keyboard.press('Alt+l');
-  await unlock(page, new RegExp(name), '2468');
 }
 
 test.describe.configure({ timeout: 240_000 });

@@ -377,3 +377,16 @@ describe('purchase invoice numbers and bill-wise payments', () => {
     expect([api['invoices.get'](ctx, { id: s1.id }).paid, api['invoices.get'](ctx, { id: s2.id }).paid]).toEqual([1000, 4000]);
   });
 });
+
+describe('credit limit', () => {
+  it('a customer over their limit can still buy for cash, but not on more credit', () => {
+    const ctx = shop(false);
+    const it = newItem(ctx, 'Ghee 1L');
+    api['items.adjust'](ctx, { itemId: it, delta: 50, note: 'opening' });
+    const c = customer(ctx, 'Over Limit', { credit_limit: 5000 });
+    expect(() => sell(ctx, it, 3, { partyId: c })).toThrow(/credit limit/); // ₹84 on credit > ₹50 limit
+    sell(ctx, it, 1, { partyId: c, overrideCreditLimit: true }); // owner allows once → now over the limit
+    expect(sell(ctx, it, 2, { partyId: c, payments: [{ mode: 'cash', amount: 5600 }] }).paid).toBe(5600); // paid in full: fine
+    expect(() => sell(ctx, it, 1, { partyId: c })).toThrow(/credit limit/);
+  });
+});

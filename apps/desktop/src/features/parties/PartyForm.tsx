@@ -47,7 +47,7 @@ export function PartyForm({ initial, kind = 'customer', onSaved, onCancel, compa
           <Input value={f.phone} onChange={(e) => set('phone', e.target.value.replace(/[^\d+ ]/g, ''))} inputMode="tel" placeholder="98XXXXXXXX" data-testid="party-phone" />
         </Field>
         <Field label="GSTIN" error={gstErr} hint="For B2B bills">
-          <Input value={f.gstin} onChange={(e) => set('gstin', e.target.value.toUpperCase().slice(0, 15))} className="font-mono" />
+          <Input value={f.gstin} onChange={(e) => set('gstin', e.target.value.toUpperCase().slice(0, 15))} className="font-mono" data-testid="party-gstin" />
         </Field>
         {!compact && (
           <>
@@ -59,10 +59,13 @@ export function PartyForm({ initial, kind = 'customer', onSaved, onCancel, compa
               </Select>
             </Field>
             <Field label="City">
-              <Input value={f.city} onChange={(e) => set('city', e.target.value)} />
+              <Input value={f.city} onChange={(e) => set('city', e.target.value)} data-testid="party-city" />
+            </Field>
+            <Field label="PIN code" hint="Needed for e-invoices and e-Way Bills">
+              <Input inputMode="numeric" value={f.pincode} onChange={(e) => set('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} data-testid="party-pincode" />
             </Field>
             <Field label="Address" className="sm:col-span-2">
-              <Input value={f.address} onChange={(e) => set('address', e.target.value)} />
+              <Input value={f.address} onChange={(e) => set('address', e.target.value)} data-testid="party-address" />
             </Field>
           </>
         )}

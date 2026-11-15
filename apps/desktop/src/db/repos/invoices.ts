@@ -190,7 +190,8 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
     const total = b.totals.payable;
     if (paid > total) throw new AppError('Payment is more than the bill amount. Enter the amount to keep, not the cash tendered.');
     if (draft.kind === 'sale' && b.party.is_walkin && paid < total) throw new AppError('Walk-in bills must be paid in full. Pick a customer to give credit (udhaar).', 'WALKIN_CREDIT');
-    if (draft.kind === 'sale' && b.party.credit_limit > 0 && !draft.overrideCreditLimit) {
+    // Only a bill that adds to their dues can push a customer over the limit; paying in full is always fine.
+    if (draft.kind === 'sale' && b.party.credit_limit > 0 && total - paid > 0 && !draft.overrideCreditLimit) {
       const after = partyBalance(ctx, b.party.id) + total - paid;
       if (after > b.party.credit_limit) throw new AppError(`This takes ${b.party.name} over their credit limit.`, 'CREDIT_LIMIT');
     }
