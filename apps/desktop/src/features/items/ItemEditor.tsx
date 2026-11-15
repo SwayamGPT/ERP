@@ -169,7 +169,7 @@ export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => 
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="MRP"><MoneyInput value={f.mrp} onChange={(v) => set('mrp', v)} /></Field>
               <Field label="Selling (retail) *" error={f.mrp && f.retail_price > f.mrp ? 'Above MRP' : null}><MoneyInput value={f.retail_price} onChange={(v) => set('retail_price', v)} data-testid="item-price" /></Field>
-              {canCost && <Field label="Purchase cost" hint={m !== null ? `Margin ${m}%` : 'Before GST'}><MoneyInput value={f.purchase_price} onChange={(v) => set('purchase_price', v)} /></Field>}
+              {canCost && <Field label="Purchase cost" hint={`${m !== null ? `Margin ${m}% · ` : 'Before GST · '}Updates opening stock and its past sales. Wrong rate on a purchase bill? Edit that bill.`}><MoneyInput value={f.purchase_price} onChange={(v) => set('purchase_price', v)} /></Field>}
               <Field label="Wholesale rate"><MoneyInput value={f.wholesale_price} onChange={(v) => set('wholesale_price', v)} /></Field>
               <Field label="Super-stockist rate"><MoneyInput value={f.super_price} onChange={(v) => set('super_price', v)} /></Field>
               <div className="flex items-end pb-1.5"><Switch checked={f.tax_inclusive} onChange={(v) => set('tax_inclusive', v)} label="Price includes GST" /></div>

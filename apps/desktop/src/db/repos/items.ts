@@ -1,3 +1,4 @@
+import { recostBatches } from './invoices';
 import { parseWeightBarcode, roundQty, type Scheme } from '@hisaab/core';
 import type { Batch, Item, ItemUnit } from '../types';
 import { AppError, allowed, audit, guard, stripCost, type Ctx } from './base';
@@ -175,8 +176,19 @@ export function saveItem(ctx: Ctx, input: ItemInput): number {
   return ctx.db.transaction(() => {
     let id = input.id;
     if (id) {
+      const before = ctx.db.get<{ purchase_price: number }>('SELECT purchase_price FROM items WHERE id = ?', [id])?.purchase_price;
       ctx.db.exec(`UPDATE items SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`, [...keys.map((k) => cols[k] as never), id]);
       audit(ctx, 'item.update', 'item', id);
+      // Purchase rate corrected: stock that didn't come from a purchase bill (opening stock,
+      // counts) takes the new cost, and so do the sales made from it. Stock from a purchase bill
+      // keeps that bill's rate; to fix it, edit the bill.
+      if (cols.purchase_price !== undefined && cols.purchase_price !== before) {
+        const own = ctx.db.query<{ id: number }>('SELECT id FROM batches WHERE item_id = ? AND source_invoice_id IS NULL', [id]).map((b) => b.id);
+        if (own.length) {
+          ctx.db.exec('UPDATE batches SET cost = ? WHERE item_id = ? AND source_invoice_id IS NULL', [cols.purchase_price, id]);
+          recostBatches(ctx, own);
+        }
+      }
     } else {
       id = ctx.db.exec(`INSERT INTO items (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`, keys.map((k) => cols[k] as never)).lastId;
       audit(ctx, 'item.create', 'item', id);

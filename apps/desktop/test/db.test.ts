@@ -349,3 +349,37 @@ describe('selling below cost', () => {
     expect(cash.lines[0].loss).toBeUndefined();
   });
 });
+
+describe('correcting a cost after selling', () => {
+  it('editing the purchase bill re-costs the sales made from it (loss turns into profit)', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Cashew 1kg', gst_rate: 0, base_unit: 'Pcs', mrp: 100000, retail_price: 90000, purchase_price: 0 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    // typo: 8,000 instead of 800 a kg
+    const p = api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: 'CN-1', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 800000 }] });
+    const sale = api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 2, rate: 90000 }], payments: [{ mode: 'cash', amount: 180000 }] });
+    expect(sale.taxable - sale.cost_total!).toBe(180000 - 1600000);
+    api['invoices.return'](ctx, { invoiceId: sale.id, lines: [{ lineId: sale.lines![0].id, qty: 1 }], refundMode: 'cash' });
+
+    api['invoices.update'](ctx, { id: p.id, draft: { kind: 'purchase', supplierBillNo: 'CN-1', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 80000 }] } });
+    const after = api['invoices.get'](ctx, { id: sale.id });
+    expect(after.cost_total).toBe(160000);
+    expect(after.lines![0].cost).toBe(160000);
+    const ret = ctx.db.get<{ cost_total: number }>("SELECT cost_total FROM invoices WHERE kind = 'sale_return'")!;
+    expect(ret.cost_total).toBe(80000);
+    const report = api['reports.billProfit'](ctx, { from: '2026-11-01', to: '2026-11-30' }) as Array<{ number: string; profit: number }>;
+    expect(report.find((r) => r.number === sale.number)!.profit).toBe(20000);
+    expect(api['invoices.preview'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 90000 }] }).belowCost).toBe(false);
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+  });
+
+  it("fixing an item's purchase rate re-costs opening stock and its sales", () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Almond 1kg', gst_rate: 0, base_unit: 'Pcs', mrp: 100000, retail_price: 90000, purchase_price: 950000, opening: { qty: 5 } } as never);
+    const sale = api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 90000 }], payments: [{ mode: 'cash', amount: 90000 }] });
+    expect(sale.cost_total).toBe(950000);
+    const it = api['items.get'](ctx, { id: itemId }) as unknown as Record<string, unknown>;
+    api['items.save'](ctx, { ...(it as object), id: itemId, purchase_price: 75000 } as never);
+    expect(api['invoices.get'](ctx, { id: sale.id }).cost_total).toBe(75000);
+  });
+});

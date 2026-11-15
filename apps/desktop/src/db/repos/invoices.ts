@@ -371,6 +371,36 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
   }
 }
 
+/**
+ * Batches' costs were corrected (a purchase bill edited, or an item's purchase rate fixed): carry
+ * the new cost into every sale and sale return that took stock from them, so their cost and
+ * profit (or loss) are worked out again. Returns how many bills changed.
+ */
+export function recostBatches(ctx: Ctx, batchIds: number[]): number {
+  const touched = new Set<number>();
+  for (const b of new Set(batchIds)) {
+    const c = ctx.db.get<{ cost: number }>('SELECT cost FROM batches WHERE id = ?', [b])?.cost;
+    if (c == null) continue;
+    ctx.db.exec("UPDATE stock_moves SET cost = ? WHERE batch_id = ? AND reason IN ('sale', 'sale_return') AND cost <> ?", [c, b, c]);
+    const rows = ctx.db.query<{ id: number; invoice_id: number; allocations: string }>(
+      `SELECT l.id, l.invoice_id, l.allocations FROM invoice_lines l JOIN invoices i ON i.id = l.invoice_id
+       WHERE i.kind IN ('sale', 'sale_return') AND l.allocations LIKE ?`,
+      [`%"b":${b},%`],
+    );
+    for (const r of rows) {
+      const al = JSON.parse(r.allocations || '[]') as Array<{ b: number; q: number; c: number }>;
+      let changed = false;
+      for (const a of al) if (a.b === b && a.c !== c) (a.c = c), (changed = true);
+      if (!changed) continue;
+      const cost = al.reduce((sum, a) => sum + roundHalfUp(a.q * a.c), 0);
+      ctx.db.exec('UPDATE invoice_lines SET allocations = ?, cost = ? WHERE id = ?', [JSON.stringify(al), cost, r.id]);
+      touched.add(r.invoice_id);
+    }
+  }
+  for (const id of touched) ctx.db.exec('UPDATE invoices SET cost_total = (SELECT COALESCE(SUM(cost), 0) FROM invoice_lines WHERE invoice_id = ?) WHERE id = ?', [id, id]);
+  return touched.size;
+}
+
 /** A saved bill turned back into what the billing screen needs to edit it. */
 export function editDraft(ctx: Ctx, id: number) {
   const inv = getInvoice(ctx, id);
@@ -448,6 +478,8 @@ export function updateInvoice(ctx: Ctx, id: number, draft: DraftInvoice): Invoic
       if (!used) ctx.db.exec('DELETE FROM batches WHERE id = ?', [bid]);
       else if (b.qty < -1e-9 && !allowNegative) throw new AppError(`More ${b.name} from this bill is already sold than the edited bill brings in.`, 'NO_STOCK');
     }
+    // A corrected purchase rate flows into what the stock cost when it was sold.
+    if (old.kind === 'purchase') recostBatches(ctx, oldBatches);
     const k = old.kind as 'sale' | 'purchase';
     if (old.party_id !== inv.party_id) allocateToBills(ctx, old.party_id, k);
     allocateToBills(ctx, inv.party_id, k);
