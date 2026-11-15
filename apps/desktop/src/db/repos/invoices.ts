@@ -151,7 +151,9 @@ function buildInvoice(ctx: Ctx, draft: DraftInvoice) {
       const discountPct =
         Math.round((1 - (1 - (l.discountPct ?? 0) / 100) * (1 - sch.discountPct / 100) * (1 - billDisc / 100)) * 1e6) / 1e4;
       const taxInclusive = l.taxInclusive ?? (draft.kind === 'sale' ? !!it.tax_inclusive : false);
-      const tax = computeLine({ qty: l.qty, rate: l.rate, discountPct, gstRate: it.gst_rate, cessRate: it.cess_rate, taxInclusive, interState });
+      // No GST bill: whatever tax the seller charged is part of the price (no input credit).
+      const noGst = draft.kind === 'purchase' && !!draft.noBill;
+      const tax = computeLine({ qty: l.qty, rate: l.rate, discountPct, gstRate: noGst ? 0 : it.gst_rate, cessRate: noGst ? 0 : it.cess_rate, taxInclusive, interState });
       return { draft: l, item: it, freeQty, discountPct, taxInclusive, schemeLabel: sch.label, tax };
     });
   const totals = sumLines(
@@ -188,7 +190,11 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
 function checkDraft(ctx: Ctx, s: { role: string }, draft: DraftInvoice, editingId = -1): DraftInvoice {
   if (!draft.lines.length) throw new AppError('Add at least one item.');
   if (draft.date && draft.date !== ctx.today() && s.role === 'cashier') throw new AppError('Only the owner or manager can bill on another date.');
-  if (draft.kind === 'purchase') {
+  if (draft.kind === 'purchase' && draft.noBill) {
+    // Bought without a GST bill (a nearby shop, a local seller): no invoice number to record, and
+    // with no supplier picked it is paid on the spot.
+    draft = { ...draft, supplierBillNo: draft.supplierBillNo?.trim() || undefined };
+  } else if (draft.kind === 'purchase') {
     // Every purchase records the supplier's own invoice number (needed for GSTR-2B matching and payments).
     const billNo = draft.supplierBillNo?.trim();
     if (!billNo) throw new AppError("Enter the supplier's invoice number.", 'BILL_NO');
@@ -231,6 +237,8 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
     const total = b.totals.payable;
     if (paid > total) throw new AppError('Payment is more than the bill amount. Enter the amount to keep, not the cash tendered.');
     if (draft.kind === 'sale' && b.party.is_walkin && paid < total) throw new AppError('Cash bills (no customer) must be paid in full. Pick a customer to give credit (udhaar).', 'WALKIN_CREDIT');
+    if (draft.kind === 'purchase' && b.party.is_walkin && paid < total) throw new AppError('A purchase from no particular supplier must be paid now. Pick the supplier to buy on credit.', 'WALKIN_CREDIT');
+    if (draft.kind === 'purchase' && b.party.is_walkin && !draft.noBill) throw new AppError('Pick the supplier.');
     // Only a bill that adds to their dues can push a customer over the limit; paying in full is always fine.
     if (draft.kind === 'sale' && b.party.credit_limit > 0 && total - paid > 0 && !draft.overrideCreditLimit) {
       const after = partyBalance(ctx, b.party.id) + total - paid;
@@ -351,9 +359,12 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
         allocations = [{ batchId, qty: baseQty, cost }];
         ctx.db.exec("INSERT INTO stock_moves (item_id, batch_id, qty, cost, reason, ref_id, date) VALUES (?,?,?,?, 'purchase', ?, ?)", [l.item.id, batchId, baseQty, cost, invoiceId, date]);
         lineCost = l.tax.taxable;
-        ctx.db.exec('UPDATE items SET purchase_price = ? WHERE id = ?', [billRate, l.item.id]); // the bill rate; coupons lower the batch cost
-        if (l.draft.mrp) ctx.db.exec('UPDATE items SET mrp = ? WHERE id = ? AND ? > 0', [roundHalfUp(l.draft.mrp / l.draft.factor), l.item.id, l.draft.mrp]);
-        if (l.draft.newRetailPrice) ctx.db.exec('UPDATE items SET retail_price = ? WHERE id = ?', [l.draft.newRetailPrice, l.item.id]);
+        // A one-off buy without a bill (often dearer, from a nearby shop) doesn't change the item's usual rates.
+        if (!draft.noBill) {
+          ctx.db.exec('UPDATE items SET purchase_price = ? WHERE id = ?', [billRate, l.item.id]); // the bill rate; coupons lower the batch cost
+          if (l.draft.mrp) ctx.db.exec('UPDATE items SET mrp = ? WHERE id = ? AND ? > 0', [roundHalfUp(l.draft.mrp / l.draft.factor), l.item.id, l.draft.mrp]);
+          if (l.draft.newRetailPrice) ctx.db.exec('UPDATE items SET retail_price = ? WHERE id = ?', [l.draft.newRetailPrice, l.item.id]);
+        }
       }
       costTotal += lineCost;
 
@@ -368,7 +379,7 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
       ).lastId;
       if (lineCoupons) ctx.db.exec('UPDATE invoice_lines SET coupon_value = ?, coupon_per = ?, coupons = ? WHERE id = ?', [lineCoupons.value, lineCoupons.per, lineCoupons.count, lineId]);
     }
-    ctx.db.exec('UPDATE invoices SET cost_total = ? WHERE id = ?', [costTotal, invoiceId]);
+    ctx.db.exec('UPDATE invoices SET cost_total = ?, no_bill = ? WHERE id = ?', [costTotal, draft.kind === 'purchase' && draft.noBill ? 1 : 0, invoiceId]);
     // Supplier coupons that came with this purchase: an asset to redeem later (cash, a cut on a
     // later bill, or free goods), taken off the cost of the goods.
     if (earned.length) {

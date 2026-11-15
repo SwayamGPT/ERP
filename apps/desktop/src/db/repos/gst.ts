@@ -167,7 +167,7 @@ export function gstr2bRecon(ctx: Ctx, period: string) {
   const books: BookDoc[] = [
     ...ctx.db.query<BookDoc>(
       `SELECT 'purchase' AS source, id, party_gstin AS gstin, COALESCE(supplier_bill_no, number) AS docNo, date, total AS value, cgst + sgst + igst + cess AS tax
-       FROM invoices WHERE kind = 'purchase' AND status = 'final' AND party_gstin IS NOT NULL AND party_gstin <> '' AND date BETWEEN ? AND ?`,
+       FROM invoices WHERE kind = 'purchase' AND status = 'final' AND no_bill = 0 AND party_gstin IS NOT NULL AND party_gstin <> '' AND date BETWEEN ? AND ?`,
       [from, to],
     ),
     ...ctx.db.query<BookDoc>(

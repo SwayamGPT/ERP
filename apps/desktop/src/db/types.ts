@@ -182,6 +182,8 @@ export interface DraftInvoice {
   notes?: string;
   payments?: DraftPayment[];
   supplierBillNo?: string;
+  /** purchase only: bought without a GST bill (e.g. from a nearby shop); no input GST, the full price is the cost. */
+  noBill?: boolean;
   overrideCreditLimit?: boolean;
   /** Optional: employee who served the customer (for sales-by-staff and incentives). */
   servedBy?: number | null;
@@ -235,6 +237,7 @@ export interface Invoice {
   irn_ack_date?: string | null;
   irn_qr?: string | null;
   irn_test?: number;
+  no_bill?: number;
   edited_at?: string | null;
   edited_by?: number | null;
   irn_cancelled?: number;

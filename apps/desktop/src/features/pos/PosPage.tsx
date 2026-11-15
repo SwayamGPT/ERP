@@ -1,4 +1,4 @@
-import { CASHIER_DISCOUNT_CAP, describeScheme, expiryBucket, formatINR } from '@hisaab/core';
+import { CASHIER_DISCOUNT_CAP, describeScheme, expiryBucket, formatINR, roundQty } from '@hisaab/core';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   ClipboardList,
@@ -55,6 +55,7 @@ export function PosPage() {
   const [hl, setHl] = useState(0);
   const [pickCustomer, setPickCustomer] = useState(false);
   const [closeAsk, setCloseAsk] = useState<number | null>(null);
+  const [buyOutside, setBuyOutside] = useState<number | null>(null);
   const [discOpen, setDiscOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [advanced, setAdvanced] = useState(false);
@@ -394,6 +395,9 @@ export function PosPage() {
                           {c?.scheme && <Badge tone="saffron">{c.scheme}</Badge>}
                           {!!c?.freeQty && <Badge tone="good">+{fmtQty(c.freeQty)} free</Badge>}
                           {short && <Badge tone="bad">only {fmtQty(l.stock)} in stock</Badge>}
+                          {short && canDo('purchase.create') && (
+                            <button type="button" className="text-[11px] font-medium text-primary hover:underline" onClick={() => setBuyOutside(i)} data-testid="line-buy-outside">Bought outside?</button>
+                          )}
                         </div>
                       </td>
                       <td>
@@ -622,6 +626,14 @@ export function PosPage() {
         }}
       />
 
+      {buyOutside !== null && lines[buyOutside] && (
+        <BuyOutsideDialog
+          line={lines[buyOutside]}
+          onClose={() => (setBuyOutside(null), focusSearch())}
+          onBought={(qty) => pos.update(buyOutside, { stock: roundQty(lines[buyOutside].stock + qty) })}
+        />
+      )}
+
       <ConfirmDialog
         open={closeAsk !== null}
         onOpenChange={(v) => !v && (setCloseAsk(null), focusSearch())}
@@ -813,5 +825,48 @@ function SplitPanel({ payable, cash, other, onCash, onOther, onEnter, upiId, sho
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The customer wants something that is out of stock and it is fetched from a nearby shop without
+ * a bill: bring it in here (paid from the drawer or by UPI) so the sale goes through normally and
+ * the price paid becomes its cost.
+ */
+function BuyOutsideDialog({ line, onClose, onBought }: { line: CartLine; onClose: () => void; onBought: (baseQty: number) => void }) {
+  const short = Math.max(1, Math.ceil(roundQty(line.qty * line.factor - Math.max(0, line.stock))));
+  const [qty, setQty] = useState(String(short));
+  const [price, setPrice] = useState(0);
+  const [mode, setMode] = useState<'cash' | 'upi'>('cash');
+  const [from, setFrom] = useState('');
+  const [busy, setBusy] = useState(false);
+  const n = Number(qty) || 0;
+  const go = async () => {
+    setBusy(true);
+    try {
+      await call('invoices.create', {
+        kind: 'purchase', noBill: true, supplierBillNo: from.trim() || undefined,
+        lines: [{ itemId: line.itemId, unit: line.baseUnit, factor: 1, qty: n, rate: price }],
+        payments: [{ mode, amount: Math.round(price * n) }],
+      });
+      onBought(n);
+      toast.success(`${fmtQty(n)} ${line.baseUnit} of ${line.name} added to stock`, `Paid ${formatINR(Math.round(price * n))} ${mode === 'cash' ? 'from the drawer' : 'by UPI'} · no bill`);
+      onClose();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()} title={`Bought ${line.name} outside?`} description="Fetched from a nearby shop without a bill. It comes into stock at the price you paid, so this sale shows the real profit." size="sm"
+      footer={<Button variant="primary" loading={busy} disabled={!(n > 0) || !(price > 0)} onClick={go} data-testid="buy-outside-save">Add to stock · {formatINR(Math.round(price * n))}</Button>}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="space-y-1 text-sm"><span className="label">Quantity ({line.baseUnit})</span><Input type="number" min={0} step="any" value={qty} onChange={(e) => setQty(e.target.value)} data-testid="buy-outside-qty" /></label>
+        <label className="space-y-1 text-sm"><span className="label">Price paid per {line.baseUnit}</span><MoneyInput value={price} onChange={setPrice} data-testid="buy-outside-price" /></label>
+        <label className="space-y-1 text-sm"><span className="label">Paid by</span><Segmented value={mode} onChange={setMode} options={[{ value: 'cash', label: 'Cash (drawer)' }, { value: 'upi', label: 'UPI' }]} /></label>
+        <label className="space-y-1 text-sm"><span className="label">Bought from (optional)</span><Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="e.g. Sharma Stores" /></label>
+      </div>
+    </Dialog>
   );
 }

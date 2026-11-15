@@ -59,6 +59,7 @@ export function InvoiceView() {
           <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
             {v.number}
             {v.status === 'cancelled' && <Badge tone="bad">Cancelled</Badge>}
+            {!!v.no_bill && <span data-testid="bill-nobill"><Badge tone="warn">No GST bill</Badge></span>}
             {v.edited_at && <span data-testid="bill-edited"><Badge>Edited {fmtDate(v.edited_at.slice(0, 10))}</Badge></span>}
             {v.kind.endsWith('return') && <Badge tone="warn">{isSale ? 'Credit note' : 'Debit note'}</Badge>}
             {v.status === 'final' && !v.kind.endsWith('return') && (due > 0 ? <Badge tone="warn">Unpaid {inr(due)}</Badge> : <Badge tone="good">Paid</Badge>)}

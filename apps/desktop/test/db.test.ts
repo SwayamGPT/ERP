@@ -455,3 +455,29 @@ describe('supplier coupons (pan masala)', () => {
     expect(api['reports.health'](ctx).balanced).toBe(true);
   });
 });
+
+describe('buying without a GST bill', () => {
+  it('a pack bought from the shop next door: full price is the cost, no input GST, paid on the spot', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Maggi 12-pack', gst_rate: 18, base_unit: 'Pcs', mrp: 16800, retail_price: 16800, purchase_price: 14000 });
+    const inGst = () => ctx.db.get<{ b: number }>("SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account LIKE 'IN_%'")!.b;
+    const line = { itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 16000 };
+    // no supplier → must be paid now
+    expect(() => api['invoices.create'](ctx, { kind: 'purchase', noBill: true, lines: [line] })).toThrow(/paid now/);
+    const p = api['invoices.create'](ctx, { kind: 'purchase', noBill: true, lines: [line], payments: [{ mode: 'cash', amount: 16000 }] });
+    expect(p).toMatchObject({ total: 16000, cgst: 0, sgst: 0, no_bill: 1, supplier_bill_no: null, party_name: 'Cash' });
+    expect(inGst()).toBe(0);
+    expect(ctx.db.get<{ cost: number }>('SELECT cost FROM batches WHERE source_invoice_id = ?', [p.id])!.cost).toBe(16000);
+    expect(ctx.db.get<{ p: number }>('SELECT purchase_price AS p FROM items WHERE id = ?', [itemId])!.p).toBe(14000); // usual rate untouched
+    // and it sells normally
+    const sale = api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 16800 }], payments: [{ mode: 'cash', amount: 16800 }] });
+    expect(sale.cost_total).toBe(16000);
+    // a known seller without a bill can be on credit, and needs no invoice number
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Gupta Kirana' });
+    const p2 = api['invoices.create'](ctx, { kind: 'purchase', noBill: true, partyId: sup, lines: [line] });
+    expect(p2).toMatchObject({ no_bill: 1, paid: 0 });
+    // normal purchases still need the supplier's invoice number
+    expect(() => api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, lines: [line] })).toThrow(/invoice number/);
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+  });
+});

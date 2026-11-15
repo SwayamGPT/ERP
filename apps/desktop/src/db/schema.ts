@@ -865,6 +865,11 @@ CREATE INDEX idx_payments_invoice ON payments(invoice_id);
 CREATE INDEX idx_payments_expense ON payments(expense_id);
 `,
   },
+  {
+    version: 15,
+    name: 'purchases without a GST bill',
+    sql: `ALTER TABLE invoices ADD COLUMN no_bill INTEGER NOT NULL DEFAULT 0;`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

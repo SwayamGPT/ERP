@@ -59,12 +59,15 @@ export function PurchaseEntry() {
   const navigate = useNavigate();
   const canDo = useCan();
   const [supplier, setSupplier] = useState<Party | null>(null);
-  const [pick, setPick] = useState(true);
+  const [params0] = useSearchParams();
+  // Bought without a GST bill (a nearby shop, a local seller): supplier and bill number optional.
+  const [noBill, setNoBill] = useState(params0.get('nobill') === '1');
+  const [pick, setPick] = useState(params0.get('nobill') !== '1');
   const [billNo, setBillNo] = useState('');
   const [date, setDate] = useState(today());
   const [rows, setRows] = useState<Row[]>([blank()]);
   const [other, setOther] = useState(0);
-  const [payNow, setPayNow] = useState<'none' | 'cash' | 'bank' | 'upi'>('none');
+  const [payNow, setPayNow] = useState<'none' | 'cash' | 'bank' | 'upi'>(params0.get('nobill') === '1' ? 'cash' : 'none');
   const [saving, setSaving] = useState(false);
   const [billNoMissing, setBillNoMissing] = useState(false);
   const billNoRef = useRef<HTMLInputElement>(null);
@@ -82,10 +85,11 @@ export function PurchaseEntry() {
         const d = await call('invoices.forEdit', { id: editParam });
         const v = d.invoice;
         const [party, items] = await Promise.all([call('parties.get', { id: v.party_id }), Promise.all(d.lines.map((l) => call('items.get', { id: l.item_id })))]);
-        setSupplier(party);
+        setSupplier(party.is_walkin ? null : party);
         setPick(false);
         setEditing({ id: v.id, number: v.number });
         setBillNo(v.supplier_bill_no ?? '');
+        setNoBill(!!v.no_bill);
         setDate(v.date);
         setOther(v.other_charges ?? 0);
         setGodownId(d.godownId);
@@ -132,6 +136,7 @@ export function PurchaseEntry() {
     () => ({
       kind: 'purchase',
       partyId: supplier?.id,
+      noBill,
       date,
       supplierBillNo: billNo,
       otherCharges: other,
@@ -155,13 +160,13 @@ export function PurchaseEntry() {
           couponPer: Number(r.couponPer) || 0,
         })),
     }),
-    [rows, supplier?.id, date, billNo, other, po?.id, godownId],
+    [rows, supplier?.id, date, billNo, other, po?.id, godownId, noBill],
   );
-  const preview = useQuery({ queryKey: ['invoices.preview', draft], queryFn: () => call('invoices.preview', draft), enabled: !!supplier && draft.lines.length > 0, placeholderData: keepPreviousData });
+  const preview = useQuery({ queryKey: ['invoices.preview', draft], queryFn: () => call('invoices.preview', draft), enabled: (!!supplier || noBill) && draft.lines.length > 0, placeholderData: keepPreviousData });
   const t = draft.lines.length ? preview.data?.totals : undefined;
 
   const save = async () => {
-    if (!supplier) return setPick(true);
+    if (!supplier && !noBill) return setPick(true);
     const orphan = rows.findIndex((r) => !r.item && (r.typed?.trim() || Number(r.qty) > 0));
     if (orphan >= 0) {
       const r = rows[orphan];
@@ -169,7 +174,8 @@ export function PurchaseEntry() {
       return toast.error(new Error(`Row ${orphan + 1}: “${r.typed?.trim() || 'item'}” is not an item yet. Pick it from the list, or choose “Create item” to add it.`));
     }
     if (!draft.lines.length) return toast.info('Add at least one item with quantity');
-    if (!billNo.trim()) {
+    if (noBill && !supplier && payNow === 'none') return toast.error(new Error('Choose how you paid (cash, bank or UPI), or pick the seller to buy on credit.'));
+    if (!billNo.trim() && !noBill) {
       setBillNoMissing(true);
       billNoRef.current?.focus();
       return toast.error(new Error("Enter the supplier's invoice number (from their bill)."));
@@ -218,14 +224,21 @@ export function PurchaseEntry() {
       )}
       <Card className="mb-4">
         <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-5">
-          <Field label="Supplier *">
+          <Field label="Bill">
+            <Segmented value={noBill ? 'none' : 'gst'} onChange={(v) => {
+              const nb = v === 'none';
+              setNoBill(nb);
+              if (nb && !supplier && payNow === 'none') setPayNow('cash');
+            }} options={[{ value: 'gst', label: 'GST bill' }, { value: 'none', label: 'No bill' }]} />
+          </Field>
+          <Field label={noBill ? 'Bought from (optional)' : 'Supplier *'}>
             <button onClick={() => setPick(true)} className="input flex items-center justify-between text-left" data-testid="purchase-supplier">
-              <span className={supplier ? '' : 'text-faint'}>{supplier?.name ?? 'Pick supplier…'}</span>
+              <span className={supplier ? '' : 'text-faint'}>{supplier?.name ?? (noBill ? 'Nearby shop / not saved' : 'Pick supplier…')}</span>
               <Kbd>F7</Kbd>
             </button>
           </Field>
-          <Field label="Supplier invoice no. *" error={billNoMissing ? "Enter the invoice number printed on the supplier's bill" : undefined}>
-            <Input ref={billNoRef} value={billNo} onChange={(e) => (setBillNo(e.target.value), setBillNoMissing(false))} placeholder="e.g. MD/2291" data-testid="purchase-billno" />
+          <Field label={noBill ? 'Receipt / note (optional)' : 'Supplier invoice no. *'} error={billNoMissing ? "Enter the invoice number printed on the supplier's bill" : undefined}>
+            <Input ref={billNoRef} value={billNo} onChange={(e) => (setBillNo(e.target.value), setBillNoMissing(false))} placeholder={noBill ? 'e.g. Sharma Stores' : 'e.g. MD/2291'} data-testid="purchase-billno" />
           </Field>
           <Field label="Bill date"><Input type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} /></Field>
           {godowns.length > 1 && (
@@ -235,9 +248,15 @@ export function PurchaseEntry() {
               </select>
             </Field>
           )}
-          <Field label="Tax" hint={supplier ? (preview.data?.interState ? 'Other state → IGST input' : 'Same state → CGST + SGST input') : ' '}>
-            <div className="flex h-9 items-center">{supplier?.gstin ? <Badge tone="good">GSTIN {supplier.gstin}</Badge> : <Badge>Unregistered supplier</Badge>}</div>
-          </Field>
+          {noBill ? (
+            <Field label="Tax" hint="Any GST you paid is part of the price; no input credit.">
+              <div className="flex h-9 items-center" data-testid="purchase-nobill"><Badge tone="warn">No GST bill · full price is the cost</Badge></div>
+            </Field>
+          ) : (
+            <Field label="Tax" hint={supplier ? (preview.data?.interState ? 'Other state → IGST input' : 'Same state → CGST + SGST input') : ' '}>
+              <div className="flex h-9 items-center">{supplier?.gstin ? <Badge tone="good">GSTIN {supplier.gstin}</Badge> : <Badge>Unregistered supplier</Badge>}</div>
+            </Field>
+          )}
         </div>
       </Card>
 
@@ -251,7 +270,7 @@ export function PurchaseEntry() {
                 <th className="w-24">Unit</th>
                 <th className="w-20 text-right">Qty</th>
                 <th className="w-20 text-right">Free</th>
-                <th className="w-28 text-right">Rate (excl. GST)</th>
+                <th className="w-28 text-right">{noBill ? 'Price paid' : 'Rate (excl. GST)'}</th>
                 <th className="w-16 text-right">Disc %</th>
                 <th className="w-28">Batch</th>
                 <th className="w-36">Expiry</th>
