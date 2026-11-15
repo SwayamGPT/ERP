@@ -3,12 +3,14 @@ name: Desktop build
 # Builds the Hisaab desktop installers:
 #   Windows → .exe (NSIS setup) and .msi
 #   macOS   → .dmg (universal: Apple Silicon + Intel)
-# Every run uploads them as workflow artifacts. Pushing a tag like v0.1.0 also
-# attaches them to a draft GitHub Release.
+# Runs on every push (any branch), on pull requests, and on demand from the Actions tab.
+# Every run uploads the installers as workflow artifacts. Pushing a tag like v0.1.0
+# also attaches them to a draft GitHub Release.
 
 on:
   workflow_dispatch:
   push:
+    branches: ['**']
     tags: ['v*']
   pull_request:
     paths:
