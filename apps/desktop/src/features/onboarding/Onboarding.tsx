@@ -115,7 +115,7 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
         </div>
         <div className="relative mt-auto max-w-sm">
           <h1 className="text-3xl font-semibold leading-tight tracking-tight">Set up your enterprise once. Bill in seconds forever.</h1>
-          <p className="mt-3 text-sm text-white/80">Your GSTIN, FSSAI licence and contact details print on every bill exactly as the law and your customers expect.</p>
+          <p className="mt-3 text-sm text-white/80">Your GSTIN, contact details and (for food shops) FSSAI licence print on every bill exactly as the law and your customers expect.</p>
           <p className="mt-8 flex items-center gap-2 text-xs text-white/70"><ShieldCheck className="h-4 w-4" /> Everything is stored on this computer. Cloud sync is optional.</p>
         </div>
       </aside>
@@ -194,7 +194,7 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
                 <Field label="Legal name (as on GST certificate)" hint="Leave empty if same as the shop name">
                   <Input value={f.legalName} onChange={(e) => set('legalName', e.target.value)} />
                 </Field>
-                <Field label="FSSAI licence / registration no. *" error={err('fssai')} hint="14 digits — printed on every food bill">
+                <Field label="FSSAI licence / registration no. (optional)" error={err('fssai')} hint="Only if you sell food items · 14 digits, printed on bills">
                   <Input value={f.fssai} onChange={(e) => set('fssai', e.target.value.replace(/\D/g, '').slice(0, 14))} inputMode="numeric" className="font-mono" placeholder="11523999000123" data-testid="ob-fssai" />
                 </Field>
                 <Field label="FSSAI valid until" error={err('fssaiExpiry')} hint="We'll remind you 60 days before renewal">

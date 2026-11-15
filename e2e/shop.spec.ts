@@ -135,7 +135,13 @@ test('purchase: a typed name that is not an item can be created on the spot; tot
   await expect(page.getByTestId('toast').filter({ hasText: /Row 1: “Kesar Badam Mix 200g” is not an item yet/ })).toBeVisible();
   await page.getByTestId('pur-item').first().fill('Kesar Badam Mix 200g');
   await expect(page.getByTestId('pur-item-create')).toBeVisible();
-  await page.getByTestId('pur-item').first().press('Enter'); // no match → Enter creates
+  // Not clipped by the grid's scroll area: the button is what's actually under its own centre.
+  const onTop = await page.getByTestId('pur-item-create').evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+  });
+  expect(onTop).toBe(true);
+  await page.getByTestId('pur-item-create').click(); // and the mouse works too
   await page.getByTestId('quick-item-gst').selectOption('18');
   await page.getByTestId('quick-item-save').click();
   await expect(page.getByTestId('toast').filter({ hasText: 'Kesar Badam Mix 200g added to your items' })).toBeVisible();

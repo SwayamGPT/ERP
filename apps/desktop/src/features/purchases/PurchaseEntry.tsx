@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ClipboardList, Plus, Save, Search, Trash2, Truck } from 'lucide-react';
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ImportBillButton } from './ImportBill';
 import { useApi } from '../../lib/useApi';
@@ -300,6 +301,23 @@ function ItemCell({ item, onPick, onText, inputRef }: { item: Item | null; onPic
   const [creating, setCreating] = useState<string | null>(null);
   // Closing waits a moment (so clicks on the list land); refocusing cancels it.
   const closing = useRef<ReturnType<typeof setTimeout>>();
+  // The list floats above the page (the grid scrolls and would clip it), placed under the input.
+  const box = useRef<HTMLInputElement | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const r = box.current?.getBoundingClientRect();
+      if (r) setPos({ left: r.left, top: r.bottom + 4, width: Math.max(r.width, 360) });
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open]);
   useEffect(() => {
     if (item) setQ(item.name);
   }, [item]);
@@ -314,7 +332,7 @@ function ItemCell({ item, onPick, onText, inputRef }: { item: Item | null; onPic
       {creating !== null && <QuickItem name={creating} onClose={() => setCreating(null)} onCreated={(it) => (setCreating(null), onPick(it))} />}
       <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
       <input
-        ref={inputRef}
+        ref={(el) => ((box.current = el), inputRef(el))}
         value={q}
         onChange={(e) => (setQ(e.target.value), onText(e.target.value), setOpen(true), setHl(0))}
         onFocus={(e) => (clearTimeout(closing.current), e.target.select(), !item && q.trim() && setOpen(true))}
@@ -335,8 +353,8 @@ function ItemCell({ item, onPick, onText, inputRef }: { item: Item | null; onPic
         data-testid="pur-item"
       />
       {typedNew && !open && <span className="absolute -bottom-3.5 left-2 text-[10px] text-warn">Not an item yet — press Enter to create</span>}
-      {open && options > 0 && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-[360px] overflow-hidden rounded-lg border border-border bg-surface shadow-pop">
+      {open && options > 0 && pos && createPortal(
+        <div style={{ position: 'fixed', left: pos.left, top: pos.top, width: pos.width }} className="z-50 max-h-80 overflow-auto rounded-lg border border-border bg-surface shadow-pop" data-testid="pur-item-list">
           {list.map((it, i) => (
             <button key={it.id} onMouseDown={(e) => (e.preventDefault(), onPick(it), setOpen(false))} className={cn('flex w-full justify-between px-3 py-2 text-left text-sm', i === hl ? 'bg-primary-soft' : 'hover:bg-surface-2')}>
               <span className="truncate">{it.name}</span>
@@ -348,7 +366,8 @@ function ItemCell({ item, onPick, onText, inputRef }: { item: Item | null; onPic
               <Plus className="h-3.5 w-3.5" /> Create item “{q.trim()}”
             </button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

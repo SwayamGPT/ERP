@@ -278,7 +278,7 @@ function A4Classic({ x }: { x: Ctx }) {
             {c.tagline && <div style={{ fontStyle: 'italic' }}>{c.tagline}</div>}
             <div>{addressLine(c)} · {STATES[c.state_code]} ({c.state_code})</div>
             <div>Phone: {c.phone} · Email: {c.email}</div>
-            <div style={{ fontWeight: 700 }}>GSTIN: {c.gstin} · PAN: {c.pan} · FSSAI Lic. No: {c.fssai}</div>
+            <div style={{ fontWeight: 700 }}>GSTIN: {c.gstin} · PAN: {c.pan}{c.fssai ? ` · FSSAI Lic. No: ${c.fssai}` : ''}</div>
           </div>
           <div className="flex flex-col items-center justify-center" style={{ borderLeft: '1px solid #000', padding: '8px 18px', minWidth: 190 }}>
             <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: 1 }}>{x.title}</div>

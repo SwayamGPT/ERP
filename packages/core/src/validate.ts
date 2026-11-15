@@ -44,8 +44,8 @@ export function validateEnterprise(d: Partial<EnterpriseDetails>): Partial<Recor
   if (!d.businessType) e.businessType = 'Pick the type of business';
   if (!d.gstin) e.gstin = 'GSTIN is required';
   else if (!validateGstin(d.gstin)) e.gstin = 'This GSTIN is not valid — check all 15 characters';
-  if (!d.fssai) e.fssai = 'FSSAI licence number is required';
-  else if (!isFssai(d.fssai)) e.fssai = 'FSSAI number has 14 digits';
+  // FSSAI is optional (not every shop sells food); when given it must be a valid 14-digit number.
+  if (d.fssai && !isFssai(d.fssai)) e.fssai = 'FSSAI number has 14 digits';
   if (d.fssaiExpiry && !/^\d{4}-\d{2}-\d{2}$/.test(d.fssaiExpiry)) e.fssaiExpiry = 'Pick a valid date';
   if (!d.phone) e.phone = 'Contact number is required';
   else if (!isPhone(d.phone)) e.phone = 'Enter a 10-digit mobile or a landline with STD code';

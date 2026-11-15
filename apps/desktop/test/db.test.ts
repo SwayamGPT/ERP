@@ -173,14 +173,15 @@ describe('database & posting engine', () => {
 
   it('requires complete enterprise details and keeps them on edit', () => {
     const ctx = freshCtx();
-    expect(() => api['company.setup'](ctx, { ...ENTERPRISE, fssai: '' })).toThrow(/FSSAI/);
+    expect(() => api['company.setup'](ctx, { ...ENTERPRISE, fssai: '1234' })).toThrow(/FSSAI/); // optional, but must be valid when given
     expect(() => api['company.setup'](ctx, { ...ENTERPRISE, gstin: '27AAPFU0939F1ZZ' })).toThrow(/GSTIN/);
     expect(() => api['company.setup'](ctx, { ...ENTERPRISE, email: 'nope' })).toThrow(/email/);
     expect(() => api['company.setup'](ctx, { ...ENTERPRISE, phone: '123' })).toThrow(/mobile/);
     api['company.setup'](ctx, { ...ENTERPRISE, phone: '+91 98220 12345', bankIfsc: 'hdfc0001234', bankAccount: '50100012345678' });
     const c = api['app.status'](ctx).company!;
     expect(c).toMatchObject({ phone: '9822012345', pan: 'AAPFU0939F', state_code: '27', fssai: '11523999000123', bank_ifsc: 'HDFC0001234', print_template: 'receipt', print_tax_detail: 'detailed' });
-    expect(() => api['company.save'](ctx, { fssai: '' })).toThrow(/FSSAI/);
+    expect(api['company.save'](ctx, { fssai: '' }).fssai ?? '').toBe(''); // FSSAI can be removed (not a food shop)
+    expect(() => api['company.save'](ctx, { fssai: '99' })).toThrow(/FSSAI/);
     expect(api['company.save'](ctx, { print_template: 'a4-modern', print_tax_detail: 'summary', email: 'new@shop.in' })).toMatchObject({ print_template: 'a4-modern', email: 'new@shop.in' });
     expect(() => api['company.save'](ctx, { print_template: 'fancy' as never })).toThrow(/template/);
   });

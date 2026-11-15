@@ -95,7 +95,7 @@ function Business({ c }: { c: Company }) {
             <Input className="font-mono" value={txt('gstin')} onChange={(x) => set('gstin', x.target.value.toUpperCase().slice(0, 15))} />
           </Field>
           <Field label="Legal name"><Input value={txt('legal_name')} onChange={(x) => set('legal_name', x.target.value || null)} /></Field>
-          <Field label="FSSAI licence no. *" error={e.fssai}><Input className="font-mono" value={txt('fssai')} onChange={(x) => set('fssai', x.target.value.replace(/\D/g, '').slice(0, 14))} data-testid="set-fssai" /></Field>
+          <Field label="FSSAI licence no. (optional)" error={e.fssai}><Input className="font-mono" value={txt('fssai')} onChange={(x) => set('fssai', x.target.value.replace(/\D/g, '').slice(0, 14))} data-testid="set-fssai" /></Field>
           <Field label="FSSAI valid until" error={e.fssaiExpiry}><Input type="date" value={txt('fssai_expiry')} onChange={(x) => set('fssai_expiry', x.target.value || null)} /></Field>
         </div>
       </Card>

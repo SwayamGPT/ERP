@@ -27,7 +27,7 @@ test('creating an enterprise insists on GSTIN, FSSAI and contact details', async
   await page.getByTestId('ob-gstin').fill('27AAPFU0939F1ZZ'); // bad check digit
   await page.getByTestId('ob-next').click();
   await expect(page.getByText('This GSTIN is not valid — check all 15 characters')).toBeVisible();
-  await expect(page.getByText('FSSAI licence number is required')).toBeVisible();
+  await expect(page.getByText('FSSAI licence number is required')).toHaveCount(0); // optional
   await page.getByTestId('ob-gstin').fill(gstin('27AAPFU0939F1Z'));
   await expect(page.getByText(/Maharashtra · PAN AAPFU0939F/)).toBeVisible();
   await page.getByTestId('ob-fssai').fill('21523999000456');
