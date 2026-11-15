@@ -8,3 +8,5 @@ apps/desktop/src-tauri/gen
 *.log
 .DS_Store
 e2e/.data
+apps/desktop/src-tauri/hw/target
+server/hisaab-server
