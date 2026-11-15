@@ -96,7 +96,6 @@ async fn scale_read(port: String, baud: u32, request: Option<String>) -> Result<
         .map(|r| Weight { kg: r.kg, stable: r.stable })
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /* ───────── phones on Wi-Fi ───────── */
 
 #[derive(Default)]
