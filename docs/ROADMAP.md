@@ -7,7 +7,7 @@ release delivers each piece. Tick items as they ship.
 | Release | Theme | Status |
 |---|---|---|
 | **R1** | Offline desktop MVP — counter billing, stock, khata, expenses & staff, GST returns | ✅ complete — every R1 item and quality gate ticked |
-| **R2** | Cloud sync, owner & salesman mobile apps, native hardware | 🚧 in progress — cloud sync, backups and phone app done |
+| **R2** | Cloud sync, owner & salesman mobile apps, native hardware | 🚧 in progress — cloud, phone app and shop features done; hardware & GST APIs next |
 | **R3** | Full accounting, advanced compliance, multi-branch | planned |
 | **R4** | Ecosystem — subscriptions, partner/CA portal, integrations | planned |
 
@@ -34,7 +34,7 @@ release delivers each piece. Tick items as they ship.
 - [ ] R2 · Cash-drawer kick
 - [ ] R2 · Live weighing-scale input over serial/USB
 - [ ] R2 · Customer-facing display
-- [ ] R2 · Loyalty points & coupons
+- [x] R2 · Loyalty points & coupons (taxes recomputed on the discounted value; cancelling a bill gives them back)
 - [x] R2 · Multiple counters billing at the same time, offline, through cloud sync
 - [x] R2 · Sale orders → invoice (from the salesman app)
 - [ ] R3 · Delivery challans, quotations / estimates, recurring invoices
@@ -45,9 +45,9 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · Inter-state supplier → IGST input credit automatically
 - [x] R1 · Purchase returns (debit notes), cancellation
 - [x] R1 · Pay now (cash/bank/UPI) or on credit; supplier payments later
-- [ ] R2 · Purchase orders & goods-received notes (GRN)
-- [ ] R2 · Import distributor bills from CSV / Excel
-- [ ] R2 · Reorder suggestions from sales velocity
+- [x] R2 · Purchase orders, received in parts by purchase bills (GRN); cancelling a receipt puts goods back on order
+- [x] R2 · Import distributor bills from CSV / Excel (columns detected; items matched by barcode, name, similar name)
+- [x] R2 · Reorder suggestions from sales velocity, lead time and reorder level; one click to POs per supplier
 - [ ] R3 · Purchase-bill OCR (photo → entry)
 - [ ] R3 · GSTR-2B ITC matching against purchases
 
@@ -61,8 +61,8 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · Barcode labels: A4 sheets, 50×25 / 38×25 rolls, TSPL file for label printers; internal EAN-13 generator
 - [x] R1 · HSN search with GST 2.0 rates (0 / 5 / 18 / 40, plus special & legacy 0.25 / 3 / 12 / 28)
 - [x] R1 · Negative-stock billing allowed (configurable) so the counter never stops
-- [ ] R2 · Multiple godowns & stock transfers
-- [ ] R2 · Item variants (size / colour)
+- [x] R2 · Multiple godowns & stock transfers (batches keep number/expiry/cost; billing draws from the default godown first)
+- [x] R2 · Item variants (size / colour), each its own SKU, barcode, price and stock
 - [ ] R2 · Physical stock count from the mobile app
 - [ ] R2 · Native TSPL / ZPL printing
 - [ ] R3 · Bill of materials & repacking (50 kg sack → 1 kg packs)
@@ -78,9 +78,9 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · True double-entry posting for every voucher; books-health check (Σ debit = Σ credit)
 - [x] R1 · WhatsApp payment reminders
 - [x] R1 · Oldest-first knock-off of payments against unpaid bills
-- [ ] R2 · Bank reconciliation, cheque register
-- [ ] R2 · Scheduled WhatsApp / SMS reminders
-- [ ] R2 · Party-specific price lists
+- [x] R2 · Bank reconciliation (statement CSV/Excel import, auto-match, manual match), cheque register (deposit / clear / bounce)
+- [x] R2 · Scheduled payment reminders (queued daily, one tap to send on WhatsApp). Fully automatic sending needs a WhatsApp Business API account
+- [x] R2 · Customer price lists (billing and sale orders use them)
 - [ ] R3 · Full chart of accounts; journal & contra vouchers behind "Advanced"
 - [ ] R3 · Trial balance, P&L, balance sheet
 - [ ] R3 · Financial-year close & carry-forward
@@ -101,8 +101,9 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · Money given before payday in small amounts; adjusted at salary time as the owner decides
 - [x] R1 · Festival bonuses (Diwali, Eid, Onam…) for everyone or one person — fixed or % of salary, paid now or added to next salary
 - [x] R1 · Optional "Served by" staff on bills (Settings switch), remembered per counter; returns count against the original server; Sales-by-staff report; optional incentive % added in the salary run
-- [ ] R2 · Attach bill photos to expenses; WhatsApp salary slips; staff attendance from the mobile app
-- [ ] R2 · Expense approvals above a set amount; petty-cash float per counter
+- [x] R2 · Attach bill photos to expenses; WhatsApp salary slips
+- [ ] R2 · Staff attendance from the mobile app
+- [x] R2 · Expense approvals above a set amount; petty-cash float (imprest) with top-up
 
 ## 5. GST & compliance
 - [x] R1 · CGST + SGST vs IGST by place of supply; cess; tax-inclusive and exclusive prices

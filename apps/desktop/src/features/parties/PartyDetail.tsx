@@ -7,7 +7,7 @@ import { downloadCsv } from '../../lib/download';
 import { fmtDate, inr } from '../../lib/format';
 import { useCan } from '../../lib/perm';
 import { reminderMessage, whatsappLink } from '../../lib/share';
-import { useApi } from '../../lib/useApi';
+import { useAction, useApi } from '../../lib/useApi';
 import { usePos } from '../pos/store';
 import { PaymentDialog } from '../money/MoneyPage';
 import { PartyForm } from './PartyForm';
@@ -61,6 +61,7 @@ export function PartyDetail() {
         <Stat label="Credit limit" value={p.credit_limit ? inr(p.credit_limit, false) : 'No limit'} sub={p.credit_limit ? `${Math.max(0, Math.round((owes / p.credit_limit) * 100))}% used` : undefined} />
         <Stat label="Last bill" value={p.last_txn ? fmtDate(p.last_txn) : '—'} />
       </div>
+      {isCust && <CustomerExtras partyId={p.id} listId={(p as { price_list_id?: number | null }).price_list_id ?? null} />}
 
       <Card title="Khata (statement)" padded={false} action={<Button size="sm" variant="ghost" icon={<Download className="h-4 w-4" />} onClick={() => downloadCsv(toCsv(rows.map((r) => ({ date: r.date, entry: VOUCHER[r.voucher_type] ?? r.voucher_type, ref: r.number ?? '', debit: r.debit / 100, credit: r.credit / 100, balance: (r.balance ?? 0) / 100 }))), `statement-${p.name}.csv`)}>CSV</Button>}>
         <table className="table-base" data-testid="ledger">
@@ -85,6 +86,29 @@ export function PartyDetail() {
         <PartyForm initial={p} onCancel={() => setEdit(false)} onSaved={() => setEdit(false)} />
       </Dialog>
       {pay && <PaymentDialog direction={pay} party={p} onClose={() => setPay(null)} />}
+    </div>
+  );
+}
+
+/** Price list and loyalty points for a customer. */
+function CustomerExtras({ partyId, listId }: { partyId: number; listId: number | null }) {
+  const lists = useApi('pricing.lists').data ?? [];
+  const loyalty = useApi('loyalty.get', { partyId }).data;
+  const canEdit = useCan()('party.edit');
+  const assign = useAction('pricing.assign', { success: 'Price list updated' });
+  if (!lists.length && !loyalty?.enabled) return null;
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-border bg-surface px-4 py-3 text-sm">
+      {lists.length > 0 && (
+        <label className="flex items-center gap-2">
+          <span className="text-muted">Price list</span>
+          <select className="input h-8 w-48" disabled={!canEdit} value={listId ?? ''} onChange={(e) => assign.mutate({ partyId, listId: Number(e.target.value) || null })} data-testid="party-pricelist">
+            <option value="">Normal prices</option>
+            {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </label>
+      )}
+      {loyalty?.enabled && <span data-testid="party-points"><span className="text-muted">Loyalty points</span> <b>{loyalty.points}</b> <span className="text-xs text-muted">worth {inr(loyalty.worth)}</span></span>}
     </div>
   );
 }

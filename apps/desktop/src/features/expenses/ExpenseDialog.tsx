@@ -33,6 +33,8 @@ export function ExpenseDialog({ onClose, defaultCategory }: { onClose: () => voi
   const split = f.gst && f.amount > 0
     ? computeLine({ qty: 1, rate: f.amount, gstRate: f.gstRate, taxInclusive: true, interState: !!f.payeeGstin && gstinOk && f.payeeGstin.slice(0, 2) !== company?.state_code })
     : null;
+  const pettyOn = (useApi('app.status').data?.company?.petty_cash_float ?? 0) > 0;
+  const [petty, setPetty] = useState(false);
   const save = useAction('expenses.create', { success: (e) => `${e.category} · ${inr(e.amount)} ${e.status === 'paid' ? 'paid' : 'added to bills to pay'}`, onSuccess: onClose });
   const cat = active.find((c) => c.id === f.categoryId);
   const overBudget = cat && cat.monthly_budget > 0 && (cat.spent ?? 0) + f.amount > cat.monthly_budget;
@@ -42,6 +44,7 @@ export function ExpenseDialog({ onClose, defaultCategory }: { onClose: () => voi
       date: f.date, categoryId: f.categoryId, amount: f.amount, payee: f.payee || null, billNo: f.billNo || null, description: f.description || null,
       gstRate: f.gst ? f.gstRate : 0, payeeGstin: f.gst ? f.payeeGstin || null : null, claimItc: f.gst && f.claimItc && !!f.payeeGstin,
       payNow: f.when === 'now' ? { mode: f.mode } : null, dueDate: f.when === 'later' ? f.dueDate : null,
+      petty: pettyOn && f.when === 'now' && f.mode === 'cash' && petty,
     });
 
   return (
@@ -101,6 +104,9 @@ export function ExpenseDialog({ onClose, defaultCategory }: { onClose: () => voi
                   {m.icon} {m.label}
                 </button>
               ))}
+              {pettyOn && f.mode === 'cash' && (
+                <label className="flex items-center gap-2 text-sm text-muted"><input type="checkbox" checked={petty} onChange={(e) => setPetty(e.target.checked)} data-testid="expense-petty" /> From the petty-cash box</label>
+              )}
             </div>
           ) : (
             <div className="mt-3 flex items-center gap-3">

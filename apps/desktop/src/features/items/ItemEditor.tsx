@@ -15,7 +15,7 @@ export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => 
   const canDo = useCan();
   const existing = useApi('items.get', { id: id ?? 0 }, { enabled: !!id });
   const nextPlu = useApi('items.nextPlu', undefined, { enabled: !id });
-  const [tab, setTab] = useState<'details' | 'stock'>('details');
+  const [tab, setTab] = useState<'details' | 'stock' | 'variants'>('details');
   const [adjOpen, setAdjOpen] = useState(false);
   const [f, setF] = useState({
     name: '', short_code: '', barcode: '', plu: '', category: '', brand: '', hsn: '', gst_rate: 5, cess_rate: 0, base_unit: 'Pcs', is_loose: false, tax_inclusive: true,
@@ -77,10 +77,12 @@ export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => 
     >
       {id && (
         <div className="mb-4">
-          <Tabs value={tab} onChange={setTab} tabs={[{ value: 'details', label: 'Details & prices' }, { value: 'stock', label: 'Stock & batches', count: it?.batches?.length }]} />
+          <Tabs value={tab} onChange={setTab} tabs={[{ value: 'details', label: 'Details & prices' }, { value: 'stock', label: 'Stock & batches', count: it?.batches?.length }, ...(it && !(it as { parent_id?: number | null }).parent_id ? [{ value: 'variants' as const, label: 'Variants' }] : [])]} />
         </div>
       )}
-      {tab === 'stock' && it ? (
+      {tab === 'variants' && it ? (
+        <Variants parentId={it.id} />
+      ) : tab === 'stock' && it ? (
         <div className="space-y-4">
           <div className="flex items-center justify-between rounded-xl bg-surface-2 p-4">
             <div>
@@ -243,6 +245,7 @@ export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => 
           {id && <Switch checked={f.active} onChange={(v) => set('active', v)} label="Active" hint="Inactive items are hidden from billing" />}
         </fieldset>
       )}
+      {tab === 'stock' && it && <GodownStock itemId={it.id} />}
     </Drawer>
   );
 }
@@ -265,5 +268,43 @@ function AdjustDialog({ itemId, unit, batches, onClose }: { itemId: number; unit
         <Field label="Reason"><Select value={reason} onChange={(e) => setReason(e.target.value)}>{['Damaged / expired', 'Stock count correction', 'Own use', 'Free sample', 'Opening stock', 'Other'].map((r) => <option key={r}>{r}</option>)}</Select></Field>
       </div>
     </Dialog>
+  );
+}
+
+function GodownStock({ itemId }: { itemId: number }) {
+  const rows = useApi('stock.byGodown', { itemId }).data ?? [];
+  if (rows.length < 2) return null;
+  return (
+    <div className="mt-4 rounded-lg border border-border p-3 text-sm" data-testid="item-godowns">
+      <p className="mb-1 font-medium">By godown</p>
+      {rows.map((g) => (
+        <div key={g.godown_id} className="flex justify-between"><span>{g.name}</span><span className="tnum">{g.qty}</span></div>
+      ))}
+    </div>
+  );
+}
+
+/** Size / colour variants: each becomes its own item with its own barcode, price and stock. */
+function Variants({ parentId }: { parentId: number }) {
+  const list = useApi('items.variants', { parentId });
+  const [text, setText] = useState('');
+  const add = useAction('items.createVariants', { success: (ids) => `${ids.length} variant${ids.length > 1 ? 's' : ''} added`, onSuccess: () => setText('') });
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted">Selling the same product in sizes or colours? Add each as a variant. It gets its own barcode, price and stock, and appears in billing search.</p>
+      <div className="flex gap-2">
+        <Input placeholder="e.g. S, M, L, XL  or  Red, Blue" value={text} onChange={(e) => setText(e.target.value)} data-testid="variant-input" />
+        <Button variant="primary" disabled={!text.trim()} loading={add.isPending} onClick={() => add.mutate({ parentId, variants: text.split(',').map((v) => ({ variant: v.trim() })).filter((v) => v.variant) })} data-testid="variant-add">Add</Button>
+      </div>
+      <table className="table-base text-sm">
+        <thead><tr><th>Variant</th><th>Barcode</th><th className="text-right">Price</th><th className="text-right">Stock</th></tr></thead>
+        <tbody>
+          {(list.data ?? []).map((v) => (
+            <tr key={v.id}><td>{v.variant}</td><td className="font-mono text-xs">{v.barcode ?? '—'}</td><td className="text-right tnum">{inr(v.retail_price)}</td><td className="text-right tnum">{v.stock}</td></tr>
+          ))}
+          {!list.data?.length && <tr><td colSpan={4} className="text-faint">No variants yet.</td></tr>}
+        </tbody>
+      </table>
+    </div>
   );
 }

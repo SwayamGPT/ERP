@@ -4,7 +4,7 @@ import { Badge, Button, Drawer, EmptyState, Loading, toast } from '../../compone
 import { call } from '../../db/client';
 import { inr } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
-import { usePos } from './store';
+import { pickParty, usePos } from './store';
 
 /** Open sale orders from salesmen (phones). One click loads an order into a new bill tab. */
 export function OrdersButton() {
@@ -75,7 +75,7 @@ export async function loadOrderIntoBill(orderId: number) {
   if (pos.bills.some((b) => b.orderId === o.id)) throw new Error(`Order ${o.number} is already open in a bill tab.`);
   const cur = pos.bills[pos.active];
   if ((cur.lines.length || cur.party) && !pos.newBill()) throw new Error('All bill tabs are in use. Finish or close one first.');
-  pos.setParty(party);
+  await pickParty(party);
   o.lines!.forEach((l, i) => pos.add(items[i], { qty: l.qty, unit: l.unit }));
   const s = usePos.getState();
   s.bills[s.active].lines.forEach((ln, i) => {

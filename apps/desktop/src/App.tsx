@@ -11,6 +11,7 @@ import { Dashboard } from './features/dashboard/Dashboard';
 import { GstPage } from './features/gst/GstPage';
 import { ItemsPage } from './features/items/ItemsPage';
 import { LabelsPage } from './features/items/LabelsPage';
+import { GodownsPage } from './features/items/GodownsPage';
 import { MoneyPage } from './features/money/MoneyPage';
 import { Onboarding } from './features/onboarding/Onboarding';
 import { EnterprisePicker } from './features/enterprise/EnterprisePicker';
@@ -19,6 +20,7 @@ import { PartiesPage } from './features/parties/PartiesPage';
 import { PartyDetail } from './features/parties/PartyDetail';
 import { PosPage } from './features/pos/PosPage';
 import { PurchaseEntry } from './features/purchases/PurchaseEntry';
+import { PurchaseOrdersPage } from './features/purchases/OrdersPage';
 import { ReportsPage } from './features/reports/ReportsPage';
 import { InvoiceList } from './features/sales/InvoiceList';
 import { InvoiceView } from './features/sales/InvoiceView';
@@ -83,9 +85,11 @@ function Boot() {
           <Route path="/sales/:id" element={<InvoiceView />} />
           <Route path="/purchases" element={<InvoiceList kind="purchases_all" />} />
           <Route path="/purchases/new" element={<PurchaseEntry />} />
+          <Route path="/purchases/orders" element={<PurchaseOrdersPage />} />
           <Route path="/purchases/:id" element={<InvoiceView />} />
           <Route path="/items" element={<ItemsPage />} />
           <Route path="/items/labels" element={<LabelsPage />} />
+          <Route path="/items/godowns" element={<GodownsPage />} />
           <Route path="/parties" element={<PartiesPage />} />
           <Route path="/parties/:id" element={<PartyDetail />} />
           <Route path="/money" element={<MoneyPage />} />

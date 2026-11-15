@@ -51,6 +51,10 @@ export interface Bill {
   /** Bill made from a salesman's sale order. */
   orderId?: number | null;
   orderNumber?: string | null;
+  couponCode?: string;
+  redeemPoints?: number;
+  /** The customer's price list (item id → base-unit price), if they have one. */
+  listPrices?: Record<number, number>;
 }
 
 export const MAX_BILLS = 9;
@@ -111,9 +115,9 @@ interface PosState {
   setUnit: (index: number, unit: string) => void;
   remove: (index: number) => void;
   select: (i: number) => void;
-  setParty: (p: Party | null) => void;
+  setParty: (p: Party | null, listPrices?: Record<number, number>) => void;
   setMode: (m: PayMode) => void;
-  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'paidNowMode' | 'splitCash' | 'splitOther' | 'billDiscountPct' | 'otherCharges' | 'notes' | 'servedBy' | 'orderId' | 'orderNumber'>>) => void;
+  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'paidNowMode' | 'splitCash' | 'splitOther' | 'billDiscountPct' | 'otherCharges' | 'notes' | 'servedBy' | 'orderId' | 'orderNumber' | 'couponCode' | 'redeemPoints'>>) => void;
   clear: () => void;
   /** After a bill is saved: close its tab if others are open, otherwise start fresh. */
   completed: () => void;
@@ -178,7 +182,8 @@ export const usePos = create<PosState>((set, get) => {
       const unit = opts.unit ?? item.base_unit;
       const tier = tierOf(bill.party);
       const proto = { prices: { mrp: item.mrp, retail: item.retail_price, wholesale: item.wholesale_price, super: item.super_price }, units: item.units };
-      const rate = unitPrice(proto, unit, tier);
+      const listed = bill.listPrices?.[item.id];
+      const rate = listed != null ? Math.round(listed * (item.units.find((u) => u.name === unit)?.factor ?? 1)) : unitPrice(proto, unit, tier);
       let qty = opts.qty ?? 1;
       if (opts.amount && rate > 0) qty = roundQty(opts.amount / rate);
       const factor = item.units.find((u) => u.name === unit)?.factor ?? 1;
@@ -204,11 +209,13 @@ export const usePos = create<PosState>((set, get) => {
       })),
     remove: (i) => patch((b) => ({ lines: b.lines.filter((_, j) => j !== i), selected: Math.min(b.selected, b.lines.length - 2) })),
     select: (i) => patch((b) => ({ selected: Math.max(-1, Math.min(i, b.lines.length - 1)) })),
-    setParty: (party) =>
+    setParty: (party, listPrices = {}) =>
       patch((b) => ({
         party,
+        listPrices,
+        redeemPoints: 0,
         mode: party && !party.is_walkin ? b.mode : b.mode === 'credit' ? 'cash' : b.mode,
-        lines: b.lines.map((l) => (l.manualRate ? l : { ...l, rate: unitPrice(l, l.unit, tierOf(party)) })),
+        lines: b.lines.map((l) => (l.manualRate ? l : { ...l, rate: listPrices[l.itemId] != null ? Math.round(listPrices[l.itemId] * l.factor) : unitPrice(l, l.unit, tierOf(party)) })),
       })),
     setMode: (mode) => patch(() => ({ mode })),
     set: (p) => patch(() => p),
@@ -224,3 +231,10 @@ export const usePos = create<PosState>((set, get) => {
 
 /** Convenience: the bill in the active tab. */
 export const useActiveBill = () => usePos((s) => s.bills[s.active]);
+
+/** Pick the bill's customer, applying their price list if they have one. */
+export async function pickParty(party: Party | null) {
+  const { call } = await import('../../db/client');
+  const prices = party && !party.is_walkin ? await call('pricing.partyPrices', { partyId: party.id }).catch(() => ({})) : {};
+  usePos.getState().setParty(party, prices);
+}

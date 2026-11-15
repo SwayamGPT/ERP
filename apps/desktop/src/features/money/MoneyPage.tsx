@@ -12,8 +12,9 @@ import { useCan } from '../../lib/perm';
 import { useAction, useApi } from '../../lib/useApi';
 import { ExpenseDialog } from '../expenses/ExpenseDialog';
 import { CustomerPicker } from '../pos/CustomerPicker';
+import { BankReconciliation, Cheques } from './Banking';
 
-type Tab = 'log' | 'flow' | 'payments' | 'moves';
+type Tab = 'log' | 'flow' | 'payments' | 'moves' | 'bank' | 'cheques';
 type Action = 'in' | 'out' | 'expense' | 'transfer' | 'owner' | 'income' | 'check';
 
 export function MoneyPage() {
@@ -65,12 +66,16 @@ export function MoneyPage() {
           ...(canDo('expense.view') ? [{ value: 'log' as const, label: 'Money log' }, { value: 'flow' as const, label: 'Cash flow' }] : []),
           { value: 'payments' as const, label: 'Customer & supplier payments' },
           ...(canDo('expense.view') ? [{ value: 'moves' as const, label: 'Transfers, owner & cash checks' }] : []),
+          { value: 'cheques' as const, label: 'Cheques' },
+          ...(canDo('money.move') ? [{ value: 'bank' as const, label: 'Bank reconciliation' }] : []),
         ]}
       />
       {tab === 'log' && <MoneyLog />}
       {tab === 'flow' && <CashFlow />}
       {tab === 'payments' && <PartyPayments />}
       {tab === 'moves' && <Moves />}
+      {tab === 'cheques' && <Cheques />}
+      {tab === 'bank' && <BankReconciliation />}
       {(action === 'in' || action === 'out') && <PaymentDialog direction={action} onClose={close} />}
       {action === 'expense' && <ExpenseDialog onClose={close} />}
       {(action === 'transfer' || action === 'owner' || action === 'income') && <MoveDialog kind={action} onClose={close} />}

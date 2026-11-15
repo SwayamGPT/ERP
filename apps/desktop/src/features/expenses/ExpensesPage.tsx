@@ -2,6 +2,7 @@ import { toCsv } from '@hisaab/core';
 import { AlertTriangle, Ban, CalendarClock, Download, Pencil, Plus, Repeat, Search, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { Approvals, Attachments, PettyCash } from './Extras';
 import { Badge, Button, Card, ConfirmDialog, Dialog, Drawer, EmptyState, Field, Input, Loading, MoneyInput, PageHeader, Segmented, Select, Stat, Switch, Tabs, toast } from '../../components/ui';
 import { call } from '../../db/client';
 import type { PayMode } from '../../db/types';
@@ -13,7 +14,7 @@ import { useCan } from '../../lib/perm';
 import { useAction, useApi } from '../../lib/useApi';
 import { ExpenseDialog, PayExpenseDialog } from './ExpenseDialog';
 
-type Tab = 'overview' | 'all' | 'due' | 'recurring' | 'categories';
+type Tab = 'overview' | 'all' | 'due' | 'approvals' | 'petty' | 'recurring' | 'categories';
 
 export function ExpensesPage() {
   const canDo = useCan();
@@ -21,6 +22,8 @@ export function ExpensesPage() {
   const tab = (params.get('tab') as Tab) ?? 'overview';
   const openId = params.get('id') ? Number(params.get('id')) : null;
   const adding = params.get('new') === '1';
+  const approvals = useApi('expenses.approvals').data ?? [];
+  const appStatus = useApi('app.status').data;
   const setP = (patch: Record<string, string | null>) =>
     setParams((p) => {
       for (const [k, v] of Object.entries(patch)) v === null ? p.delete(k) : p.set(k, v);
@@ -50,6 +53,8 @@ export function ExpensesPage() {
           tabs={[
             { value: 'overview', label: 'Overview' },
             { value: 'due', label: 'Bills to pay', count: ov.data?.due.length },
+            ...(approvals.length ? [{ value: 'approvals' as const, label: 'Needs approval', count: approvals.length }] : []),
+            ...(appStatus?.company?.petty_cash_float ? [{ value: 'petty' as const, label: 'Petty cash' }] : []),
             { value: 'all', label: 'All expenses' },
             { value: 'recurring', label: 'Recurring' },
             { value: 'categories', label: 'Categories & budgets' },
@@ -58,6 +63,8 @@ export function ExpensesPage() {
       </div>
       {tab === 'overview' && <Overview onOpen={(id) => setP({ id: String(id) })} onTab={(t) => setP({ tab: t })} />}
       {tab === 'due' && <ExpenseList status="due" onOpen={(id) => setP({ id: String(id) })} />}
+      {tab === 'approvals' && <Approvals onOpen={(id) => setP({ id: String(id) })} />}
+      {tab === 'petty' && <PettyCash onOpen={(id) => setP({ id: String(id) })} />}
       {tab === 'all' && <ExpenseList status="all" onOpen={(id) => setP({ id: String(id) })} />}
       {tab === 'recurring' && <RecurringTab startNew={params.get('newRecurring') === '1'} onDone={() => setP({ newRecurring: null })} />}
       {tab === 'categories' && <Categories />}
@@ -263,8 +270,13 @@ export function ExpenseDrawer({ id, onClose }: { id: number; onClose: () => void
               <div className="text-xs text-muted">Amount</div>
               <div className="text-2xl font-semibold tnum">{inr(e.amount)}</div>
             </div>
-            <StatusBadge status={e.status} due={e.due_date} />
+            <span className="flex items-center gap-2">
+              {(e as { approval?: string | null }).approval === 'pending' && <Badge tone="warn">needs owner approval</Badge>}
+              {!!(e as { petty?: number }).petty && <Badge>petty cash</Badge>}
+              <StatusBadge status={e.status} due={e.due_date} />
+            </span>
           </div>
+          <Attachments expenseId={e.id} canEdit={canEdit} />
           <dl className="grid grid-cols-[130px_1fr] gap-y-2">
             <dt className="text-muted">Date</dt><dd>{fmtDate(e.date)}</dd>
             {e.due_date && (<><dt className="text-muted">Due</dt><dd>{fmtDate(e.due_date)}</dd></>)}

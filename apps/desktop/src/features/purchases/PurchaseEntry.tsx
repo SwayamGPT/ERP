@@ -1,7 +1,9 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Plus, Save, Search, Trash2, Truck } from 'lucide-react';
+import { ClipboardList, Plus, Save, Search, Trash2, Truck } from 'lucide-react';
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ImportBillButton } from './ImportBill';
+import { useApi } from '../../lib/useApi';
 import { Badge, Button, Card, Field, Input, Kbd, MoneyInput, PageHeader, Segmented, toast } from '../../components/ui';
 import { call } from '../../db/client';
 import type { DraftInvoice, Item, Party } from '../../db/types';
@@ -29,6 +31,13 @@ let K = 0;
 const blank = (): Row => ({ key: ++K, item: null, unit: '', factor: 1, qty: '', free: '', rate: '', disc: '', batch: '', expiry: '', mrp: '' });
 const COLS = ['item', 'qty', 'free', 'rate', 'disc', 'batch', 'expiry', 'mrp'] as const;
 
+/** A filled row for an item (from a purchase order or an imported bill). Rates in paise. */
+export function rowFor(item: Item, o: { qty: number; rate?: number; batch?: string; expiry?: string; mrp?: number; unit?: string; factor?: number } ) {
+  const factor = o.factor ?? 1;
+  const rate = o.rate ?? Math.round((item.purchase_price ?? 0) * factor);
+  return { ...blank(), item, unit: o.unit ?? item.base_unit, factor, qty: String(o.qty), rate: rate ? (rate / 100).toFixed(2) : '', batch: o.batch ?? '', expiry: o.expiry ?? '', mrp: (o.mrp ?? item.mrp) ? (((o.mrp ?? item.mrp) as number) / 100).toFixed(2) : '' };
+}
+
 export function PurchaseEntry() {
   const navigate = useNavigate();
   const canDo = useCan();
@@ -40,6 +49,27 @@ export function PurchaseEntry() {
   const [other, setOther] = useState(0);
   const [payNow, setPayNow] = useState<'none' | 'cash' | 'bank' | 'upi'>('none');
   const [saving, setSaving] = useState(false);
+  const [po, setPo] = useState<{ id: number; number: string } | null>(null);
+  const [godownId, setGodownId] = useState<number | null>(null);
+  const godowns = useApi('stock.godowns').data ?? [];
+  const [params] = useSearchParams();
+  const poParam = Number(params.get('po')) || null;
+  useEffect(() => {
+    if (!poParam) return;
+    void (async () => {
+      try {
+        const o = await call('po.get', { id: poParam });
+        const [party, items] = await Promise.all([call('parties.get', { id: o.party_id }), Promise.all(o.lines!.filter((l) => l.pending > 0).map((l) => call('items.get', { id: l.item_id })))]);
+        setSupplier(party);
+        setPick(false);
+        setPo({ id: o.id, number: o.number });
+        const pend = o.lines!.filter((l) => l.pending > 0);
+        setRows([...pend.map((l, i) => rowFor(items[i], { qty: l.pending, rate: l.rate, unit: l.unit, factor: l.factor })), blank()]);
+      } catch (e) {
+        toast.error(e);
+      }
+    })();
+  }, [poParam]);
   const cells = useRef<Record<string, HTMLInputElement | null>>({});
 
   const focus = (rowKey: number, col: (typeof COLS)[number]) => setTimeout(() => cells.current[`${rowKey}:${col}`]?.focus(), 0);
@@ -52,6 +82,8 @@ export function PurchaseEntry() {
       date,
       supplierBillNo: billNo,
       otherCharges: other,
+      poId: po?.id ?? null,
+      godownId,
       lines: rows
         .filter((r) => r.item && Number(r.qty) > 0)
         .map((r) => ({
@@ -68,7 +100,7 @@ export function PurchaseEntry() {
           mrp: r.mrp ? Math.round(Number(r.mrp) * 100) : null,
         })),
     }),
-    [rows, supplier?.id, date, billNo, other],
+    [rows, supplier?.id, date, billNo, other, po?.id, godownId],
   );
   const preview = useQuery({ queryKey: ['invoices.preview', draft], queryFn: () => call('invoices.preview', draft), enabled: !!supplier && draft.lines.length > 0, placeholderData: keepPreviousData });
   const t = draft.lines.length ? preview.data?.totals : undefined;
@@ -111,9 +143,14 @@ export function PurchaseEntry() {
 
   return (
     <div className="animate-slide-up">
-      <PageHeader icon={<Truck className="h-5 w-5" />} title="New purchase" subtitle="Enter the supplier's bill. Stock, batches, cost and input GST update automatically." actions={<Button variant="primary" icon={<Save className="h-4 w-4" />} kbd="F9" loading={saving} onClick={save} data-testid="purchase-save">Save purchase</Button>} />
+      <PageHeader icon={<Truck className="h-5 w-5" />} title="New purchase" subtitle="Enter the supplier's bill. Stock, batches, cost and input GST update automatically." actions={<><ImportBillButton onLoad={(list) => setRows([...list.map((x) => rowFor(x.item, x)), blank()])} /><Button variant="primary" icon={<Save className="h-4 w-4" />} kbd="F9" loading={saving} onClick={save} data-testid="purchase-save">Save purchase</Button></>} />
+      {po && (
+        <p className="mb-3 flex items-center gap-2 rounded-lg bg-primary/5 px-3 py-2 text-sm text-primary" data-testid="purchase-from-po">
+          <ClipboardList className="h-4 w-4" /> Receiving goods against {po.number}. Change quantities to what actually arrived.
+        </p>
+      )}
       <Card className="mb-4">
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-5">
           <Field label="Supplier *">
             <button onClick={() => setPick(true)} className="input flex items-center justify-between text-left" data-testid="purchase-supplier">
               <span className={supplier ? '' : 'text-faint'}>{supplier?.name ?? 'Pick supplier…'}</span>
@@ -122,6 +159,13 @@ export function PurchaseEntry() {
           </Field>
           <Field label="Supplier bill no."><Input value={billNo} onChange={(e) => setBillNo(e.target.value)} placeholder="e.g. MD/2291" /></Field>
           <Field label="Bill date"><Input type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} /></Field>
+          {godowns.length > 1 && (
+            <Field label="Goods go to">
+              <select className="input" value={godownId ?? godowns.find((g) => g.is_default)?.id ?? 1} onChange={(e) => setGodownId(Number(e.target.value))} data-testid="purchase-godown">
+                {godowns.filter((g) => g.active).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </Field>
+          )}
           <Field label="Tax" hint={supplier ? (preview.data?.interState ? 'Other state → IGST input' : 'Same state → CGST + SGST input') : ' '}>
             <div className="flex h-9 items-center">{supplier?.gstin ? <Badge tone="good">GSTIN {supplier.gstin}</Badge> : <Badge>Unregistered supplier</Badge>}</div>
           </Field>

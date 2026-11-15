@@ -9,13 +9,14 @@ import { BUSINESS_TYPES } from '../../db/templates';
 import type { BusinessType } from '../../db/repos/company';
 import { PrintSetup } from './PrintSetup';
 import { CloudSettings } from '../cloud/CloudSettings';
+import { SalesSettings } from './SalesSettings';
 import { downloadBlob } from '../../lib/download';
 import { fmtDate, today } from '../../lib/format';
 import { useCan } from '../../lib/perm';
 import { useUi } from '../../lib/store';
 import { useAction, useApi } from '../../lib/useApi';
 
-type Tab = 'business' | 'print' | 'billing' | 'users' | 'cloud' | 'backup';
+type Tab = 'business' | 'print' | 'billing' | 'sales' | 'users' | 'cloud' | 'backup';
 
 export function SettingsPage() {
   const canDo = useCan();
@@ -27,6 +28,7 @@ export function SettingsPage() {
     { value: 'business' as const, label: 'Business', show: canDo('settings.edit') },
     { value: 'print' as const, label: 'Print setup', show: canDo('settings.edit') },
     { value: 'billing' as const, label: 'Billing rules', show: canDo('settings.edit') },
+    { value: 'sales' as const, label: 'Loyalty, coupons & prices', show: canDo('settings.edit') },
     { value: 'users' as const, label: 'Users & PINs', show: canDo('users.manage') },
     { value: 'cloud' as const, label: 'Cloud & devices', show: canDo('backup.manage') },
     { value: 'backup' as const, label: 'Backup & data', show: canDo('backup.manage') },
@@ -40,6 +42,7 @@ export function SettingsPage() {
         {tab === 'business' && <Business c={company} />}
         {tab === 'billing' && <Billing c={company} />}
         {tab === 'users' && <UsersTab />}
+        {tab === 'sales' && <SalesSettings c={company} />}
         {tab === 'cloud' && <CloudSettings />}
         {tab === 'backup' && <Backup />}
       </div>

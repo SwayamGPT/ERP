@@ -9,6 +9,7 @@ import {
   History,
   ReceiptText,
   ChevronsUpDown,
+  ClipboardList,
   Plus,
   Cloud,
   CloudOff,
@@ -28,6 +29,7 @@ import {
   Truck,
   Users,
   Wallet,
+  Warehouse,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
@@ -68,6 +70,7 @@ export function useNav(): Array<{ group: string; items: NavItem[] }> {
       items: [
         { to: '/purchases/new', label: t('nav.newPurchase'), icon: <Truck />, perm: 'purchase.create', kbd: 'Alt+P' },
         { to: '/purchases', label: t('nav.purchases'), icon: <ShoppingBag />, perm: 'purchase.view', end: true },
+        { to: '/purchases/orders', label: 'Orders & reorder', icon: <ClipboardList />, perm: 'purchase.view' },
       ],
     },
     {
@@ -75,6 +78,7 @@ export function useNav(): Array<{ group: string; items: NavItem[] }> {
       items: [
         { to: '/items', label: t('nav.items'), icon: <Package />, perm: 'item.view', kbd: 'Alt+I', end: true },
         { to: '/items/labels', label: t('nav.labels'), icon: <Barcode />, perm: 'item.edit' },
+        { to: '/items/godowns', label: 'Godowns', icon: <Warehouse />, perm: 'item.view' },
       ],
     },
     {

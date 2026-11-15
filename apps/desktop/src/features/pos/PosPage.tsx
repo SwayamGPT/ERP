@@ -33,7 +33,7 @@ import { useCan } from '../../lib/perm';
 import { billMessage, upiLink, whatsappLink } from '../../lib/share';
 import { useApi } from '../../lib/useApi';
 import { CustomerPicker } from './CustomerPicker';
-import { MAX_BILLS, usePos, type CartLine, type PayMode } from './store';
+import { MAX_BILLS, pickParty, usePos, type CartLine, type PayMode } from './store';
 import { BillTabs } from './BillTabs';
 import { TaxBreakup } from './TaxBreakup';
 import { ServedBy } from './ServedBy';
@@ -87,16 +87,20 @@ export function PosPage() {
       partyId: party?.id ?? null,
       billDiscountPct: bill.billDiscountPct,
       otherCharges: bill.otherCharges,
+      couponCode: bill.couponCode?.trim() || null,
+      redeemPoints: bill.redeemPoints || null,
       lines: lines.filter((l) => l.qty > 0).map((l) => ({ itemId: l.itemId, unit: l.unit, factor: l.factor, qty: l.qty, rate: l.rate, discountPct: l.discountPct, batchId: l.batchId })),
     }),
-    [lines, party?.id, bill.billDiscountPct, bill.otherCharges],
+    [lines, party?.id, bill.billDiscountPct, bill.otherCharges, bill.couponCode, bill.redeemPoints],
   );
+  const loyalty = useApi('loyalty.get', { partyId: party?.id ?? 0 }, { enabled: !!party && !party.is_walkin }).data;
   const preview = useQuery({
     queryKey: ['invoices.preview', draft],
     queryFn: () => call('invoices.preview', draft),
     enabled: draft.lines.length > 0,
     placeholderData: keepPreviousData,
   });
+  const promo = preview.data?.promo;
   const pv = draft.lines.length ? preview.data : undefined;
   const totals = pv?.totals;
   const payable = totals?.payable ?? 0;
@@ -438,10 +442,16 @@ export function PosPage() {
           <span><b className="text-ink">{lines.length}</b> items · <b className="text-ink">{fmtQty(totalQty)}</b> qty</span>
           {totals && totals.discount > 0 && <span>Saved <b className="text-good">{inr(totals.discount)}</b></span>}
           <button onClick={() => setAdvanced(!advanced)} className="flex items-center gap-1 hover:text-ink">
-            <NotebookPen className="h-3.5 w-3.5" /> {advanced ? 'Hide' : 'Advanced'}: charges, note
+            <NotebookPen className="h-3.5 w-3.5" /> {advanced ? 'Hide' : 'Advanced'}: coupon, points, charges, note
           </button>
           {advanced && (
-            <div className="flex flex-1 items-center gap-2">
+            <div className="flex flex-1 flex-wrap items-center gap-2">
+              <Input className="w-32 font-mono uppercase" placeholder="Coupon" value={bill.couponCode ?? ''} onChange={(e) => pos.set({ couponCode: e.target.value.toUpperCase() })} data-testid="pos-coupon" />
+              {loyalty?.enabled && party && !party.is_walkin && (
+                <span className="flex items-center gap-1" title={`${loyalty.points} points available, worth ${inr(loyalty.worth)}`}>
+                  Points <Input className="w-20" type="number" min={0} max={loyalty.points} value={bill.redeemPoints || ''} placeholder={String(loyalty.points)} onChange={(e) => pos.set({ redeemPoints: Math.min(loyalty.points, Number(e.target.value) || 0) })} data-testid="pos-points" />
+                </span>
+              )}
               <span>Other charges</span>
               <MoneyInput className="w-28" value={bill.otherCharges} onChange={(v) => pos.set({ otherCharges: v })} />
               <Input className="flex-1" placeholder="Note on bill (e.g. home delivery)" value={bill.notes} onChange={(e) => pos.set({ notes: e.target.value })} />
@@ -460,6 +470,9 @@ export function PosPage() {
           <div className="space-y-1.5 text-sm">
             <Line k="Items total" v={inr(totals?.gross ?? 0)} />
             {!!totals?.discount && <Line k={`Discount${bill.billDiscountPct ? ` (bill ${bill.billDiscountPct}%)` : ''}`} v={`−${inr(totals.discount)}`} tone="good" />}
+            {!!promo?.couponAmount && <Line k={`↳ incl. coupon ${promo.couponCode}`} v={`−${inr(promo.couponAmount)}`} muted />}
+            {!!promo?.pointsAmount && <Line k={`↳ incl. ${promo.points} points`} v={`−${inr(promo.pointsAmount)}`} muted />}
+            {(bill.couponCode || bill.redeemPoints) && preview.error && <p className="text-xs text-bad" data-testid="pos-promo-error">{preview.error.message}</p>}
             <Line k="Taxable value" v={inr(totals?.taxable ?? 0)} muted />
             <Line k="Total GST" v={inr(totals?.tax ?? 0)} />
             {!!bill.otherCharges && <Line k="Other charges" v={inr(bill.otherCharges)} />}
@@ -578,7 +591,7 @@ export function PosPage() {
         open={pickCustomer}
         onOpenChange={(v) => (setPickCustomer(v), !v && focusSearch())}
         onPick={(p) => {
-          pos.setParty(p);
+          void pickParty(p);
           if (mode === 'credit' && p.is_walkin) pos.setMode('cash');
           setPickCustomer(false);
           focusSearch();

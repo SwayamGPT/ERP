@@ -1,5 +1,7 @@
 import { formatINRCompact } from '@hisaab/core';
-import { HandCoins, ReceiptText } from 'lucide-react';
+import { ClipboardList, HandCoins, MessageCircle, ReceiptText } from 'lucide-react';
+import { useEffect } from 'react';
+import { reminderMessage, whatsappLink } from '../../lib/share';
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CalendarClock, Check, ChevronRight, Landmark, PackageX, Receipt, ShoppingCart, TrendingUp, Truck, Wallet } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link, useNavigate } from 'react-router-dom';
@@ -9,7 +11,7 @@ import { fmtDay, fmtQty, fmtTime, inr, relative } from '../../lib/format';
 import { useT } from '../../lib/i18n';
 import { useCan } from '../../lib/perm';
 import { useUi } from '../../lib/store';
-import { useApi } from '../../lib/useApi';
+import { useAction, useApi } from '../../lib/useApi';
 
 export function Dashboard() {
   const t = useT();
@@ -45,6 +47,8 @@ export function Dashboard() {
       </div>
 
       <StaffRequestAlert />
+      <ReminderQueue />
+      <OrdersAlert />
       <LicenceAlert />
       <Checklist />
 
@@ -305,5 +309,46 @@ function Checklist() {
       </div>
       <button className="text-xs text-muted hover:text-ink" onClick={() => { try { localStorage.setItem('hisaab.checklist', 'done'); } catch { /* ignore */ } status.refetch(); }}>Dismiss</button>
     </div>
+  );
+}
+
+/** Payment reminders due today (from Settings → reminders): one tap opens WhatsApp and marks it sent. */
+function ReminderQueue() {
+  const canDo = useCan();
+  const company = useApi('app.status').data?.company;
+  const refresh = useAction('reminders.refresh', { silentError: true });
+  useEffect(() => {
+    if (canDo('party.view') && company?.reminder_after_days) refresh.mutate(undefined as never);
+  }, [company?.reminder_after_days]); // eslint-disable-line react-hooks/exhaustive-deps
+  const due = useApi('reminders.due', undefined, { enabled: canDo('party.view') && !!company?.reminder_after_days }).data ?? [];
+  const mark = useAction('reminders.mark');
+  if (!due.length || !company) return null;
+  return (
+    <div className="rounded-xl border border-border bg-surface p-3 text-sm" data-testid="reminder-queue">
+      <p className="mb-2 flex items-center gap-2 font-medium"><MessageCircle className="h-4 w-4 text-good" /> {due.length} payment reminder{due.length > 1 ? 's' : ''} to send today</p>
+      <ul className="divide-y divide-border">
+        {due.slice(0, 6).map((r) => (
+          <li key={r.id} className="flex items-center gap-3 py-1.5">
+            <span className="flex-1">{r.name}</span>
+            <span className="tnum">{inr(r.amount)}</span>
+            <a className="font-medium text-good hover:underline" target="_blank" rel="noreferrer" href={whatsappLink(r.phone, reminderMessage({ shop: company.name, name: r.name, amount: r.amount, upi: company.upi_id }))}
+              onClick={() => mark.mutate({ id: r.id, status: 'sent' })} data-testid="reminder-send">Send</a>
+            <button className="text-xs text-muted hover:text-ink" onClick={() => mark.mutate({ id: r.id, status: 'skipped' })}>Skip</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function OrdersAlert() {
+  const n = useApi('app.status').data?.openOrders ?? 0;
+  if (!n) return null;
+  return (
+    <Link to="/pos" className="flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm text-primary hover:shadow-pop" data-testid="orders-alert">
+      <ClipboardList className="h-4 w-4 shrink-0" />
+      <span className="flex-1"><b>{n} sale order{n > 1 ? 's' : ''}</b> from salesmen waiting to be billed.</span>
+      <span className="font-medium underline">Open billing</span>
+    </Link>
   );
 }

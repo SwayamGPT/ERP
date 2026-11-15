@@ -261,7 +261,15 @@ function EmployeeDrawer({ id, onClose, onEdit, onAdvance, onBonus }: { id: numbe
                       <span className="text-muted">{fmtDate(t.date)}</span> · {KIND[t.kind]?.label ?? t.kind} {(t.kind === 'salary' || t.kind === 'salary_paid') && t.note && /^\d{4}-\d{2}$/.test(t.note) ? <b>{monthName(t.note)}</b> : t.note && <span className="text-muted">{t.note}</span>}
                       {t.mode && t.kind !== 'advance_recovery' && <span className="text-xs text-faint"> · {t.mode}</span>}
                     </span>
-                    <span className={cn('font-medium tnum', KIND[t.kind]?.sign === -1 && 'text-bad', KIND[t.kind]?.sign === 1 && 'text-good')}>{inr(t.amount)}</span>
+                    <span className="flex items-center gap-2">
+                      {t.kind === 'salary' && !t.cancelled && e.phone && company && t.note && /^\d{4}-\d{2}$/.test(t.note) && (
+                        <a className="text-good" title="Send salary slip on WhatsApp" target="_blank" rel="noreferrer" data-testid="salary-slip"
+                          href={whatsappLink(e.phone, salarySlip(company.name, e.name, monthName(t.note), t.amount, e.advance))}>
+                          <Send className="h-3.5 w-3.5" />
+                        </a>
+                      )}
+                      <span className={cn('font-medium tnum', KIND[t.kind]?.sign === -1 && 'text-bad', KIND[t.kind]?.sign === 1 && 'text-good')}>{inr(t.amount)}</span>
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -392,4 +400,15 @@ function BonusDialog({ employees, preselect, onClose }: { employees: Employee[];
       </div>
     </Dialog>
   );
+}
+
+function salarySlip(shop: string, name: string, month: string, amount: number, advance: number) {
+  return [
+    `*Salary slip — ${month}*`,
+    `${shop}`,
+    `Employee: ${name}`,
+    `Net salary for the month: ${inr(amount)}`,
+    advance > 0 ? `Advance still outstanding: ${inr(advance)}` : 'No advance outstanding.',
+    'Thank you for your work! 🙏',
+  ].join('\n');
 }
