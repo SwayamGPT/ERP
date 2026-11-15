@@ -8,6 +8,7 @@ import type { Company } from '../../db/types';
 import { BUSINESS_TYPES } from '../../db/templates';
 import type { BusinessType } from '../../db/repos/company';
 import { PrintSetup } from './PrintSetup';
+import { Hardware } from './Hardware';
 import { CloudSettings } from '../cloud/CloudSettings';
 import { SalesSettings } from './SalesSettings';
 import { downloadBlob } from '../../lib/download';
@@ -37,7 +38,12 @@ export function SettingsPage() {
     <div className="animate-slide-up">
       <PageHeader icon={<Settings className="h-5 w-5" />} title="Settings" />
       <div className="mb-5"><Tabs value={tab} onChange={(t) => setParams({ tab: t })} tabs={tabs} /></div>
-      {tab === 'print' && <PrintSetup company={company} />}
+      {tab === 'print' && (
+        <>
+          <PrintSetup company={company} />
+          <div className="mt-5 max-w-3xl"><Hardware /></div>
+        </>
+      )}
       <div className="max-w-3xl">
         {tab === 'business' && <Business c={company} />}
         {tab === 'billing' && <Billing c={company} />}

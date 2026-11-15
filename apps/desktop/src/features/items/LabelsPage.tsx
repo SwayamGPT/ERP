@@ -3,7 +3,10 @@ import { Barcode, Download, Printer, Search } from 'lucide-react';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BarcodeSvg } from '../../components/BarcodeSvg';
-import { Button, Card, EmptyState, Input, PageHeader, Segmented } from '../../components/ui';
+import { Button, Card, EmptyState, Input, PageHeader, Segmented, toast } from '../../components/ui';
+import { useDevice } from '../../lib/devicePrefs';
+import { isNative } from '../../native';
+import { printLabelsDirect } from '../../native/print';
 import type { Item } from '../../db/types';
 import { downloadBlob } from '../../lib/download';
 import { inr } from '../../lib/format';
@@ -29,13 +32,22 @@ export function LabelsPage() {
       setTimeout(() => setPrinting(false), 300);
     }, 60);
   };
+  const labelPrinter = useDevice((d) => d.labelPrinter) && isNative();
+  const direct = async () => {
+    try {
+      await printLabelsDirect(sel.map((p) => ({ name: p.item.name, barcode: codeOf(p.item), mrp: inr(p.item.mrp), price: inr(p.item.retail_price), copies: p.copies })));
+      toast.success(`${labels.length} labels sent to the printer`);
+    } catch (e) {
+      toast.error(e);
+    }
+  };
   const tspl = () =>
     downloadBlob(sel.map((p) => tsplLabel({ name: p.item.name, barcode: codeOf(p.item), mrp: inr(p.item.mrp), price: inr(p.item.retail_price), copies: p.copies })).join(''), 'labels.prn', 'text/plain');
 
   return (
     <div className="animate-slide-up">
       <PageHeader icon={<Barcode className="h-5 w-5" />} title="Barcode labels" subtitle="Print stickers for items without a maker's barcode. Loose items get scale barcodes from the weighing machine."
-        actions={<><Button variant="outline" icon={<Download className="h-4 w-4" />} disabled={!sel.length} onClick={tspl}>TSPL file (label printer)</Button><Button variant="primary" icon={<Printer className="h-4 w-4" />} disabled={!labels.length} onClick={print}>Print {labels.length || ''} labels</Button></>} />
+        actions={<>{labelPrinter && <Button variant="outline" icon={<Printer className="h-4 w-4" />} disabled={!sel.length} onClick={direct} data-testid="labels-direct">Send to label printer</Button>}<Button variant="outline" icon={<Download className="h-4 w-4" />} disabled={!sel.length} onClick={tspl}>TSPL file (label printer)</Button><Button variant="primary" icon={<Printer className="h-4 w-4" />} disabled={!labels.length} onClick={print}>Print {labels.length || ''} labels</Button></>} />
       <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
         <Card padded={false}>
           <div className="border-b border-border p-3"><Input prefix={<Search className="h-3.5 w-3.5" />} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find items…" /></div>

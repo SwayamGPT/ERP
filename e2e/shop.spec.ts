@@ -83,3 +83,20 @@ test('coupon at the counter, a cheque that clears, and a second godown', async (
   await expect(page.getByTestId('toast').filter({ hasText: 'Stock moved' })).toBeVisible();
   await expect(page.getByText('Recent transfers')).toBeVisible();
 });
+
+test('the customer display follows the bill and thanks the customer', async ({ page }) => {
+  await openShop(page);
+  await page.keyboard.press('Alt+n');
+  const [display] = await Promise.all([page.waitForEvent('popup'), page.getByTestId('open-display').click()]);
+  await page.bringToFront();
+  await page.getByTestId('pos-search').focus();
+  await addItem(page, 'sugar', '2');
+  await expect(display.getByTestId('customer-display')).toContainText('Sugar');
+  await expect(display.getByTestId('display-total')).toHaveText('₹92.00');
+  await page.keyboard.press('F4');
+  await expect(page.getByTestId('pos-tendered')).toBeFocused();
+  await page.keyboard.type('100');
+  await expect(page.getByTestId('change')).toHaveText('₹8.00');
+  await page.keyboard.press('F10');
+  await expect(display.getByTestId('display-thanks')).toContainText('change ₹8.00');
+});

@@ -38,6 +38,7 @@ import { BillTabs } from './BillTabs';
 import { TaxBreakup } from './TaxBreakup';
 import { ServedBy } from './ServedBy';
 import { OrdersButton } from './OrdersDrawer';
+import { CounterTools, displayThanks, useCustomerDisplay } from './CounterTools';
 
 export function PosPage() {
   const t = useT();
@@ -100,6 +101,7 @@ export function PosPage() {
     enabled: draft.lines.length > 0,
     placeholderData: keepPreviousData,
   });
+  useCustomerDisplay(company, lines, preview.data?.totals.payable ?? 0, preview.data?.totals.discount ?? 0);
   const promo = preview.data?.promo;
   const pv = draft.lines.length ? preview.data : undefined;
   const totals = pv?.totals;
@@ -172,6 +174,7 @@ export function PosPage() {
         overrideCreditLimit: override,
       });
       setLast(inv);
+      displayThanks(company, inv.total, mode === 'cash' && bill.tendered > inv.total ? bill.tendered - inv.total : 0);
       pos.completed();
       setAdvanced(false);
       toast.success(`Bill ${inv.number} saved · ${formatINR(inv.total)}`, mode === 'cash' && bill.tendered > inv.total ? `Return change ${formatINR(bill.tendered - inv.total)}` : undefined);
@@ -458,6 +461,7 @@ export function PosPage() {
             </div>
           )}
           <span className="flex-1" />
+          <CounterTools />
           <Button size="sm" variant="ghost" kbd="Esc" icon={<Trash2 className="h-4 w-4" />} onClick={() => setClearOpen(true)} disabled={!lines.length}>
             {t('pos.clear')}
           </Button>

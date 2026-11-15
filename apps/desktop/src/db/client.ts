@@ -26,6 +26,19 @@ worker.onmessage = (e: MessageEvent) => {
     saveListeners.forEach((l) => l(d.type, d.at));
     return;
   }
+  if (d.type === 'host') {
+    // The worker asks the desktop shell to read / write / delete a file (see native/index.ts).
+    void (async () => {
+      const { native } = await import('../native');
+      try {
+        const result = d.op === 'read' ? await native.storeRead(d.key) : d.op === 'write' ? await native.storeWrite(d.key, d.bytes) : await native.storeDelete(d.key);
+        worker.postMessage({ type: 'hostReply', rid: d.rid, ok: true, result }, result instanceof Uint8Array ? [result.buffer] : []);
+      } catch (err) {
+        worker.postMessage({ type: 'hostReply', rid: d.rid, ok: false, error: String((err as Error)?.message ?? err) });
+      }
+    })();
+    return;
+  }
   if (d.type === 'sync') {
     // Changes from other devices arrived: refresh what's on screen. Otherwise just the status pill.
     void queryClient.invalidateQueries(d.pulled ? undefined : { queryKey: ['app.status'] });
@@ -71,7 +84,7 @@ const lastEnterprise = () => {
   }
 };
 
-const ready = send<Meta>({ type: 'init', wasmUrl, enterpriseId: lastEnterprise() }).then(remember);
+const ready = send<Meta>({ type: 'init', wasmUrl, enterpriseId: lastEnterprise(), native: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window }).then(remember);
 
 /** Typed call into the local database API. Mutations invalidate every cached query (local data is cheap to re-read). */
 export async function call<M extends Method>(method: M, ...args: ArgsOf<M> extends void ? [] : [ArgsOf<M>]): Promise<Awaited<ResultOf<M>>> {

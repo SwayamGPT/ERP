@@ -30,10 +30,10 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · WhatsApp bill sharing (wa.me deep link)
 - [x] R1 · Sales returns (credit notes) — partial, refund or adjust in khata; bill cancellation with reversal
 - [x] R1 · Credit-limit check with owner/manager override; walk-in bills must be paid in full
-- [ ] R2 · Native ESC/POS printing without the print dialog; auto-cut
-- [ ] R2 · Cash-drawer kick
-- [ ] R2 · Live weighing-scale input over serial/USB
-- [ ] R2 · Customer-facing display
+- [x] R2 · Native ESC/POS printing without the print dialog; auto-cut; UPI QR on the receipt (desktop app; network printers on port 9100 or any installed printer)
+- [x] R2 · Cash-drawer kick (on cash bills, or from the Drawer button)
+- [x] R2 · Weighing-scale input over serial/USB (Weigh / Alt+W fills the loose line; common continuous formats understood)
+- [x] R2 · Customer-facing display (second window: items, total, UPI QR, thank-you with change)
 - [x] R2 · Loyalty points & coupons (taxes recomputed on the discounted value; cancelling a bill gives them back)
 - [x] R2 · Multiple counters billing at the same time, offline, through cloud sync
 - [x] R2 · Sale orders → invoice (from the salesman app)
@@ -64,7 +64,7 @@ release delivers each piece. Tick items as they ship.
 - [x] R2 · Multiple godowns & stock transfers (batches keep number/expiry/cost; billing draws from the default godown first)
 - [x] R2 · Item variants (size / colour), each its own SKU, barcode, price and stock
 - [ ] R2 · Physical stock count from the mobile app
-- [ ] R2 · Native TSPL / ZPL printing
+- [x] R2 · Native TSPL / ZPL label printing
 - [ ] R3 · Bill of materials & repacking (50 kg sack → 1 kg packs)
 - [ ] R3 · Serial / IMEI tracking
 - [ ] R3 · Dead-stock analysis
@@ -157,11 +157,15 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · Light & dark themes; English & Hindi labels
 - [x] R1 · Plain-language UI (Money In / Out, Udhaar, Khata) with progressive disclosure
 - [x] R1 · Tauri v2 shell scaffold (`in.hisaab.desktop`)
-- [ ] R2 · Signed Windows / macOS installers, auto-update
+- [x] R2 · Desktop app keeps each shop's database as a file on disk: atomic saves, previous copy, 7 daily backups
+- [ ] R2 · Signed Windows / macOS installers, auto-update — needs a code-signing certificate, an Apple Developer account and an updater signing key from the owner
+- [ ] R2 · Native SQLite engine in the desktop app (today the same WASM engine as the browser, saved to disk)
 - [ ] R2 · Marathi, Gujarati, Tamil; full Hindi coverage
 - [ ] R2 · In-app help & short videos
 - [ ] R4 · Subscription billing & licensing; partner / CA portal; public API & webhooks
 - [ ] R4 · Payment gateway, UPI auto-reconciliation, payment links
+
+> Counter hardware (printers, drawer, scale) is covered by automated tests against simulated devices (a test network printer, recorded scale output). Confirm on the real printer and scale at the shop before going live.
 
 ## 10. Quality gates (every release)
 - [x] Paise-exact unit tests + golden fixtures (`packages/core/fixtures`) shared with future backends

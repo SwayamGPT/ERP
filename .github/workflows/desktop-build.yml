@@ -42,6 +42,9 @@ jobs:
       - run: npm test
       - name: Performance budget (bill save < 50 ms at 50k items / 100k bills)
         run: npm run perf
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Counter hardware (printing, scale, file storage) — Rust tests
+        run: cargo test --manifest-path apps/desktop/src-tauri/hw/Cargo.toml
 
   server:
     name: Cloud server & browser journeys

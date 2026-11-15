@@ -79,9 +79,41 @@ async function idbDelete(key: string): Promise<void> {
   });
 }
 
+/* ───────── storage: files on disk in the desktop app, IndexedDB in a browser ───────── */
+
+// In the desktop shell the main thread saves files through Tauri (workers can't call it directly).
+let nativeStore = false;
+let hostSeq = 0;
+const hostWaiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+function host(op: 'read' | 'write' | 'delete', key: string, bytes?: Uint8Array): Promise<Uint8Array | null> {
+  const rid = ++hostSeq;
+  return new Promise((resolve, reject) => {
+    hostWaiting.set(rid, { resolve: resolve as (v: unknown) => void, reject });
+    (self as unknown as Worker).postMessage({ type: 'host', rid, op, key, bytes }, bytes ? [bytes.buffer] : []);
+  });
+}
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+async function storeGet(key: string): Promise<Uint8Array | null> {
+  if (nativeStore) {
+    const v = await host('read', key);
+    if (v) return v;
+  }
+  const v = await idbGet<Uint8Array | string>(key); // also: first run after moving to files on disk
+  return v == null ? null : typeof v === 'string' ? enc.encode(v) : v;
+}
+async function storePut(key: string, value: Uint8Array) {
+  if (nativeStore) await host('write', key, value);
+  else await idbPut(key, value);
+}
+async function storeDel(key: string) {
+  if (nativeStore) await host('delete', key);
+  await idbDelete(key);
+}
+
 /* ───────── registry ───────── */
 
-const saveRegistry = () => idbPut(REGISTRY_KEY, JSON.stringify(registry));
+const saveRegistry = () => storePut(REGISTRY_KEY, enc.encode(JSON.stringify(registry)));
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`);
 const meta = () => ({ enterprises: [...registry].sort((a, b) => (b.openedAt ?? '').localeCompare(a.openedAt ?? '')), enterpriseId: currentId });
 
@@ -98,13 +130,13 @@ function syncEntry() {
 }
 
 async function loadRegistry() {
-  const raw = await idbGet<string>(REGISTRY_KEY);
-  registry = raw ? (JSON.parse(raw) as EnterpriseEntry[]) : [];
+  const raw = await storeGet(REGISTRY_KEY);
+  registry = raw ? (JSON.parse(dec.decode(raw)) as EnterpriseEntry[]) : [];
   // One-time upgrade from the single-business layout.
   const legacy = await idbGet<Uint8Array>(LEGACY_KEY);
   if (legacy) {
     const id = newId();
-    await idbPut(`db:${id}`, legacy);
+    await storePut(`db:${id}`, legacy.slice());
     const probe = new SqlJsAdapter(new SQL.Database(legacy));
     const c = probe.get<Company>('SELECT name, gstin, city FROM company WHERE id = 1');
     if (c) registry.push({ id, name: c.name, gstin: c.gstin, city: c.city, createdAt: new Date().toISOString(), openedAt: null });
@@ -127,7 +159,7 @@ async function flush(): Promise<void> {
   lastExportMs = performance.now() - t0;
   adapter.db.exec('PRAGMA foreign_keys = ON;'); // export() resets connection pragmas
   const key = `db:${currentId}`;
-  saving = (saving ?? Promise.resolve()).then(() => idbPut(key, bytes)).then(() => {
+  saving = (saving ?? Promise.resolve()).then(() => storePut(key, bytes)).then(() => {
     savedVersion = Math.max(savedVersion, version);
     post({ type: 'saved', at: Date.now() });
   });
@@ -202,7 +234,7 @@ async function close() {
 
 async function open(id: string, bytes?: Uint8Array | null) {
   await close();
-  const data = bytes ?? (await idbGet<Uint8Array>(`db:${id}`));
+  const data = bytes ?? (await storeGet(`db:${id}`));
   adapter = new SqlJsAdapter(data ? new SQL.Database(data) : new SQL.Database());
   const before = adapter.writeVersion;
   migrate(adapter);
@@ -236,11 +268,19 @@ function requireOwner() {
 
 self.onmessage = async (e: MessageEvent) => {
   const { id, type } = e.data as { id: number; type: string };
+  if (type === 'hostReply') {
+    const w = hostWaiting.get(e.data.rid);
+    hostWaiting.delete(e.data.rid);
+    if (e.data.ok) w?.resolve(e.data.result ?? null);
+    else w?.reject(new AppError(e.data.error ?? 'Could not save to disk.'));
+    return;
+  }
   const reply = (result: unknown) => post({ id, ok: true, result });
   try {
     switch (type) {
       case 'init': {
         SQL = await initSqlJs({ locateFile: () => e.data.wasmUrl });
+        nativeStore = !!e.data.native;
         await loadRegistry();
         const wanted = e.data.enterpriseId as string | null;
         if (wanted && registry.some((x) => x.id === wanted)) await open(wanted);
@@ -274,7 +314,7 @@ self.onmessage = async (e: MessageEvent) => {
         currentId = null;
         registry = registry.filter((x) => x.id !== target);
         await saveRegistry();
-        await idbDelete(`db:${target}`);
+        await storeDel(`db:${target}`);
         if (registry.length === 0) await open(newId());
         return reply(meta());
       }
