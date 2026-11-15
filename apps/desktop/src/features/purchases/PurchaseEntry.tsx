@@ -4,7 +4,7 @@ import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ImportBillButton } from './ImportBill';
 import { useApi } from '../../lib/useApi';
-import { Badge, Button, Card, Field, Input, Kbd, MoneyInput, PageHeader, Segmented, toast } from '../../components/ui';
+import { Badge, Button, Card, Dialog, Field, Input, Kbd, MoneyInput, PageHeader, Segmented, toast } from '../../components/ui';
 import { call } from '../../db/client';
 import type { DraftInvoice, Item, Party } from '../../db/types';
 import { cn } from '../../lib/cn';
@@ -16,6 +16,8 @@ import { CustomerPicker } from '../pos/CustomerPicker';
 interface Row {
   key: number;
   item: Item | null;
+  /** Text typed in the item box that hasn't become an item yet. */
+  typed?: string;
   unit: string;
   factor: number;
   qty: string;
@@ -107,6 +109,12 @@ export function PurchaseEntry() {
 
   const save = async () => {
     if (!supplier) return setPick(true);
+    const orphan = rows.findIndex((r) => !r.item && (r.typed?.trim() || Number(r.qty) > 0));
+    if (orphan >= 0) {
+      const r = rows[orphan];
+      focus(r.key, 'item');
+      return toast.error(new Error(`Row ${orphan + 1}: “${r.typed?.trim() || 'item'}” is not an item yet. Pick it from the list, or choose “Create item” to add it.`));
+    }
     if (!draft.lines.length) return toast.info('Add at least one item with quantity');
     setSaving(true);
     try {
@@ -202,8 +210,9 @@ export function PurchaseEntry() {
                       <ItemCell
                         inputRef={cell('item').ref}
                         item={r.item}
+                        onText={(t) => update(r.key, { typed: t, ...(r.item && t !== r.item.name ? { item: null } : {}) })}
                         onPick={(it) => {
-                          update(r.key, { item: it, unit: it.base_unit, factor: 1, rate: it.purchase_price ? (it.purchase_price / 100).toFixed(2) : '', mrp: it.mrp ? (it.mrp / 100).toFixed(2) : '' });
+                          update(r.key, { typed: '', item: it, unit: it.base_unit, factor: 1, rate: it.purchase_price ? (it.purchase_price / 100).toFixed(2) : '', mrp: it.mrp ? (it.mrp / 100).toFixed(2) : '' });
                           focus(r.key, 'qty');
                         }}
                       />
@@ -228,7 +237,7 @@ export function PurchaseEntry() {
                     <td><input {...cell('batch')} className="input h-8 px-2 font-mono text-xs" disabled={!r.item?.track_batch} placeholder={r.item?.track_batch ? 'B123' : '—'} value={r.batch} onChange={(e) => update(r.key, { batch: e.target.value.toUpperCase() })} data-testid="pur-batch" /></td>
                     <td><input {...cell('expiry')} type="date" className="input h-8 px-2 text-xs" disabled={!r.item?.track_batch} value={r.expiry} onChange={(e) => update(r.key, { expiry: e.target.value })} data-testid="pur-expiry" /></td>
                     <td><NumCell {...cell('mrp')} value={r.mrp} onChange={(v) => update(r.key, { mrp: v })} /></td>
-                    <td className="text-right font-medium tnum">{r.item ? inr(amt) : ''}</td>
+                    <td className="text-right font-medium tnum">{r.item || amt ? inr(amt) : ''}</td>
                     <td>
                       <button tabIndex={-1} className="grid h-7 w-7 place-items-center rounded-md text-faint hover:bg-bad-soft hover:text-bad" onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((x) => x.key !== r.key) : [blank()]))} aria-label="Remove row">
                         <Trash2 className="h-4 w-4" />
@@ -284,36 +293,47 @@ const NumCell = forwardRef<HTMLInputElement, { value: string; onChange: (v: stri
   return <input ref={ref} {...rest} value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))} onFocus={(e) => e.target.select()} inputMode="decimal" className="input h-8 px-2 text-right tnum" data-testid={testid} />;
 });
 
-function ItemCell({ item, onPick, inputRef }: { item: Item | null; onPick: (i: Item) => void; inputRef: (el: HTMLInputElement | null) => void }) {
+function ItemCell({ item, onPick, onText, inputRef }: { item: Item | null; onPick: (i: Item) => void; onText: (t: string) => void; inputRef: (el: HTMLInputElement | null) => void }) {
   const [q, setQ] = useState(item?.name ?? '');
   const [open, setOpen] = useState(false);
   const [hl, setHl] = useState(0);
-  useEffect(() => setQ(item?.name ?? ''), [item]);
+  const [creating, setCreating] = useState<string | null>(null);
+  useEffect(() => {
+    if (item) setQ(item.name);
+  }, [item]);
   const res = useQuery({ queryKey: ['items.list', { q, limit: 8 }], queryFn: () => call('items.list', { q, limit: 8 }), enabled: open && q.length > 0 && q !== item?.name });
   const list = res.data ?? [];
+  const typedNew = !!q.trim() && !item;
+  // The last option in the list is always "Create item" for text that isn't an item yet.
+  const canCreate = typedNew && !list.some((i) => i.name.toLowerCase() === q.trim().toLowerCase());
+  const options = list.length + (canCreate ? 1 : 0);
   return (
     <div className="relative">
+      {creating !== null && <QuickItem name={creating} onClose={() => setCreating(null)} onCreated={(it) => (setCreating(null), onPick(it))} />}
       <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
       <input
         ref={inputRef}
         value={q}
-        onChange={(e) => (setQ(e.target.value), setOpen(true), setHl(0))}
+        onChange={(e) => (setQ(e.target.value), onText(e.target.value), setOpen(true), setHl(0))}
         onFocus={(e) => e.target.select()}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') (e.preventDefault(), setHl((h) => Math.min(h + 1, list.length - 1)));
+          if (e.key === 'ArrowDown') (e.preventDefault(), setHl((h) => Math.min(h + 1, options - 1)));
           if (e.key === 'ArrowUp') (e.preventDefault(), setHl((h) => Math.max(h - 1, 0)));
           if (e.key === 'Enter') {
             e.preventDefault();
             e.stopPropagation();
             if (list[hl]) (onPick(list[hl]), setOpen(false));
+            else if (canCreate) (setCreating(q.trim()), setOpen(false));
           }
         }}
         placeholder="Search item…"
-        className="input h-8 pl-8"
+        className={cn('input h-8 pl-8', typedNew && !open && 'border-warn ring-1 ring-warn/40')}
+        title={typedNew ? 'Not an item yet: pick from the list or create it' : undefined}
         data-testid="pur-item"
       />
-      {open && list.length > 0 && (
+      {typedNew && !open && <span className="absolute -bottom-3.5 left-2 text-[10px] text-warn">Not an item yet — press Enter to create</span>}
+      {open && options > 0 && (
         <div className="absolute left-0 top-full z-20 mt-1 w-[360px] overflow-hidden rounded-lg border border-border bg-surface shadow-pop">
           {list.map((it, i) => (
             <button key={it.id} onMouseDown={(e) => (e.preventDefault(), onPick(it), setOpen(false))} className={cn('flex w-full justify-between px-3 py-2 text-left text-sm', i === hl ? 'bg-primary-soft' : 'hover:bg-surface-2')}>
@@ -321,8 +341,50 @@ function ItemCell({ item, onPick, inputRef }: { item: Item | null; onPick: (i: I
               <span className="text-xs text-muted">{it.stock} {it.base_unit} · last {inr(it.purchase_price ?? 0)}</span>
             </button>
           ))}
+          {canCreate && (
+            <button onMouseDown={(e) => (e.preventDefault(), setCreating(q.trim()), setOpen(false))} className={cn('flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm font-medium text-primary', hl === list.length ? 'bg-primary-soft' : 'hover:bg-surface-2')} data-testid="pur-item-create">
+              <Plus className="h-3.5 w-3.5" /> Create item “{q.trim()}”
+            </button>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+const UNITS = ['Pcs', 'Kg', 'g', 'Ltr', 'ml', 'Box', 'Pack', 'Bag', 'Dozen', 'Bottle', 'Carton'];
+
+/** Add a new item right from the purchase grid: name, unit, GST and prices; the rest can be filled later in Items. */
+function QuickItem({ name, onClose, onCreated }: { name: string; onClose: () => void; onCreated: (i: Item) => void }) {
+  const [f, setF] = useState({ name, unit: 'Pcs', gst: 5, hsn: '', mrp: 0, sell: 0 });
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      const id = await call('items.save', { name: f.name.trim(), base_unit: f.unit, gst_rate: f.gst, hsn: f.hsn || null, mrp: f.mrp, retail_price: f.sell || f.mrp, purchase_price: 0, is_loose: ['Kg', 'g', 'Ltr', 'ml'].includes(f.unit) } as never);
+      onCreated(await call('items.get', { id: id as number }));
+      toast.success(`${f.name.trim()} added to your items`);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()} title="New item" description="Add the item now; set barcode, batches and other prices later in Items." size="sm"
+      footer={<Button variant="primary" loading={busy} disabled={!f.name.trim()} onClick={save} data-testid="quick-item-save">Add item</Button>}>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Name" className="col-span-2"><Input autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} data-testid="quick-item-name" /></Field>
+        <Field label="Unit">
+          <select className="input" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })}>{UNITS.map((u) => <option key={u}>{u}</option>)}</select>
+        </Field>
+        <Field label="GST %">
+          <select className="input" value={f.gst} onChange={(e) => setF({ ...f, gst: Number(e.target.value) })} data-testid="quick-item-gst">{[0, 5, 12, 18, 28, 40].map((g) => <option key={g} value={g}>{g}%</option>)}</select>
+        </Field>
+        <Field label="HSN (optional)"><Input inputMode="numeric" value={f.hsn} onChange={(e) => setF({ ...f, hsn: e.target.value.replace(/\D/g, '').slice(0, 8) })} /></Field>
+        <Field label="MRP"><MoneyInput value={f.mrp} onChange={(mrp) => setF({ ...f, mrp })} /></Field>
+        <Field label="Selling price" className="col-span-2" hint="Leave empty to sell at MRP."><MoneyInput value={f.sell} onChange={(sell) => setF({ ...f, sell })} /></Field>
+      </div>
+    </Dialog>
   );
 }

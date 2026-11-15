@@ -6,7 +6,7 @@ import type { StorageAdapter } from './adapter';
 /**
  * PINs are stored as salted PBKDF2-SHA256 hashes: `pbkdf2$<iterations>$<salt hex>$<hash hex>`.
  * Synchronous so it runs inside the database worker's synchronous transactions.
- * Note: a 4–6 digit PIN can't resist a determined offline attack whatever the hash; this stops
+ * Note: a 4-digit PIN can't resist a determined offline attack whatever the hash; this stops
  * anyone who opens the database file (or a synced copy) from simply reading everyone's PIN.
  */
 const ITERATIONS = 40_000;

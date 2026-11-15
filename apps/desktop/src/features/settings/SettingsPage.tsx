@@ -171,7 +171,7 @@ function UsersTab() {
                 ))}
               </div>
             </Field>
-            <Field label={edit.id ? 'New PIN (leave empty to keep)' : 'PIN (4–6 digits)'}><Input type="password" inputMode="numeric" value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value.replace(/\D/g, '').slice(0, 6) })} /></Field>
+            <Field label={edit.id ? 'New 4-digit PIN (leave empty to keep)' : '4-digit PIN'}><Input type="password" inputMode="numeric" maxLength={4} value={edit.pin} onChange={(e) => setEdit({ ...edit, pin: e.target.value.replace(/\D/g, '').slice(0, 4) })} /></Field>
             {edit.id && <Switch checked={edit.active} onChange={(v) => setEdit({ ...edit, active: v })} label="Active" />}
           </div>
         </Dialog>

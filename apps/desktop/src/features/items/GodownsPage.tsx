@@ -1,9 +1,10 @@
 import { ArrowRightLeft, Plus, Warehouse, X } from 'lucide-react';
 import { useState } from 'react';
-import { Badge, Button, Card, Field, Input, Loading, PageHeader, toast } from '../../components/ui';
+import { Badge, Button, Card, Dialog, Field, Input, Loading, MoneyInput, PageHeader, Segmented, Switch, toast } from '../../components/ui';
+import type { GodownRow } from '../../db/repos/stock';
 import { call } from '../../db/client';
 import type { Item } from '../../db/types';
-import { fmtDate, fmtQty } from '../../lib/format';
+import { fmtDate, fmtQty, inr, today } from '../../lib/format';
 import { useCan } from '../../lib/perm';
 import { useAction, useApi } from '../../lib/useApi';
 
@@ -13,20 +14,29 @@ export function GodownsPage() {
   const canDo = useCan();
   const [name, setName] = useState('');
   const save = useAction('stock.saveGodown', { success: 'Saved', onSuccess: () => setName('') });
+  const canRent = canDo('expense.create') && canDo('expense.view');
+  const [rentFor, setRentFor] = useState<GodownRow | null>(null);
   if (!list.data) return <Loading />;
   return (
     <div className="animate-slide-up space-y-4">
       <PageHeader icon={<Warehouse className="h-5 w-5" />} title="Godowns & transfers" subtitle="Keep stock in more than one place. Billing takes stock from the default godown first." />
       <Card title="Godowns" padded={false}>
         <table className="table-base">
-          <thead><tr><th>Name</th><th className="text-right">Items</th><th className="text-right">Units in stock</th><th /></tr></thead>
+          <thead><tr><th>Name</th><th className="text-right">Items</th><th className="text-right">Units in stock</th>{canRent && <th>Rent</th>}<th /></tr></thead>
           <tbody>
             {list.data.map((g) => (
               <tr key={g.id} data-testid="godown-row">
                 <td className="font-medium">{g.name} {!!g.is_default && <Badge tone="good" className="ml-1">Billing from here</Badge>}</td>
                 <td className="text-right tnum">{g.items}</td>
                 <td className="text-right tnum">{fmtQty(g.units)}</td>
-                <td className="text-right">{!g.is_default && canDo('stock.adjust') && <Button size="sm" variant="ghost" onClick={() => save.mutate({ id: g.id, name: g.name, isDefault: true })}>Make default</Button>}</td>
+                {canRent && (
+                  <td data-testid="godown-rent">
+                    {g.rented ? (
+                      <span>{inr(g.rent)}/month <span className="text-xs text-muted">· {g.landlord} · due on {g.rent_due_day}</span> {!!g.rent_due && <Badge tone="warn">{inr(g.rent_due)} due</Badge>}</span>
+                    ) : <span className="text-xs text-faint">Own / no rent</span>}
+                  </td>
+                )}
+                <td className="whitespace-nowrap text-right">{canRent && <Button size="sm" variant="ghost" onClick={() => setRentFor(g)} data-testid="godown-rent-edit">Rent…</Button>}{!g.is_default && canDo('stock.adjust') && <Button size="sm" variant="ghost" onClick={() => save.mutate({ id: g.id, name: g.name, isDefault: true })}>Make default</Button>}</td>
               </tr>
             ))}
           </tbody>
@@ -38,6 +48,7 @@ export function GodownsPage() {
           </form>
         )}
       </Card>
+      {rentFor && <RentDialog g={rentFor} onClose={() => setRentFor(null)} />}
       {list.data.length > 1 && canDo('stock.adjust') && <Transfer godowns={list.data} />}
       <History />
     </div>
@@ -107,5 +118,42 @@ function History() {
         <tbody>{list.map((t) => <tr key={t.id}><td>{t.id}</td><td>{fmtDate(t.date)}</td><td>{t.from_name} → {t.to_name}</td><td className="text-right">{t.lines}</td><td>{t.by_name}</td></tr>)}</tbody>
       </table>
     </Card>
+  );
+}
+
+/** Rent for a godown: a monthly bill to the landlord appears in Expenses → Bills to pay on the due day. */
+function RentDialog({ g, onClose }: { g: GodownRow; onClose: () => void }) {
+  const [f, setF] = useState({ rented: true, landlord: g.landlord ?? '', rent: g.rent || 0, dueDay: g.rent_due_day || 5, startMonth: today().slice(0, 7), autoPay: '' as '' | 'bank' | 'upi' });
+  const bills = useApi('stock.rentBills', { godownId: g.id }).data ?? [];
+  const save = useAction('stock.godownRent', { success: () => (f.rented ? `Rent set for ${g.name}` : `Rent stopped for ${g.name}`), onSuccess: onClose });
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()} title={`Rent — ${g.name}`} size="md"
+      footer={<Button variant="primary" loading={save.isPending} onClick={() => save.mutate({ godownId: g.id, rented: f.rented, landlord: f.landlord, rent: f.rent, dueDay: f.dueDay, startMonth: f.startMonth, autoPayMode: f.autoPay || null })} data-testid="rent-save">Save</Button>}>
+      <div className="space-y-3">
+        <Switch checked={f.rented} onChange={(rented) => setF({ ...f, rented })} label="This godown is rented" hint="Each month a rent bill to the landlord appears in Expenses → Bills to pay. Pay it like any bill; it shows in cash flow and profit & loss." />
+        {f.rented && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Landlord"><Input value={f.landlord} onChange={(e) => setF({ ...f, landlord: e.target.value })} data-testid="rent-landlord" /></Field>
+            <Field label="Monthly rent"><MoneyInput value={f.rent} onChange={(rent) => setF({ ...f, rent })} data-testid="rent-amount" /></Field>
+            <Field label="Due on day of month"><Input type="number" min={1} max={28} value={f.dueDay} onChange={(e) => setF({ ...f, dueDay: Number(e.target.value) })} data-testid="rent-day" /></Field>
+            <Field label="Starting month"><Input type="month" value={f.startMonth} onChange={(e) => setF({ ...f, startMonth: e.target.value })} /></Field>
+            <div className="sm:col-span-2">
+              <span className="label">How it is paid</span>
+              <Segmented value={f.autoPay || 'manual'} onChange={(v) => setF({ ...f, autoPay: v === 'manual' ? '' : (v as 'bank' | 'upi') })} options={[{ value: 'manual', label: 'I pay it myself' }, { value: 'bank', label: 'Bank auto-debit' }, { value: 'upi', label: 'UPI autopay' }]} />
+            </div>
+          </div>
+        )}
+        {bills.length > 0 && (
+          <div>
+            <p className="mb-1 text-sm font-medium">Recent rent bills</p>
+            <ul className="divide-y divide-border text-sm">
+              {bills.slice(0, 6).map((b) => (
+                <li key={b.id} className="flex justify-between py-1.5"><span>{fmtDate(b.date)}</span><span className="tnum">{inr(b.amount)} <Badge tone={b.status === 'paid' ? 'good' : 'warn'}>{b.status}</Badge></span></li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </Dialog>
   );
 }

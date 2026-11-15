@@ -121,7 +121,7 @@ function EmployeeDialog({ initial, onClose }: { initial: Employee | null; onClos
               {linkable.map((u) => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
             </Select>
           )}
-          {f.login === 'new' && <Input className="mt-2" type="password" inputMode="numeric" placeholder="4–6 digit PIN" value={f.newLoginPin} onChange={(e) => set('newLoginPin', e.target.value.replace(/\D/g, '').slice(0, 6))} />}
+          {f.login === 'new' && <Input className="mt-2" type="password" inputMode="numeric" placeholder="4-digit PIN" maxLength={4} value={f.newLoginPin} onChange={(e) => set('newLoginPin', e.target.value.replace(/\D/g, '').slice(0, 4))} />}
         </div>
         {initial && <div className="sm:col-span-2"><Switch checked={f.active} onChange={(v) => set('active', v)} label="Still working here" hint="Turn off when someone leaves — their history stays." /></div>}
       </div>

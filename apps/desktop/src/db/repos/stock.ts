@@ -1,14 +1,86 @@
 import { allocateFifo, roundQty } from '@hisaab/core';
-import { AppError, audit, guard, localNow, type Ctx } from './base';
+import type { PayMode } from '../types';
+import { AppError, allowed, audit, guard, localNow, type Ctx } from './base';
+import { saveRecurring } from './expenses';
 
 /* ───────── godowns ───────── */
 
-export function listGodowns(ctx: Ctx) {
+export interface GodownRow {
+  id: number;
+  name: string;
+  is_default: number;
+  active: number;
+  items: number;
+  units: number;
+  rented: number;
+  landlord: string | null;
+  rent: number;
+  rent_due_day: number;
+  recurring_id: number | null;
+  /** Only for users who can see expenses. */
+  rent_due?: number;
+  rent_paid_year?: number;
+}
+
+export function listGodowns(ctx: Ctx): GodownRow[] {
   guard(ctx, 'item.view');
-  return ctx.db.query<{ id: number; name: string; is_default: number; active: number; items: number; units: number }>(
+  const year = ctx.today().slice(0, 4);
+  const rows = ctx.db.query<GodownRow>(
     `SELECT g.*, (SELECT COUNT(DISTINCT item_id) FROM batches WHERE godown_id = g.id AND qty > 0) AS items,
-       (SELECT COALESCE(SUM(qty), 0) FROM batches WHERE godown_id = g.id AND qty > 0) AS units
+       (SELECT COALESCE(SUM(qty), 0) FROM batches WHERE godown_id = g.id AND qty > 0) AS units,
+       (SELECT COALESCE(SUM(amount - paid), 0) FROM expenses WHERE godown_id = g.id AND status IN ('unpaid','partial')) AS rent_due,
+       (SELECT COALESCE(SUM(paid), 0) FROM expenses WHERE godown_id = g.id AND status <> 'cancelled' AND substr(date, 1, 4) = ?) AS rent_paid_year
      FROM godowns g ORDER BY g.is_default DESC, g.name`,
+    [year],
+  );
+  if (!allowed(ctx, 'expense.view')) for (const r of rows) (r.rent = 0), delete r.rent_due, delete r.rent_paid_year;
+  return rows;
+}
+
+/**
+ * Rent for a godown: one monthly recurring expense ("Godown rent", payee = landlord) linked to the
+ * godown, so each month's bill shows in Bills to pay, is paid like any expense, and lands in cash
+ * flow and P&L. Turning rent off pauses the schedule; past bills stay.
+ */
+export function saveGodownRent(
+  ctx: Ctx,
+  input: { godownId: number; rented: boolean; landlord?: string; rent?: number; dueDay?: number; startMonth?: string; gstRate?: number; landlordGstin?: string | null; autoPayMode?: PayMode | null },
+) {
+  guard(ctx, 'expense.create');
+  const g = ctx.db.get<{ id: number; name: string; recurring_id: number | null }>('SELECT id, name, recurring_id FROM godowns WHERE id = ?', [input.godownId]);
+  if (!g) throw new AppError('Godown not found.');
+  return ctx.db.transaction(() => {
+    if (!input.rented) {
+      if (g.recurring_id) ctx.db.exec('UPDATE recurring_expenses SET active = 0 WHERE id = ?', [g.recurring_id]);
+      ctx.db.exec('UPDATE godowns SET rented = 0 WHERE id = ?', [g.id]);
+      audit(ctx, 'godown.rent.off', 'godown', g.id);
+      return g.id;
+    }
+    const rent = input.rent ?? 0;
+    if (!(rent > 0) || !Number.isSafeInteger(rent)) throw new AppError('Enter the monthly rent.');
+    const landlord = input.landlord?.trim();
+    if (!landlord) throw new AppError("Enter the landlord's name.");
+    const day = Math.round(input.dueDay ?? 1);
+    if (day < 1 || day > 28) throw new AppError('Rent due day must be between 1 and 28.');
+    const month = input.startMonth ?? ctx.today().slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) throw new AppError('Pick the month rent starts.');
+    const cat = ctx.db.get<{ id: number }>("SELECT id FROM expense_categories WHERE name = 'Godown rent'")!.id;
+    const recurringId = saveRecurring(ctx, {
+      id: g.recurring_id ?? undefined, categoryId: cat, amount: rent, every: 'month', anchorDate: `${month}-${String(day).padStart(2, '0')}`,
+      payee: landlord, description: `Rent — ${g.name}`, gstRate: input.gstRate ?? 0, payeeGstin: input.landlordGstin ?? null, autoPayMode: input.autoPayMode ?? null, active: true,
+    }, g.id);
+    ctx.db.exec('UPDATE godowns SET rented = 1, landlord = ?, rent = ?, rent_due_day = ?, recurring_id = ? WHERE id = ?', [landlord, rent, day, recurringId, g.id]);
+    audit(ctx, 'godown.rent', 'godown', g.id, { rent, landlord, day });
+    return g.id;
+  });
+}
+
+/** A godown's rent bills, newest first. */
+export function godownRentBills(ctx: Ctx, godownId: number) {
+  guard(ctx, 'expense.view');
+  return ctx.db.query<{ id: number; date: string; due_date: string | null; amount: number; paid: number; status: string }>(
+    "SELECT id, date, due_date, amount, paid, status FROM expenses WHERE godown_id = ? AND status <> 'cancelled' ORDER BY date DESC LIMIT 24",
+    [godownId],
   );
 }
 

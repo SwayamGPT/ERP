@@ -45,7 +45,7 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
   const errors = validateEnterprise({ ...f, stateCode: f.gstin.slice(0, 2) || undefined, businessType: f.businessType || undefined, bankIfsc: f.bankIfsc || null, bankAccount: f.bankAccount || null, fssaiExpiry: f.fssaiExpiry || null });
   const ownerErrors = {
     ownerName: !f.ownerName.trim() ? "Enter the owner's name" : undefined,
-    ownerPin: !/^\d{4,6}$/.test(f.ownerPin) ? 'PIN must be 4 to 6 digits' : undefined,
+    ownerPin: !/^\d{4}$/.test(f.ownerPin) ? 'PIN must be exactly 4 digits' : undefined,
     pin2: f.pin2 !== f.ownerPin ? 'PINs do not match' : undefined,
   };
   const stepValid = (i: number) => (i === 2 ? !Object.values(ownerErrors).some(Boolean) : STEP_FIELDS[i].every((k) => !errors[k]));
@@ -217,11 +217,11 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
                 <Input className="input-lg" autoFocus value={f.ownerName} onChange={(e) => set('ownerName', e.target.value)} placeholder="e.g. Rakesh Sharma" data-testid="ob-owner" />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="PIN (4–6 digits) *" error={oerr('ownerPin')}>
-                  <Input type="password" inputMode="numeric" value={f.ownerPin} onChange={(e) => set('ownerPin', e.target.value.replace(/\D/g, '').slice(0, 6))} data-testid="ob-pin" />
+                <Field label="4-digit PIN *" error={oerr('ownerPin')}>
+                  <Input type="password" inputMode="numeric" value={f.ownerPin} onChange={(e) => set('ownerPin', e.target.value.replace(/\D/g, '').slice(0, 4))} data-testid="ob-pin" />
                 </Field>
                 <Field label="Confirm PIN *" error={oerr('pin2')}>
-                  <Input type="password" inputMode="numeric" value={f.pin2} onChange={(e) => set('pin2', e.target.value.replace(/\D/g, '').slice(0, 6))} data-testid="ob-pin2" />
+                  <Input type="password" inputMode="numeric" value={f.pin2} onChange={(e) => set('pin2', e.target.value.replace(/\D/g, '').slice(0, 4))} data-testid="ob-pin2" />
                 </Field>
               </div>
               <Field label="Cash in the drawer right now" hint="Optional — starts your cash book">

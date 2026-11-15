@@ -4,7 +4,7 @@ import { MobileApp } from './features/mobile/MobileApp';
 import { useIsPhone } from './lib/useIsPhone';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
-import { LockScreen } from './components/LockScreen';
+import { ChangePinScreen, LockScreen } from './components/LockScreen';
 import { PrintHost } from './components/print/PrintInvoice';
 import { Loading, Toaster } from './components/ui';
 import { Dashboard } from './features/dashboard/Dashboard';
@@ -70,6 +70,7 @@ function Boot() {
   if (!current) return <EnterprisePicker enterprises={enterprises} />;
   if (!status.data.company) return <Onboarding onCancel={enterprises.length ? () => void db.closeEnterprise() : undefined} />;
   if (!status.data.session) return <LockScreen users={status.data.users} company={status.data.company} enterpriseCount={enterprises.length} />;
+  if (status.data.session.mustChangePin) return <ChangePinScreen name={status.data.session.name} />;
   // Phones (and salesmen on any screen) get the pocket app; the full desktop is a tap away for others.
   if (status.data.session.role === 'salesman' || (phone && !forceDesktop)) {
     return <MobileApp company={status.data.company} session={status.data.session} onDesktop={() => setForceDesktop(true)} />;

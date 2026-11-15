@@ -45,6 +45,8 @@ export const api = {
   'stock.byGodown': (ctx: Ctx, a: { itemId: number }) => stock.itemByGodown(ctx, a.itemId),
   'stock.transfer': (ctx: Ctx, a: Parameters<typeof stock.transferStock>[1]) => stock.transferStock(ctx, a),
   'stock.transfers': (ctx: Ctx) => stock.listTransfers(ctx),
+  'stock.godownRent': (ctx: Ctx, a: Parameters<typeof stock.saveGodownRent>[1]) => stock.saveGodownRent(ctx, a),
+  'stock.rentBills': (ctx: Ctx, a: { godownId: number }) => stock.godownRentBills(ctx, a.godownId),
   'items.createVariants': (ctx: Ctx, a: Parameters<typeof stock.createVariants>[1]) => stock.createVariants(ctx, a),
   'items.variants': (ctx: Ctx, a: { parentId: number }) => stock.variantsOf(ctx, a.parentId),
   // bank reconciliation & cheques
@@ -105,6 +107,7 @@ export const api = {
   'company.save': (ctx: Ctx, a: Parameters<typeof company.saveCompany>[1]) => company.saveCompany(ctx, a),
   'auth.login': (ctx: Ctx, a: { userId: number; pin: string }) => company.login(ctx, a.userId, a.pin),
   'auth.lock': (ctx: Ctx) => (company.lock(ctx), true),
+  'auth.changePin': (ctx: Ctx, a: { pin: string }) => company.changeOwnPin(ctx, a),
   'users.list': (ctx: Ctx) => company.listUsers(ctx),
   'users.save': (ctx: Ctx, a: Parameters<typeof company.saveUser>[1]) => company.saveUser(ctx, a),
   'audit.list': (ctx: Ctx) => company.auditLog(ctx),

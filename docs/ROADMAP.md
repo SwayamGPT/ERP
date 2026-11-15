@@ -104,6 +104,7 @@ release delivers each piece. Tick items as they ship.
 - [x] R2 · Attach bill photos to expenses; WhatsApp salary slips
 - [ ] R2 · Staff attendance from the mobile app
 - [x] R2 · Expense approvals above a set amount; petty-cash float (imprest) with top-up
+- [x] R2 · Godown rent: landlord, monthly rent and due day per godown; rent bills appear in Bills to pay (or auto-debit), in cash flow and P&L
 
 ## 5. GST & compliance
 - [x] R1 · CGST + SGST vs IGST by place of supply; cess; tax-inclusive and exclusive prices
@@ -148,6 +149,7 @@ release delivers each piece. Tick items as they ship.
 - [x] R2 · Cloud account login; device management (pair with code/QR, rename, remove)
 - [ ] R2 · Custom roles
 - [x] R2 · Hashed PINs (PBKDF2-SHA256, old PINs upgraded automatically)
+- [x] R2 · 4-digit PINs everywhere; the lock screen opens on the 4th digit; old longer PINs sign in once and must be changed
 - [ ] R2 · At-rest encryption of the local database (SQLCipher in the native shell)
 - [ ] R3 · Approval workflows (e.g. discount above a set % needs approval)
 

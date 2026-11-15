@@ -726,6 +726,21 @@ CREATE TABLE gstr2b_rows (
 CREATE INDEX idx_gstr2b_period ON gstr2b_rows(period);
 `,
   },
+  {
+    version: 10,
+    name: 'godown_rent',
+    sql: /* sql */ `
+ALTER TABLE godowns ADD COLUMN rented INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE godowns ADD COLUMN landlord TEXT;
+ALTER TABLE godowns ADD COLUMN rent INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE godowns ADD COLUMN rent_due_day INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE godowns ADD COLUMN recurring_id INTEGER REFERENCES recurring_expenses(id);
+ALTER TABLE recurring_expenses ADD COLUMN godown_id INTEGER REFERENCES godowns(id);
+ALTER TABLE expenses ADD COLUMN godown_id INTEGER REFERENCES godowns(id);
+CREATE INDEX idx_expenses_godown ON expenses(godown_id);
+INSERT OR IGNORE INTO expense_categories (name, grp) VALUES ('Godown rent', 'Rent & premises');
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

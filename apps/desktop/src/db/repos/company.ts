@@ -22,6 +22,10 @@ const EDITABLE: Array<keyof Company> = [
   'loyalty_enabled', 'loyalty_points_per_100', 'loyalty_point_value', 'reminder_after_days', 'reminder_every_days', 'expense_approval_limit', 'petty_cash_float', 'einvoice_mode',
 ];
 
+/** Every PIN is exactly 4 digits. */
+export const PIN_RE = /^\d{4}$/;
+const PIN_MSG = 'PIN must be exactly 4 digits.';
+
 const TEMPLATES: Company['print_template'][] = ['receipt', 'receipt-large', 'a4-classic', 'a4-modern', 'a5-simple'];
 
 function clean<T extends Partial<Company>>(c: T): T {
@@ -95,7 +99,7 @@ export interface SetupInput {
 export function setupCompany(ctx: Ctx, input: SetupInput): Session {
   if (getCompany(ctx)) throw new AppError('This enterprise is already set up.');
   if (!input.ownerName?.trim()) throw new AppError("Enter the owner's name.");
-  if (!/^\d{4,6}$/.test(input.ownerPin ?? '')) throw new AppError('PIN must be 4 to 6 digits.');
+  if (!PIN_RE.test(input.ownerPin ?? '')) throw new AppError(PIN_MSG);
   const wholesale = input.businessType === 'wholesaler' || input.businessType === 'distributor';
   const c = clean<Partial<Company>>({
     name: input.name, legal_name: input.legalName || null, template: input.businessType, gstin: input.gstin, fssai: input.fssai,
@@ -136,8 +140,19 @@ export function login(ctx: Ctx, userId: number, pin: string): Session {
   const u = ctx.db.get<{ id: number; name: string; role: Role; pin: string }>('SELECT * FROM users WHERE id = ? AND active = 1', [userId]);
   if (!u || !verifyPin(pin, u.pin)) throw new AppError('Wrong PIN. Try again.', 'BAD_PIN');
   if (!isHashed(u.pin)) ctx.db.exec('UPDATE users SET pin = ? WHERE id = ?', [hashPin(pin), u.id]);
-  ctx.session = { userId: u.id, name: u.name, role: u.role };
+  // PINs are 4 digits. Someone still on an older, longer PIN gets in once and must pick a new one.
+  ctx.session = { userId: u.id, name: u.name, role: u.role, ...(PIN_RE.test(pin) ? {} : { mustChangePin: true }) };
   audit(ctx, 'login', 'user', u.id);
+  return ctx.session;
+}
+
+/** A signed-in user sets their own new 4-digit PIN. */
+export function changeOwnPin(ctx: Ctx, input: { pin: string }) {
+  const s = requireSession(ctx);
+  if (!PIN_RE.test(input.pin ?? '')) throw new AppError(PIN_MSG);
+  ctx.db.exec('UPDATE users SET pin = ? WHERE id = ?', [hashPin(input.pin), s.userId]);
+  audit(ctx, 'pin.change', 'user', s.userId);
+  ctx.session = { userId: s.userId, name: s.name, role: s.role };
   return ctx.session;
 }
 
@@ -155,7 +170,7 @@ export function listUsers(ctx: Ctx) {
 export function saveUser(ctx: Ctx, u: { id?: number; name: string; role: Role; pin?: string; active?: boolean }) {
   const s = guard(ctx, 'users.manage');
   if (!u.name.trim()) throw new AppError('Name is required.');
-  if (u.pin !== undefined && u.pin !== '' && !/^\d{4,6}$/.test(u.pin)) throw new AppError('PIN must be 4 to 6 digits.');
+  if (u.pin !== undefined && u.pin !== '' && !PIN_RE.test(u.pin)) throw new AppError(PIN_MSG);
   return ctx.db.transaction(() => {
     if (u.id) {
       if (u.id === s.userId && (u.role !== 'owner' || u.active === false)) throw new AppError("You can't remove your own owner access.");

@@ -121,3 +121,48 @@ test('phone: count stock on the shelf and share the day on WhatsApp', async ({ b
   await page.getByTestId('m-stock-search').fill('sugar');
   await expect(page.getByTestId('mobile-app')).toContainText('42 Kg');
 });
+
+test('purchase: a typed name that is not an item can be created on the spot; totals update live', async ({ page }) => {
+  await openShop(page);
+  await page.keyboard.press('Alt+p');
+  await page.getByTestId('customer-search').fill('Mahalaxmi');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('customer-search')).toBeHidden();
+  await page.getByTestId('pur-item').first().fill('Kesar Badam Mix 200g');
+  await page.getByTestId('pur-qty').first().fill('10'); // left the name without picking
+  await page.getByTestId('pur-rate').first().fill('55');
+  await page.getByTestId('purchase-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: /Row 1: “Kesar Badam Mix 200g” is not an item yet/ })).toBeVisible();
+  await page.getByTestId('pur-item').first().fill('Kesar Badam Mix 200g');
+  await expect(page.getByTestId('pur-item-create')).toBeVisible();
+  await page.getByTestId('pur-item').first().press('Enter'); // no match → Enter creates
+  await page.getByTestId('quick-item-gst').selectOption('18');
+  await page.getByTestId('quick-item-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Kesar Badam Mix 200g added to your items' })).toBeVisible();
+  await page.getByTestId('pur-qty').first().fill('10');
+  await page.getByTestId('pur-rate').first().fill('55');
+  await expect(page.getByTestId('purchase-total')).toHaveText('₹649.00'); // 550 + 18% GST
+  await page.getByTestId('purchase-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: /Purchase PUR-\d+ saved/ })).toBeVisible();
+});
+
+test('the lock screen opens on the 4th digit; godown rent shows up as a bill to pay', async ({ page }) => {
+  await openShop(page);
+  await page.keyboard.press('Alt+l');
+  await page.getByRole('button', { name: /Rakesh/ }).click();
+  await expect(page.getByTestId('pin-input')).toBeFocused();
+  await page.keyboard.type('1234'); // no Enter
+  await expect(page.getByTestId('user-menu')).toBeVisible();
+
+  await page.goto('/#/items/godowns');
+  await page.getByTestId('godown-name').fill('Back store');
+  await page.getByTestId('godown-add').click();
+  await page.getByTestId('godown-row').filter({ hasText: 'Back store' }).getByTestId('godown-rent-edit').click();
+  await page.getByTestId('rent-landlord').fill('Mr. Patil');
+  await page.getByTestId('rent-amount').fill('15000');
+  await page.getByTestId('rent-day').fill(String(new Date().getDate() > 28 ? 28 : new Date().getDate()));
+  await page.getByTestId('rent-save').click();
+  await expect(page.getByTestId('godown-row').filter({ hasText: 'Back store' }).getByTestId('godown-rent')).toContainText('₹15,000.00/month');
+  await page.goto('/#/expenses?tab=due');
+  await expect(page.getByText('Rent — Back store').first()).toBeVisible();
+});

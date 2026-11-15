@@ -248,3 +248,52 @@ describe('expense extras', () => {
     expect(() => api['attachments.add'](ctx, { entity: 'expense', entityId: e.id, name: 'x.exe', mime: 'application/x-msdownload', data: 'AA==' })).toThrow(/photo/);
   });
 });
+
+describe('godown rent', () => {
+  it('a rented godown raises a monthly rent bill to the landlord, linked to the godown', () => {
+    const ctx = shop(false);
+    const back = api['stock.saveGodown'](ctx, { name: 'Back store' });
+    api['stock.godownRent'](ctx, { godownId: back, rented: true, landlord: 'Mr. Patil', rent: 1500000, dueDay: 20, startMonth: '2026-11' });
+    const bills = api['stock.rentBills'](ctx, { godownId: back });
+    expect(bills).toHaveLength(1);
+    expect(bills[0]).toMatchObject({ date: '2026-11-20', amount: 1500000, status: 'unpaid' });
+    const e = ctx.db.get<{ category: string; payee: string; description: string }>("SELECT c.name AS category, e.payee, e.description FROM expenses e JOIN expense_categories c ON c.id = e.category_id WHERE e.id = ?", [bills[0].id])!;
+    expect(e).toEqual({ category: 'Godown rent', payee: 'Mr. Patil', description: 'Rent — Back store' });
+    const g = api['stock.godowns'](ctx).find((x) => x.id === back)!;
+    expect(g).toMatchObject({ rented: 1, rent: 1500000, landlord: 'Mr. Patil', rent_due_day: 20, rent_due: 1500000 });
+
+    api['expenses.pay'](ctx, { id: bills[0].id, amount: 1500000, mode: 'bank' } as never);
+    expect(api['stock.godowns'](ctx).find((x) => x.id === back)!.rent_due).toBe(0);
+    expect(balanced(ctx)).toBe(true);
+
+    // Raise the rent: the same schedule is updated, not duplicated. Stop it: no new bills.
+    api['stock.godownRent'](ctx, { godownId: back, rented: true, landlord: 'Mr. Patil', rent: 1600000, dueDay: 20, startMonth: '2026-12' });
+    expect(ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM recurring_expenses")!.n).toBe(1);
+    api['stock.godownRent'](ctx, { godownId: back, rented: false });
+    expect(ctx.db.get<{ a: number }>('SELECT active AS a FROM recurring_expenses')!.a).toBe(0);
+    expect(() => api['stock.godownRent'](ctx, { godownId: back, rented: true, landlord: '', rent: 100 })).toThrow(/landlord/);
+
+    const backToOwner = as(ctx, 'cashier', 'Cashier');
+    expect(() => api['stock.godownRent'](ctx, { godownId: back, rented: true, landlord: 'X', rent: 100 })).toThrow(/permission/);
+    expect(api['stock.godowns'](ctx).find((x) => x.id === back)!.rent).toBe(0); // amounts hidden from cashiers
+    backToOwner();
+  });
+});
+
+describe('4-digit PINs', () => {
+  it('only 4-digit PINs can be set; an old longer PIN signs in once and must be changed', async () => {
+    const ctx = shop(false);
+    expect(() => api['users.save'](ctx, { name: 'Six', role: 'cashier', pin: '123456' })).toThrow(/exactly 4 digits/);
+    expect(() => api['users.save'](ctx, { name: 'Three', role: 'cashier', pin: '123' })).toThrow(/exactly 4 digits/);
+    const { hashPin } = await import('../src/db/crypto');
+    ctx.db.exec("INSERT INTO users (name, role, pin) VALUES ('Old timer', 'manager', ?)", [hashPin('246810')]);
+    const id = ctx.db.get<{ id: number }>("SELECT id FROM users WHERE name = 'Old timer'")!.id;
+    const s = api['auth.login'](ctx, { userId: id, pin: '246810' });
+    expect(s.mustChangePin).toBe(true);
+    expect(() => api['items.list'](ctx, {})).toThrow(/new 4-digit PIN/);
+    expect(() => api['auth.changePin'](ctx, { pin: '24681' })).toThrow(/exactly 4 digits/);
+    expect(api['auth.changePin'](ctx, { pin: '2468' }).mustChangePin).toBeUndefined();
+    expect(api['auth.login'](ctx, { userId: id, pin: '2468' }).mustChangePin).toBeUndefined();
+    expect(() => api['auth.login'](ctx, { userId: id, pin: '246810' })).toThrow(/Wrong PIN/);
+  });
+});

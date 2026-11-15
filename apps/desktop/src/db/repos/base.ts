@@ -25,6 +25,7 @@ export function requireSession(ctx: Ctx) {
 
 export function guard(ctx: Ctx, perm: Permission) {
   const s = requireSession(ctx);
+  if (s.mustChangePin) throw new AppError('Choose your new 4-digit PIN first.', 'CHANGE_PIN');
   if (!can(s.role, perm)) throw new ForbiddenError(perm);
   return s;
 }

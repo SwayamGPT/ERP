@@ -151,6 +151,8 @@ export function createExpense(ctx: Ctx, input: ExpenseInput): Expense {
         input.salaryDetail ? JSON.stringify(input.salaryDetail) : null, input.recurringId ?? null, input.recurringKey ?? null, s.userId, localNow(),
       ],
     ).lastId;
+    // Bills raised from a godown's rent schedule remember the godown.
+    if (input.recurringId) ctx.db.exec('UPDATE expenses SET godown_id = (SELECT godown_id FROM recurring_expenses WHERE id = ?) WHERE id = ?', [input.recurringId, id]);
     const label = [cat.name, input.payee?.trim()].filter(Boolean).join(' · ');
     const expensePart = g.itc ? g.taxable : input.amount;
     postVoucher(ctx, 'expense_bill', id, date, [
@@ -385,6 +387,7 @@ export function listRecurring(ctx: Ctx): Recurring[] {
 export function saveRecurring(
   ctx: Ctx,
   input: { id?: number; categoryId: number; amount: number; every: Recurring['every']; anchorDate: string; endDate?: string | null; payee?: string; description?: string; autoPayMode?: PayMode | null; gstRate?: number; payeeGstin?: string | null; active?: boolean },
+  godownId?: number,
 ) {
   guard(ctx, 'expense.create');
   if (!(input.amount > 0)) throw new AppError('Enter the amount.');
@@ -403,6 +406,7 @@ export function saveRecurring(
       id = ctx.db.exec('INSERT INTO recurring_expenses (category_id, payee, description, amount, every, anchor_date, end_date, auto_pay_mode, gst_rate, payee_gstin, active, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', [...vals, ctx.session!.userId, `${ctx.today()} ${localNow().slice(11)}`] as never).lastId;
       audit(ctx, 'recurring.create', 'recurring', id, { amount: input.amount, every: input.every });
     }
+    if (godownId) ctx.db.exec('UPDATE recurring_expenses SET godown_id = ? WHERE id = ?', [godownId, id]);
     syncRecurring(ctx);
     return id;
   });

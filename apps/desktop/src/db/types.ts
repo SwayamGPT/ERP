@@ -4,6 +4,8 @@ export interface Session {
   userId: number;
   name: string;
   role: Role;
+  /** Signed in with an old longer PIN: must choose a 4-digit one before continuing. */
+  mustChangePin?: boolean;
 }
 
 export type InvoiceKind = 'sale' | 'purchase' | 'sale_return' | 'purchase_return';
