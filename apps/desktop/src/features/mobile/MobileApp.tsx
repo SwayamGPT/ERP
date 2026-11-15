@@ -1,8 +1,9 @@
 import { can, resolvePrice, type Permission, type PriceTier } from '@hisaab/core';
-import { AlertTriangle, Check, ClipboardList, ListChecks, Cloud, CloudOff, HandCoins, Home, Lock, MessageCircle, Minus, Monitor, Package, Plus, Search, ShoppingBag, Users, X } from 'lucide-react';
+import { AlertTriangle, Check, ClipboardList, ListChecks, Cloud, CloudOff, HandCoins, Home, Lock, MessageCircle, Minus, Monitor, Package, Plus, Receipt, Search, ShoppingBag, Users, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Badge, Button, Dialog, Field, Input, Loading, MoneyInput, Segmented, toast } from '../../components/ui';
-import { call, db } from '../../db/client';
+import { call, db, LAN } from '../../db/client';
+import { PhoneBill } from './PhoneBill';
 import type { Company, Item, Party, Session } from '../../db/types';
 import { cn } from '../../lib/cn';
 import { fmtQty, inr } from '../../lib/format';
@@ -15,13 +16,14 @@ import { useApi } from '../../lib/useApi';
  * The phone app (installable web app): the owner's pocket view of the shop and the salesman's order
  * book. Same local database engine as the counter, kept in step by cloud sync, so it works offline.
  */
-type Tab = 'home' | 'dues' | 'stock' | 'count' | 'requests' | 'orders' | 'new';
+type Tab = 'bill' | 'home' | 'dues' | 'stock' | 'count' | 'requests' | 'orders' | 'new';
 
 export function MobileApp({ company, session, onDesktop }: { company: Company; session: Session; onDesktop?: () => void }) {
   const canDo = (p: Permission) => can(session.role, p);
   const salesman = session.role === 'salesman';
   const pending = useApi('app.status').data?.pendingRequests ?? 0;
   const tabs: Array<{ value: Tab; label: string; icon: ReactNode; badge?: number; show: boolean }> = [
+    { value: 'bill', label: 'Bill', icon: <Receipt />, show: canDo('sale.create') && LAN },
     { value: 'home', label: 'Today', icon: <Home />, show: canDo('report.view') },
     { value: 'orders', label: 'Orders', icon: <ClipboardList />, show: canDo('order.create') && salesman },
     { value: 'new', label: 'New order', icon: <Plus />, show: canDo('order.create') && salesman },
@@ -48,6 +50,7 @@ export function MobileApp({ company, session, onDesktop }: { company: Company; s
         </button>
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {tab === 'bill' && <PhoneBill company={company} />}
         {tab === 'home' && <Today company={company} />}
         {tab === 'dues' && <Dues company={company} />}
         {tab === 'stock' && <Stock />}

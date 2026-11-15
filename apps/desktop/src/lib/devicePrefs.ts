@@ -15,10 +15,17 @@ export interface DevicePrefs {
   scalePort: string;
   scaleBaud: number;
   scaleRequest: string;
+  /** Phones on Wi-Fi: let phones connect to this computer. */
+  lanEnabled: boolean;
+  lanPort: number;
+  /** Print phone bills on this counter's receipt printer as soon as they are saved. */
+  lanAutoPrint: boolean;
+  /** A thermal printer on the shop network ("192.168.1.60" or "…:9100") that phones may print to. */
+  wifiPrinter: string;
 }
 
 const KEY = 'hisaab.device';
-const DEFAULTS: DevicePrefs = { directPrint: false, receiptPrinter: '', receiptCols: 48, autoCut: true, drawerOnCash: true, labelPrinter: '', labelLang: 'tspl', scalePort: '', scaleBaud: 9600, scaleRequest: '' };
+const DEFAULTS: DevicePrefs = { directPrint: false, receiptPrinter: '', receiptCols: 48, autoCut: true, drawerOnCash: true, labelPrinter: '', labelLang: 'tspl', scalePort: '', scaleBaud: 9600, scaleRequest: '', lanEnabled: false, lanPort: 8787, lanAutoPrint: true, wifiPrinter: '' };
 
 function load(): DevicePrefs {
   try {

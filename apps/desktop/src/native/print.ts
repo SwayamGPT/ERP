@@ -5,12 +5,11 @@ import { isNative, native } from './index';
 
 const RECEIPT_TEMPLATES = new Set(['receipt', 'receipt-large']);
 
-/** Straight to the thermal printer when this counter is set up for it; returns false to use the print dialog. */
-export async function printReceiptDirect(inv: Invoice, company: Company, template?: string): Promise<boolean> {
+/** ESC/POS bytes of a bill's receipt, laid out for this counter's paper width. */
+export function receiptBytes(inv: Invoice, company: Company, opts: { cols?: 32 | 48; cut?: boolean; drawer?: boolean } = {}) {
   const d = useDevice.getState();
-  if (!isNative() || !d.directPrint || !d.receiptPrinter || (template && !RECEIPT_TEMPLATES.has(template))) return false;
   const cashLike = inv.kind === 'sale' && (inv.payment_mode === 'cash' || inv.payment_mode === 'split');
-  const bytes = receipt(
+  return receipt(
     {
       shop: { name: company.name, address: [company.address, company.city].filter(Boolean).join(', '), phone: company.phone, gstin: company.gstin, fssai: (company as { fssai?: string | null }).fssai, footer: company.print_footer },
       number: inv.number,
@@ -22,9 +21,15 @@ export async function printReceiptDirect(inv: Invoice, company: Company, templat
       taxable: inv.taxable, cgst: inv.cgst, sgst: inv.sgst, igst: inv.igst, cess: inv.cess, discount: inv.discount, roundOff: inv.round_off,
       total: inv.total, paid: inv.paid, mode: inv.payment_mode ?? 'credit', upi: company.upi_id,
     },
-    { cols: d.receiptCols, cut: d.autoCut, drawer: d.drawerOnCash && cashLike },
+    { cols: opts.cols ?? d.receiptCols, cut: opts.cut ?? d.autoCut, drawer: opts.drawer ?? (d.drawerOnCash && cashLike) },
   );
-  await native.printRaw(d.receiptPrinter, bytes);
+}
+
+/** Straight to the thermal printer when this counter is set up for it; returns false to use the print dialog. */
+export async function printReceiptDirect(inv: Invoice, company: Company, template?: string): Promise<boolean> {
+  const d = useDevice.getState();
+  if (!isNative() || !d.directPrint || !d.receiptPrinter || (template && !RECEIPT_TEMPLATES.has(template))) return false;
+  await native.printRaw(d.receiptPrinter, receiptBytes(inv, company));
   return true;
 }
 

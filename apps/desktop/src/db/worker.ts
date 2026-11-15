@@ -9,6 +9,9 @@ import { upgradePlainPins } from './crypto';
 import { attach as attachSync, connect as connectSync, disconnect as disconnectSync, isConnected, syncState, type ConnectInfo } from './sync/engine';
 import { httpTransport, statusLine, syncOnce, SyncHttpError } from './sync/loop';
 import type { Company, EnterpriseEntry } from './types';
+import { forgetDevice, handleLan, listDevices, newLanState, newPairingCode, type LanRequest } from './lan';
+
+let lan = newLanState();
 
 /**
  * The databases live here, off the UI thread.
@@ -242,6 +245,7 @@ async function open(id: string, bytes?: Uint8Array | null) {
   attachSync(adapter);
   currentId = id;
   ctx = { db: adapter, session: null, today: localToday };
+  lan = newLanState(); // phones sign in again after switching business
   // If migrations changed an existing database, persist it; otherwise nothing to save yet.
   savedVersion = data && adapter.writeVersion === before ? adapter.writeVersion : -1;
   const entry = registry.find((e) => e.id === id);
@@ -365,6 +369,27 @@ self.onmessage = async (e: MessageEvent) => {
         await open(target, bytes);
         return reply(meta());
       }
+      case 'lan': {
+        // A request from a phone on the shop Wi-Fi (relayed by the desktop app).
+        if (!ctx) throw new AppError('The shop computer has no business open.', 'NO_ENTERPRISE');
+        ctx.meta = meta();
+        const out = await handleLan(ctx, lan, e.data.req as LanRequest);
+        if (out.wrote) {
+          scheduleSnapshot();
+          scheduleSync(SYNC_AFTER_CHANGE_MS);
+          post({ type: 'sync', pulled: true }); // refresh the computer's screens
+        }
+        return reply(out);
+      }
+      case 'lan.code':
+        if (!ctx) throw new AppError('Open an enterprise first.');
+        return reply(newPairingCode(ctx, lan));
+      case 'lan.devices':
+        if (!ctx) throw new AppError('Open an enterprise first.');
+        return reply(listDevices(ctx));
+      case 'lan.forget':
+        if (!ctx) throw new AppError('Open an enterprise first.');
+        return reply(forgetDevice(ctx, lan, e.data.deviceId));
       case 'call': {
         const method = e.data.method as Method;
         if (!ctx) {
@@ -376,6 +401,7 @@ self.onmessage = async (e: MessageEvent) => {
         if (!fn) throw new AppError(`Unknown method ${method}`);
         const result = fn(ctx, e.data.args);
         if (isMutation(method)) {
+          lan.version++;
           if (method === 'company.setup' || method === 'company.save') syncEntry();
           scheduleSnapshot();
           scheduleSync(SYNC_AFTER_CHANGE_MS);

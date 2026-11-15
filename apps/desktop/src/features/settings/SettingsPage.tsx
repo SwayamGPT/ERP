@@ -3,7 +3,8 @@ import { Building2, Database, Download, FileBadge, HeartPulse, Landmark, Plus, S
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Badge, Button, Card, ConfirmDialog, Dialog, Field, Input, Loading, PageHeader, Segmented, Select, Switch, Tabs, toast } from '../../components/ui';
-import { db } from '../../db/client';
+import { db, LAN } from '../../db/client';
+import { LanSettings } from './LanSettings';
 import type { Company } from '../../db/types';
 import { BUSINESS_TYPES } from '../../db/templates';
 import type { BusinessType } from '../../db/repos/company';
@@ -19,7 +20,7 @@ import { useCan } from '../../lib/perm';
 import { useUi } from '../../lib/store';
 import { useAction, useApi } from '../../lib/useApi';
 
-type Tab = 'business' | 'print' | 'billing' | 'sales' | 'users' | 'cloud' | 'backup';
+type Tab = 'business' | 'print' | 'billing' | 'sales' | 'users' | 'phones' | 'cloud' | 'backup';
 
 export function SettingsPage() {
   const canDo = useCan();
@@ -33,8 +34,9 @@ export function SettingsPage() {
     { value: 'billing' as const, label: 'Billing rules', show: canDo('settings.edit') },
     { value: 'sales' as const, label: 'Loyalty, coupons & prices', show: canDo('settings.edit') },
     { value: 'users' as const, label: 'Users & PINs', show: canDo('users.manage') },
-    { value: 'cloud' as const, label: 'Cloud & devices', show: canDo('backup.manage') },
-    { value: 'backup' as const, label: 'Backup & data', show: canDo('backup.manage') },
+    { value: 'phones' as const, label: 'Phones on Wi-Fi', show: canDo('backup.manage') && !LAN },
+    { value: 'cloud' as const, label: 'Cloud & devices', show: canDo('backup.manage') && !LAN },
+    { value: 'backup' as const, label: 'Backup & data', show: canDo('backup.manage') && !LAN },
   ].filter((t) => t.show);
   return (
     <div className="animate-slide-up">
@@ -51,6 +53,7 @@ export function SettingsPage() {
         {tab === 'billing' && <Billing c={company} />}
         {tab === 'users' && <UsersTab />}
         {tab === 'sales' && <SalesSettings c={company} />}
+        {tab === 'phones' && <LanSettings />}
         {tab === 'cloud' && <CloudSettings />}
         {tab === 'backup' && <Backup />}
       </div>

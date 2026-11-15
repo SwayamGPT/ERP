@@ -4,14 +4,20 @@
 //! * database files on disk, saved atomically with daily backups (`store_*`)
 //! * raw printing to receipt and label printers — ESC/POS, TSPL, ZPL — and the cash drawer (`print_raw`)
 //! * reading a weighing scale over serial / USB (`scale_read`)
+//! * "Phones on Wi-Fi": a small web server on the shop network that phones use to reach this
+//!   computer's data (`lan_*`); requests are answered by the web view, where the database lives
 //!
 //! The hardware code lives in the `hisaab-hw` crate (src-tauri/hw) with its own tests.
 
+use hisaab_hw::lan::{local_addresses, Assets, LanServer, Relay};
 use hisaab_hw::{printer, scale, store::Store};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use serde::Serialize;
 use std::time::Duration;
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 struct AppStore(Store);
 
@@ -91,15 +97,93 @@ async fn scale_read(port: String, baud: u32, request: Option<String>) -> Result<
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/* ───────── phones on Wi-Fi ───────── */
+
+#[derive(Default)]
+struct Lan {
+    server: Mutex<Option<LanServer>>,
+    pending: Arc<Mutex<HashMap<u64, mpsc::Sender<String>>>>,
+    next: Arc<AtomicU64>,
+}
+
+#[derive(Serialize)]
+struct LanInfo {
+    running: bool,
+    port: u16,
+    addresses: Vec<String>,
+}
+
+#[derive(Serialize, Clone)]
+struct LanCall {
+    rid: u64,
+    path: String,
+    body: String,
+}
+
+fn lan_info_of(lan: &Lan) -> LanInfo {
+    let g = lan.server.lock().unwrap();
+    LanInfo { running: g.is_some(), port: g.as_ref().map(|s| s.port).unwrap_or(0), addresses: local_addresses() }
+}
+
+#[tauri::command]
+fn lan_start(app: AppHandle, port: u16, lan: State<'_, Lan>) -> Result<LanInfo, String> {
+    if let Some(old) = lan.server.lock().unwrap().take() {
+        old.stop();
+    }
+    let files = app.clone();
+    let assets: Assets = Arc::new(move |path: &str| {
+        let a = files.asset_resolver().get(path.to_string()).or_else(|| files.asset_resolver().get(format!("/{path}")))?;
+        Some((a.bytes().to_vec(), a.mime_type().to_string()))
+    });
+    let (pending, next, view) = (lan.pending.clone(), lan.next.clone(), app.clone());
+    let relay: Relay = Arc::new(move |op: &str, body: String| {
+        let rid = next.fetch_add(1, Ordering::SeqCst);
+        let (tx, rx) = mpsc::channel();
+        pending.lock().unwrap().insert(rid, tx);
+        if let Err(e) = view.emit_to("main", "lan-call", LanCall { rid, path: op.to_string(), body }) {
+            pending.lock().unwrap().remove(&rid);
+            return Err(e.to_string());
+        }
+        let out = rx.recv_timeout(Duration::from_secs(20));
+        pending.lock().unwrap().remove(&rid);
+        out.map_err(|_| "The shop computer did not answer in time. Is Hisaab open and unlocked there?".to_string())
+    });
+    let server = LanServer::start(port, assets, relay)?;
+    *lan.server.lock().unwrap() = Some(server);
+    Ok(lan_info_of(&lan))
+}
+
+#[tauri::command]
+fn lan_stop(lan: State<'_, Lan>) -> LanInfo {
+    if let Some(s) = lan.server.lock().unwrap().take() {
+        s.stop();
+    }
+    lan_info_of(&lan)
+}
+
+#[tauri::command]
+fn lan_info(lan: State<'_, Lan>) -> LanInfo {
+    lan_info_of(&lan)
+}
+
+/// The web view's answer to a phone request.
+#[tauri::command]
+fn lan_reply(rid: u64, body: String, lan: State<'_, Lan>) {
+    if let Some(tx) = lan.pending.lock().unwrap().remove(&rid) {
+        let _ = tx.send(body);
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let dir = app.path().app_data_dir()?.join("data");
             let store = Store::new(dir, 7).map_err(|e| Box::<dyn std::error::Error>::from(e))?;
             app.manage(AppStore(store));
+            app.manage(Lan::default());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![app_version, store_read, store_write, store_delete, store_info, print_raw, printers_list, serial_ports, scale_read])
+        .invoke_handler(tauri::generate_handler![app_version, store_read, store_write, store_delete, store_info, print_raw, printers_list, serial_ports, scale_read, lan_start, lan_stop, lan_info, lan_reply])
         .run(tauri::generate_context!())
         .expect("error while running Hisaab");
 }

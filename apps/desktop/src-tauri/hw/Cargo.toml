@@ -6,6 +6,7 @@ description = "Counter hardware for Hisaab: raw printing (ESC/POS, TSPL, ZPL), w
 
 [dependencies]
 serialport = { version = "4.7", default-features = false }
+tiny_http = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Printing", "Win32_Graphics_Gdi"] }

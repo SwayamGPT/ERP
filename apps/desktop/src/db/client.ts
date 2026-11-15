@@ -4,6 +4,10 @@ import type { ArgsOf, Method, ResultOf } from './api';
 import { isMutation } from './methods';
 import type { EnterpriseEntry } from './types';
 import type { ConnectInfo } from './sync/engine';
+import { isLanClient, lanCall, startLanWatch } from '../lan/client';
+
+/** On a phone using the shop computer over Wi-Fi there is no local database at all. */
+export const LAN = isLanClient();
 
 export class ApiError extends Error {
   constructor(message: string, public code: string) {
@@ -14,13 +18,13 @@ export class ApiError extends Error {
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: unknown) => void };
 
-const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+const worker: Worker = LAN ? (null as unknown as Worker) : new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
 const pending = new Map<number, Pending>();
 let seq = 0;
 type SaveListener = (state: 'dirty' | 'saved', at?: number) => void;
 const saveListeners = new Set<SaveListener>();
 
-worker.onmessage = (e: MessageEvent) => {
+if (worker) worker.onmessage = (e: MessageEvent) => {
   const d = e.data;
   if (d.type === 'dirty' || d.type === 'saved') {
     saveListeners.forEach((l) => l(d.type, d.at));
@@ -52,6 +56,7 @@ worker.onmessage = (e: MessageEvent) => {
 };
 
 function send<T>(msg: Record<string, unknown>, transfer?: Transferable[]): Promise<T> {
+  if (LAN) return Promise.reject(new ApiError('Not available on a phone connected to the shop computer. Do this on the computer.', 'LAN'));
   const id = ++seq;
   return new Promise<T>((resolve, reject) => {
     pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
@@ -84,11 +89,28 @@ const lastEnterprise = () => {
   }
 };
 
-const ready = send<Meta>({ type: 'init', wasmUrl, enterpriseId: lastEnterprise(), native: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window }).then(remember);
+const ready: Promise<Meta> = LAN
+  ? Promise.resolve({ enterprises: [], enterpriseId: 'shop-computer' })
+  : send<Meta>({ type: 'init', wasmUrl, enterpriseId: lastEnterprise(), native: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window }).then(remember);
+if (LAN && typeof window !== 'undefined') startLanWatch(() => void queryClient.invalidateQueries());
+
+/** A message to the database worker (used by the desktop app's Wi-Fi bridge for phones). */
+export const workerSend = <T,>(msg: Record<string, unknown>) => send<T>(msg);
 
 /** Typed call into the local database API. Mutations invalidate every cached query (local data is cheap to re-read). */
 export async function call<M extends Method>(method: M, ...args: ArgsOf<M> extends void ? [] : [ArgsOf<M>]): Promise<Awaited<ResultOf<M>>> {
   await ready;
+  if (LAN) {
+    try {
+      const r = (await lanCall(method, args[0])) as Awaited<ResultOf<M>>;
+      if (isMutation(method)) void queryClient.invalidateQueries();
+      return r;
+    } catch (e) {
+      const x = e as Error & { code?: string };
+      if (x.code === 'NOT_PAIRED' || x.code === 'NO_SESSION') void queryClient.invalidateQueries({ queryKey: ['app.status'] });
+      throw new ApiError(x.message, x.code ?? 'ERROR');
+    }
+  }
   const result = await send<Awaited<ResultOf<M>>>({ type: 'call', method, args: args[0] });
   if (isMutation(method)) void queryClient.invalidateQueries();
   return result;
@@ -105,7 +127,7 @@ async function entOp(msg: Record<string, unknown>, transfer?: Transferable[]) {
 
 export const db = {
   ready,
-  flush: () => send<boolean>({ type: 'flush' }),
+  flush: () => (LAN ? Promise.resolve(true) : send<boolean>({ type: 'flush' })),
   exportBytes: () => send<Uint8Array>({ type: 'export' }),
   /** Restore a backup. `asNew` adds it as another enterprise instead of replacing the open one. */
   importBytes: (buf: ArrayBuffer, asNew = false) => entOp({ type: 'import', bytes: buf, asNew }, [buf]),

@@ -4,7 +4,9 @@
 //!   printer (port 9100) or to a printer installed in the operating system.
 //! * [`scale`] — read a weight from a serial / USB weighing scale.
 //! * [`store`] — write the shop's database files atomically, keeping the previous copy and daily backups.
+//! * [`lan`] — the small web server phones on the shop Wi-Fi use to reach this computer.
 
+pub mod lan;
 pub mod printer;
 pub mod scale;
 pub mod store;

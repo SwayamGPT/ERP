@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { encryptBackup } from '../cloud/backupCrypto';
-import { db } from '../db/client';
+import { db, LAN } from '../db/client';
 import { useApi } from '../lib/useApi';
 import { ensureFolder, EVERY, fileName, filePrefix, prune, uploadBackup } from './gdrive';
 import { getToken } from './google';
@@ -60,7 +60,7 @@ export function useScheduledDriveBackup() {
   const owner = s?.session?.role === 'owner';
   const shop = s?.company?.name;
   useEffect(() => {
-    if (!id || !owner || !shop) return;
+    if (!id || !owner || !shop || LAN) return; // a phone on the shop Wi-Fi has no database of its own
     let running = false;
     const tick = () => {
       const p = drivePrefs(id);

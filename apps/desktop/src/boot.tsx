@@ -3,12 +3,14 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
-import { db, queryClient } from './db/client';
+import { db, LAN, queryClient } from './db/client';
 import { applyTheme, useUi } from './lib/store';
 
 applyTheme(useUi.getState().theme);
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(useUi.getState().theme));
 db.onSave((state, at) => useUi.getState().setSaveState(state, at));
+// The main computer answers phones on the shop Wi-Fi (desktop app only; a no-op in a browser).
+if (!LAN) void import('./lan/host').then((m) => m.startLanHost());
 
 const root = createRoot(document.getElementById('root')!);
 
