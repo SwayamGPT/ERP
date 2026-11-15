@@ -36,7 +36,8 @@ export function PhoneBill({ company }: { company: Company }) {
     if (mode === 'credit' && !party) return setPicking(true);
     setBusy(true);
     try {
-      const inv = await call('invoices.create', { kind: 'sale', partyId: party?.id ?? null, lines: draftLines, payments: mode === 'credit' ? [] : [{ mode, amount: total }] });
+      const amount = preview.isFetching || !preview.data ? (await preview.refetch()).data?.totals.payable ?? 0 : total;
+      const inv = await call('invoices.create', { kind: 'sale', partyId: party?.id ?? null, lines: draftLines, payments: mode === 'credit' ? [] : [{ mode, amount }] });
       setSaved({ inv, printed: LAN && autoPrinted() });
       setLines([]);
       setParty(null);

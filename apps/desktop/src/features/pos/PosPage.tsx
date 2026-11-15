@@ -107,6 +107,7 @@ export function PosPage() {
   const pv = draft.lines.length ? preview.data : undefined;
   const totals = pv?.totals;
   const payable = totals?.payable ?? 0;
+  const livePayable = payable;
   const lineCalc = useMemo(() => {
     const m = new Map<string, NonNullable<typeof pv>['lines'][number]>();
     let j = 0;
@@ -159,6 +160,8 @@ export function PosPage() {
     }
     setSaving(true);
     try {
+      // A fast F9 right after a scan can come before the live total caught up: use the bill's real total.
+      const payable = preview.isFetching || preview.isPlaceholderData || !preview.data ? (await preview.refetch()).data?.totals.payable ?? 0 : livePayable;
       let payments: Array<{ mode: 'cash' | 'upi' | 'card'; amount: number }>;
       if (mode === 'credit') payments = [{ mode: bill.paidNowMode ?? 'cash', amount: Math.min(bill.paidNow, payable) }];
       else if (mode === 'split') {

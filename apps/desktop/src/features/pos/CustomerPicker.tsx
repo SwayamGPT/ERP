@@ -42,8 +42,10 @@ export function CustomerPicker({ open, onOpenChange, onPick, kind = 'customer' }
                 if (e.key === 'ArrowUp') (e.preventDefault(), setHl((h) => Math.max(h - 1, 0)));
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  // Resolve against the current text, not a list that may still be loading.
-                  void call('parties.list', { kind, q, limit: 30 }).then((fresh) => {
+                  // Resolve against the text in the box right now, not a list (or state) that may lag behind.
+                  const text = e.currentTarget.value;
+                  if (text !== q) setQ(text);
+                  void call('parties.list', { kind, q: text, limit: 30 }).then((fresh) => {
                     if (hl >= fresh.length || !fresh.length) setAdding(true);
                     else onPick(fresh[hl]);
                   });
