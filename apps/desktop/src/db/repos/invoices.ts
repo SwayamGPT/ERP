@@ -1,3 +1,4 @@
+import { markBilled } from './orders';
 import type { SqlJsAdapter } from '../adapter';
 import { nextSeriesNo, seriesCode } from '../sync/engine';
 import {
@@ -185,6 +186,10 @@ export function createInvoice(ctx: Ctx, draft: DraftInvoice): Invoice {
       const emp = ctx.db.get('SELECT 1 FROM employees WHERE id = ? AND active = 1', [draft.servedBy]);
       if (!emp) throw new AppError('That staff member is no longer active. Pick someone else.');
       ctx.db.exec('UPDATE invoices SET served_by = ? WHERE id = ?', [draft.servedBy, invoiceId]);
+    }
+    if (draft.orderId) {
+      if (kind !== 'sale') throw new AppError('Only sales bills can come from an order.');
+      markBilled(ctx, draft.orderId, invoiceId);
     }
 
     let costTotal = 0;

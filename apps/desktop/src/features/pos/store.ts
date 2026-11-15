@@ -48,6 +48,9 @@ export interface Bill {
   otherCharges: number;
   notes: string;
   openedAt: number;
+  /** Bill made from a salesman's sale order. */
+  orderId?: number | null;
+  orderNumber?: string | null;
 }
 
 export const MAX_BILLS = 9;
@@ -110,7 +113,7 @@ interface PosState {
   select: (i: number) => void;
   setParty: (p: Party | null) => void;
   setMode: (m: PayMode) => void;
-  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'paidNowMode' | 'splitCash' | 'splitOther' | 'billDiscountPct' | 'otherCharges' | 'notes' | 'servedBy'>>) => void;
+  set: (patch: Partial<Pick<Bill, 'tendered' | 'paidNow' | 'paidNowMode' | 'splitCash' | 'splitOther' | 'billDiscountPct' | 'otherCharges' | 'notes' | 'servedBy' | 'orderId' | 'orderNumber'>>) => void;
   clear: () => void;
   /** After a bill is saved: close its tab if others are open, otherwise start fresh. */
   completed: () => void;

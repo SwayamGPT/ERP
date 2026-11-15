@@ -1,7 +1,7 @@
 import type { StorageAdapter } from './adapter';
 
 /** Versioned, forward-only migrations. Never edit a shipped migration — add a new one. */
-export const MIGRATIONS: Array<{ version: number; name: string; sql: string }> = [
+export const MIGRATIONS: Array<{ version: number; name: string; sql: string; fkOff?: boolean }> = [
   {
     version: 1,
     name: 'init',
@@ -473,6 +473,52 @@ CREATE TABLE _sync_conflicts (
 );
 `,
   },
+  {
+    version: 7,
+    name: 'salesman_role_and_sale_orders',
+    // Rebuilding users (to allow the salesman role) needs foreign keys off.
+    fkOff: true,
+    sql: /* sql */ `
+CREATE TABLE users_new (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('owner','manager','cashier','salesman')),
+  pin TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT INTO users_new (id, name, role, pin, active, created_at) SELECT id, name, role, pin, active, created_at FROM users;
+DROP TABLE users;
+ALTER TABLE users_new RENAME TO users;
+CREATE TABLE sale_orders (
+  id INTEGER PRIMARY KEY,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  party_id INTEGER NOT NULL REFERENCES parties(id),
+  party_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','billed','cancelled')),
+  total INTEGER NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  invoice_id INTEGER REFERENCES invoices(id),
+  billed_at TEXT
+);
+CREATE INDEX idx_orders_status ON sale_orders(status, date);
+CREATE TABLE sale_order_lines (
+  id INTEGER PRIMARY KEY,
+  order_id INTEGER NOT NULL REFERENCES sale_orders(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id),
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  factor REAL NOT NULL DEFAULT 1,
+  qty REAL NOT NULL CHECK (qty > 0),
+  rate INTEGER NOT NULL,
+  total INTEGER NOT NULL
+);
+CREATE INDEX idx_order_lines_order ON sale_order_lines(order_id);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {
@@ -480,10 +526,16 @@ export function migrate(db: StorageAdapter): number {
   const current = db.get<{ v: number | null }>('SELECT MAX(version) AS v FROM _migrations')?.v ?? 0;
   for (const m of MIGRATIONS) {
     if (m.version <= current) continue;
-    db.transaction(() => {
-      for (const stmt of splitSql(m.sql)) db.exec(stmt);
-      db.exec("INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, datetime('now'))", [m.version, m.name]);
-    });
+    if (m.fkOff) db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      db.transaction(() => {
+        for (const stmt of splitSql(m.sql)) db.exec(stmt);
+        if (m.fkOff && db.query('PRAGMA foreign_key_check').length) throw new Error(`Migration ${m.version} broke a foreign key`);
+        db.exec("INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, datetime('now'))", [m.version, m.name]);
+      });
+    } finally {
+      if (m.fkOff) db.exec('PRAGMA foreign_keys = ON');
+    }
   }
   return MIGRATIONS[MIGRATIONS.length - 1].version;
 }

@@ -10,6 +10,7 @@ import * as reports from './repos/reports';
 import * as expenses from './repos/expenses';
 import * as staff from './repos/staff';
 import * as money from './repos/money';
+import * as orders from './repos/orders';
 import type { DraftInvoice } from './types';
 import { searchHsn } from '@hisaab/core';
 
@@ -22,8 +23,14 @@ export const api = {
   // session & company
   'app.status': (ctx: Ctx) => {
     const c = company.getCompany(ctx);
-    return { company: c, session: ctx.session, users: c ? company.listUsersForLogin(ctx) : [], me: c ? staff.myEmployee(ctx) : null, pendingRequests: c ? staff.pendingRequestCount(ctx) : 0, sync: statusLine(ctx.db as SqlJsAdapter), ...ctx.meta };
+    return { company: c, session: ctx.session, users: c ? company.listUsersForLogin(ctx) : [], me: c ? staff.myEmployee(ctx) : null, pendingRequests: c ? staff.pendingRequestCount(ctx) : 0, openOrders: c && ctx.session ? orders.openOrderCount(ctx) : 0, sync: statusLine(ctx.db as SqlJsAdapter), ...ctx.meta };
   },
+  // sale orders (salesman on the phone → counter)
+  'orders.create': (ctx: Ctx, a: orders.OrderInput) => orders.createOrder(ctx, a),
+  'orders.list': (ctx: Ctx, a: Parameters<typeof orders.listOrders>[1]) => orders.listOrders(ctx, a),
+  'orders.get': (ctx: Ctx, a: { id: number }) => orders.getOrder(ctx, a.id),
+  'orders.cancel': (ctx: Ctx, a: { id: number }) => orders.cancelOrder(ctx, a.id),
+  'orders.searchItems': (ctx: Ctx, a: { q: string }) => items.searchForBilling(ctx, a.q, 'order.create'),
   'sync.status': (ctx: Ctx) => statusLine(ctx.db as SqlJsAdapter),
   /** The device token, for the owner's cloud screens (devices, pairing codes, backups). */
   'sync.credentials': (ctx: Ctx) => {

@@ -1,6 +1,7 @@
 import { CASHIER_DISCOUNT_CAP, describeScheme, expiryBucket, formatINR } from '@hisaab/core';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
+  ClipboardList,
   Banknote,
   CircleUserRound,
   CreditCard,
@@ -36,6 +37,7 @@ import { MAX_BILLS, usePos, type CartLine, type PayMode } from './store';
 import { BillTabs } from './BillTabs';
 import { TaxBreakup } from './TaxBreakup';
 import { ServedBy } from './ServedBy';
+import { OrdersButton } from './OrdersDrawer';
 
 export function PosPage() {
   const t = useT();
@@ -161,6 +163,7 @@ export function PosPage() {
         ...draft,
         notes: bill.notes || undefined,
         servedBy: company?.billing_staff_mode === 'optional' ? bill.servedBy?.id ?? null : null,
+        orderId: bill.orderId ?? null,
         payments,
         overrideCreditLimit: override,
       });
@@ -232,7 +235,17 @@ export function PosPage() {
     <div className="flex h-full">
       {/* ────────── Left: search + cart ────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <BillTabs onNew={newBill} onSwitch={switchBill} onClose={askClose} />
+        <div className="flex items-end bg-surface-2/60">
+          <div className="min-w-0 flex-1">
+            <BillTabs onNew={newBill} onSwitch={switchBill} onClose={askClose} />
+          </div>
+          {canDo('order.view') && <OrdersButton />}
+        </div>
+        {bill.orderNumber && (
+          <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-5 py-1.5 text-xs text-primary" data-testid="bill-from-order">
+            <ClipboardList className="h-3.5 w-3.5" /> Billing order {bill.orderNumber}. Saving marks it billed.
+          </div>
+        )}
         <div className="relative border-b border-border bg-surface px-5 py-3">
           <div className="flex gap-3">
             <div className="relative flex-1">

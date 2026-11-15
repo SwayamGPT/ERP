@@ -1,4 +1,4 @@
-export type Role = 'owner' | 'manager' | 'cashier';
+export type Role = 'owner' | 'manager' | 'cashier' | 'salesman';
 
 export type Permission =
   | 'sale.create'
@@ -25,9 +25,14 @@ export type Permission =
   | 'gst.view'
   | 'settings.edit'
   | 'users.manage'
-  | 'backup.manage';
+  | 'backup.manage'
+  | 'order.create' // take sale orders (salesman on the phone)
+  | 'order.view'; // see and bill open orders at the counter
 
-const CASHIER: Permission[] = ['sale.create', 'sale.view', 'item.view', 'party.view', 'party.edit', 'payment.in'];
+const CASHIER: Permission[] = ['sale.create', 'sale.view', 'item.view', 'party.view', 'party.edit', 'payment.in', 'order.view'];
+
+/** Field salesman: takes orders and collections on the phone. No billing, cost or profit. */
+const SALESMAN: Permission[] = ['order.create', 'item.view', 'party.view', 'party.edit', 'payment.in'];
 
 const MANAGER: Permission[] = [
   ...CASHIER,
@@ -46,12 +51,14 @@ const MANAGER: Permission[] = [
   'report.view',
   'report.profit',
   'gst.view',
+  'order.create',
 ];
 
 const ROLE_PERMS: Record<Role, Set<Permission> | 'all'> = {
   owner: 'all',
   manager: new Set(MANAGER),
   cashier: new Set(CASHIER),
+  salesman: new Set(SALESMAN),
 };
 
 export function can(role: Role | null | undefined, perm: Permission): boolean {
@@ -64,6 +71,7 @@ export const ROLE_LABELS: Record<Role, { label: string; description: string }> =
   owner: { label: 'Owner', description: 'Everything, including users, backups and settings' },
   manager: { label: 'Manager', description: 'Billing, purchases, stock, expenses, reports and GST — no salaries or user management' },
   cashier: { label: 'Cashier', description: 'Billing and collecting payments only. Cost & profit are hidden' },
+  salesman: { label: 'Salesman', description: 'Takes orders and collections on the phone app. No billing, cost or profit' },
 };
 
 /** Max discount % a cashier may give without `discount.any`. */

@@ -7,7 +7,7 @@ release delivers each piece. Tick items as they ship.
 | Release | Theme | Status |
 |---|---|---|
 | **R1** | Offline desktop MVP — counter billing, stock, khata, expenses & staff, GST returns | ✅ complete — every R1 item and quality gate ticked |
-| **R2** | Cloud sync, owner & salesman mobile apps, native hardware | ⏳ next |
+| **R2** | Cloud sync, owner & salesman mobile apps, native hardware | 🚧 in progress — cloud sync, backups and phone app done |
 | **R3** | Full accounting, advanced compliance, multi-branch | planned |
 | **R4** | Ecosystem — subscriptions, partner/CA portal, integrations | planned |
 
@@ -35,8 +35,9 @@ release delivers each piece. Tick items as they ship.
 - [ ] R2 · Live weighing-scale input over serial/USB
 - [ ] R2 · Customer-facing display
 - [ ] R2 · Loyalty points & coupons
-- [ ] R2 · Multiple counters on one shop LAN
-- [ ] R3 · Delivery challans, quotations / estimates, sale orders → invoice, recurring invoices
+- [x] R2 · Multiple counters billing at the same time, offline, through cloud sync
+- [x] R2 · Sale orders → invoice (from the salesman app)
+- [ ] R3 · Delivery challans, quotations / estimates, recurring invoices
 
 ## 2. Purchases
 - [x] R1 · Keyboard grid entry: unit, qty, free qty, rate, discount, batch, expiry, MRP
@@ -120,18 +121,19 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · Home dashboard: today's sales vs yesterday, money in/out, udhaar, payables, estimated profit
 - [x] R1 · 30-day sales chart, top items, running-low and expiring lists, recent bills
 - [x] R1 · Reports: sales & purchase registers, item profit (FIFO cost), bill profit, stock summary, expiry, day book, cash & bank book, outstanding — all CSV
-- [ ] R2 · Owner mobile dashboard; daily WhatsApp summary
+- [x] R2 · Owner mobile dashboard
+- [ ] R2 · Daily WhatsApp summary
 - [ ] R2 · Salesman performance
 - [ ] R3 · ABC / XYZ analysis, demand forecasting, margin-leak alerts
 - [ ] R3 · Ask questions in plain language ("what sold most last Diwali?")
 
 ## 7. Cloud, sync & mobile
 - [x] R1 · Storage boundary (`StorageAdapter`) so engines can be swapped without UI changes
-- [ ] R2 · Go backend on Postgres (Mumbai): auth, tenants, sync API
-- [ ] R2 · PowerSync / ElectricSQL sync from the local SQLite; conflict rules
-- [ ] R2 · Encrypted automatic cloud backup
-- [ ] R2 · Expo owner app (live dashboard, stock, dues)
-- [ ] R2 · Expo salesman app (orders on the road, live stock, collections)
+- [x] R2 · Go backend on Postgres (`server/`): accounts, shops, device pairing, sync feed with validation (id blocks, line tax totals, balanced vouchers), Docker; GST maths checked against the shared golden fixtures
+- [x] R2 · Offline-first sync from the local SQLite (own engine: per-device id blocks, change capture by transaction, stock & payment status recomputed after every pull, bill series per device, deterministic clash rules for barcodes / categories / bill numbers / duplicate salaries)
+- [x] R2 · Encrypted automatic cloud backup (AES-256-GCM on the device, daily + on demand, restore on a new PC)
+- [x] R2 · Owner phone app — installable web app (PWA), works offline: today's sales & profit, cash & bank, dues with WhatsApp reminders and collection, low stock & expiry, staff requests
+- [x] R2 · Salesman phone app: sale orders at the customer's price with live stock, collections; new Salesman role (no billing, cost or profit); counter bills orders from an Orders drawer
 - [ ] R3 · Multi-branch; customer self-ordering link / catalogue; B2B retailer ordering app
 
 ## 8. Users & security
@@ -141,8 +143,10 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · Audit log
 - [x] R1 · Backup to a `.hisaab` file and restore; erase-all
 - [x] R1 · Single-window lock so two tabs can't overwrite each other
-- [ ] R2 · Custom roles; cloud account login; device management
-- [ ] R2 · Hashed PINs + at-rest encryption of the local database (SQLCipher in the native shell)
+- [x] R2 · Cloud account login; device management (pair with code/QR, rename, remove)
+- [ ] R2 · Custom roles
+- [x] R2 · Hashed PINs (PBKDF2-SHA256, old PINs upgraded automatically)
+- [ ] R2 · At-rest encryption of the local database (SQLCipher in the native shell)
 - [ ] R3 · Approval workflows (e.g. discount above a set % needs approval)
 
 ## 9. Platform & UX

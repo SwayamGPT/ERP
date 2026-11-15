@@ -72,8 +72,8 @@ export function getItem(ctx: Ctx, id: number): Item & { moves?: unknown[] } {
 }
 
 /** POS search: exact barcode/code/weight-barcode hits first, then name tokens. */
-export function searchForBilling(ctx: Ctx, q: string): { items: Item[]; scale?: { itemId: number; qty?: number; amount?: number } } {
-  guard(ctx, 'sale.create');
+export function searchForBilling(ctx: Ctx, q: string, perm: 'sale.create' | 'order.create' = 'sale.create'): { items: Item[]; scale?: { itemId: number; qty?: number; amount?: number } } {
+  guard(ctx, perm);
   const s = q.trim();
   if (!s) return { items: [] };
   const exact = (sql: string, p: unknown[]) => ctx.db.query<ItemRow>(`SELECT i.*, ${STOCK_SQL} AS stock FROM items i WHERE i.active = 1 AND ${sql}`, p as never);

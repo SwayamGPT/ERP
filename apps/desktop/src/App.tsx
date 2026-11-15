@@ -1,5 +1,7 @@
 import { AppWindow } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { MobileApp } from './features/mobile/MobileApp';
+import { useIsPhone } from './lib/useIsPhone';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { LockScreen } from './components/LockScreen';
@@ -53,6 +55,8 @@ function Boot() {
   const status = useApi('app.status');
   const session = useUi((s) => s.session);
   const setSession = useUi((s) => s.setSession);
+  const phone = useIsPhone();
+  const [forceDesktop, setForceDesktop] = useState(false);
 
   useEffect(() => {
     if (status.data && status.data.session?.userId !== session?.userId) setSession(status.data.session);
@@ -64,6 +68,10 @@ function Boot() {
   if (!current) return <EnterprisePicker enterprises={enterprises} />;
   if (!status.data.company) return <Onboarding onCancel={enterprises.length ? () => void db.closeEnterprise() : undefined} />;
   if (!status.data.session) return <LockScreen users={status.data.users} company={status.data.company} enterpriseCount={enterprises.length} />;
+  // Phones (and salesmen on any screen) get the pocket app; the full desktop is a tap away for others.
+  if (status.data.session.role === 'salesman' || (phone && !forceDesktop)) {
+    return <MobileApp company={status.data.company} session={status.data.session} onDesktop={() => setForceDesktop(true)} />;
+  }
 
   return (
     <HashRouter>

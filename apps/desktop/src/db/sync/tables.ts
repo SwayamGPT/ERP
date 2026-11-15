@@ -21,6 +21,8 @@ export const SYNC_TABLES: Array<{ name: string; local?: string[] }> = [
   { name: 'recurring_expenses' },
   { name: 'invoices', local: ['paid'] },
   { name: 'invoice_lines' },
+  { name: 'sale_orders' },
+  { name: 'sale_order_lines' },
   { name: 'expenses', local: ['paid'] },
   { name: 'money_moves' },
   { name: 'payments' },

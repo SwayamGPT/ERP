@@ -169,6 +169,8 @@ export interface DraftInvoice {
   overrideCreditLimit?: boolean;
   /** Optional: employee who served the customer (for sales-by-staff and incentives). */
   servedBy?: number | null;
+  /** Bill made from a sale order (marks it billed in the same transaction). */
+  orderId?: number | null;
 }
 
 export interface InvoiceLine {

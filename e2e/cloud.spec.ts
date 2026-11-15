@@ -50,7 +50,7 @@ async function sellSugar(page: Page) {
   await page.keyboard.press('F9');
 }
 
-test('two counters share one shop through the cloud; encrypted backup restores', async ({ browser }) => {
+test('two counters and a salesman phone share one shop through the cloud; encrypted backup restores', async ({ browser }) => {
   test.setTimeout(180_000);
   // Counter 1: the owner's PC connects the shop.
   const a = await freshPage(browser);
@@ -94,6 +94,65 @@ test('two counters share one shop through the cloud; encrypted backup restores',
   await b.goto('/#/sales');
   const aNumber = await a.locator('text=/^INV-\\d+$/').first().textContent();
   await expect(b.getByText(aNumber!.trim()).first()).toBeVisible();
+
+  // A salesman on a phone takes an order; the counter bills it; the phone sees it billed.
+  await a.goto('/#/settings?tab=users');
+  await a.getByRole('button', { name: 'Add user' }).click();
+  const dlg = a.getByRole('dialog');
+  await dlg.getByLabel('Name').fill('Ramesh Field');
+  await dlg.getByText('Salesman', { exact: true }).click();
+  await dlg.getByLabel(/PIN/).fill('2468');
+  await dlg.getByRole('button', { name: 'Save' }).click();
+  await expect(a.getByText('Ramesh Field')).toBeVisible();
+  await a.getByTestId('sync-state').click();
+  await a.goto('/#/settings?tab=cloud');
+  await a.getByTestId('cloud-add-device').click();
+  const code2 = (await a.getByTestId('pairing-code').textContent())!.trim();
+  await a.keyboard.press('Escape');
+
+  const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const p = await phoneCtx.newPage();
+  await p.goto('/');
+  await p.getByTestId('ob-join').click();
+  await p.getByTestId('join-code').fill(code2);
+  await p.getByTestId('join-server').fill(SERVER);
+  await expect(p.getByTestId('join-name')).toHaveValue('Phone');
+  await p.getByTestId('join-go').click();
+  await p.getByRole('button', { name: /Ramesh Field/ }).click();
+  await expect(p.getByTestId('pin-input')).toBeFocused();
+  await p.keyboard.type('2468');
+  await p.keyboard.press('Enter');
+  await expect(p.getByTestId('mobile-app')).toBeVisible();
+  await p.getByTestId('m-tab-new').click();
+  await expect(p.getByTestId('m-customer-search')).toBeVisible();
+  await p.getByTestId('m-row').first().click();
+  await expect(p.getByTestId('m-new-order')).toBeVisible();
+  await p.getByTestId('m-item-search').fill('sugar');
+  await p.getByTestId('m-row').first().click();
+  await p.getByTestId('m-order-save').click();
+  await expect(p.getByTestId('toast').filter({ hasText: /Order SO-C-1 saved/ })).toBeVisible();
+  await p.getByTestId('sync-state').click();
+  await expect(p.getByTestId('sync-state')).toHaveText('Synced');
+
+  await expect(async () => {
+    await a.getByTestId('sync-state').click();
+    await a.goto('/#/pos');
+    await expect(a.getByTestId('pos-orders')).toContainText('1', { timeout: 3000 });
+  }).toPass({ timeout: 30_000 });
+  await a.getByTestId('pos-orders').click();
+  await a.getByTestId('order-bill').first().click();
+  await expect(a.getByTestId('bill-from-order')).toContainText('SO-C-1');
+  await a.getByTestId('pos-save').click();
+  await expect(a.getByTestId('toast').filter({ hasText: /Bill INV-\d+ saved/ })).toBeVisible();
+  await expect(async () => {
+    await a.getByTestId('sync-state').click();
+    await expect(a.getByTestId('sync-state')).toContainText('Synced', { timeout: 3000 });
+  }).toPass({ timeout: 30_000 });
+  await p.getByTestId('m-tab-orders').click();
+  await expect(async () => {
+    await p.getByTestId('sync-state').click();
+    await expect(p.getByTestId('m-orders')).toContainText('billed', { timeout: 3000 });
+  }).toPass({ timeout: 30_000 });
 
   // Encrypted cloud backup from counter 1, then restore it as a separate enterprise.
   await a.goto('/#/settings?tab=cloud');
