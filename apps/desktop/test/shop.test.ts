@@ -297,3 +297,29 @@ describe('4-digit PINs', () => {
     expect(() => api['auth.login'](ctx, { userId: id, pin: '246810' })).toThrow(/Wrong PIN/);
   });
 });
+
+describe('stock report', () => {
+  it('counts items and values stock at cost, selling price and MRP — overall, by category and per item', () => {
+    const ctx = shop(false);
+    const sup = supplier(ctx);
+    const a = newItem(ctx, 'Tea 250g', { category: 'Beverages', reorder_level: 5 }); // MRP ₹30, sells ₹28
+    const b = newItem(ctx, 'Coffee 100g', { category: 'Beverages' });
+    newItem(ctx, 'Soap', { category: 'Personal care' }); // never bought: out of stock
+    api['invoices.create'](ctx, { kind: 'purchase', partyId: sup, lines: [
+      { itemId: a, unit: 'Pcs', factor: 1, qty: 10, rate: 2000, taxInclusive: false },
+      { itemId: b, unit: 'Pcs', factor: 1, qty: 4, rate: 2000, taxInclusive: false },
+    ] });
+    sell(ctx, a, 6, { payments: [{ mode: 'cash', amount: 16800 }] }); // 4 tea left → low (reorder 5)
+    const r = api['reports.stockDetail'](ctx, {});
+    expect(r.totals).toMatchObject({ items: 3, inStock: 2, low: 1, out: 1, costValue: 8 * 2000, retailValue: 8 * 2800, mrpValue: 8 * 3000, potentialProfit: 8 * 800 });
+    expect(r.byCategory.map((c) => [c.category, c.items, c.retailValue])).toEqual([['Beverages', 2, 22400], ['Personal care', 1, 0]]);
+    const tea = r.items.find((i) => i.id === a)!;
+    expect(tea).toMatchObject({ qty: 4, status: 'low', cost_value: 8000, avg_cost: 2000, retail_value: 11200, mrp_value: 12000, sold_30d: 6, days_cover: 20, margin_pct: 28.6 });
+    expect(r.byGodown[0]).toMatchObject({ name: 'Shop', items: 2, retail_value: 22400 });
+    expect(api['reports.stockDetail'](ctx, { category: 'Personal care' }).items.map((i) => i.name)).toEqual(['Soap']);
+    const backToOwner = as(ctx, 'cashier', 'Cashier');
+    const c = api['reports.stockDetail'](ctx, {});
+    expect([c.canCost, c.totals.costValue, c.items[0].cost_value, c.totals.retailValue]).toEqual([false, 0, 0, 22400]);
+    backToOwner();
+  });
+});

@@ -298,6 +298,8 @@ function ItemCell({ item, onPick, onText, inputRef }: { item: Item | null; onPic
   const [open, setOpen] = useState(false);
   const [hl, setHl] = useState(0);
   const [creating, setCreating] = useState<string | null>(null);
+  // Closing waits a moment (so clicks on the list land); refocusing cancels it.
+  const closing = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
     if (item) setQ(item.name);
   }, [item]);
@@ -315,8 +317,8 @@ function ItemCell({ item, onPick, onText, inputRef }: { item: Item | null; onPic
         ref={inputRef}
         value={q}
         onChange={(e) => (setQ(e.target.value), onText(e.target.value), setOpen(true), setHl(0))}
-        onFocus={(e) => e.target.select()}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onFocus={(e) => (clearTimeout(closing.current), e.target.select(), !item && q.trim() && setOpen(true))}
+        onBlur={() => (closing.current = setTimeout(() => setOpen(false), 150))}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') (e.preventDefault(), setHl((h) => Math.min(h + 1, options - 1)));
           if (e.key === 'ArrowUp') (e.preventDefault(), setHl((h) => Math.max(h - 1, 0)));

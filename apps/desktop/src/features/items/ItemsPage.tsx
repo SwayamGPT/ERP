@@ -1,8 +1,8 @@
 import { describeQty, describeScheme, marginPct, toCsv } from '@hisaab/core';
 import { Download, Package, Plus, Search } from 'lucide-react';
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Badge, Button, Card, EmptyState, Input, Loading, PageHeader, Segmented, Select } from '../../components/ui';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Badge, Button, Card, EmptyState, Input, Loading, PageHeader, Segmented, Select, Stat } from '../../components/ui';
 import { downloadCsv } from '../../lib/download';
 import { fmtQty, inr, today } from '../../lib/format';
 import { useCan } from '../../lib/perm';
@@ -43,6 +43,7 @@ export function ItemsPage() {
           </>
         }
       />
+      <StockStrip />
       <Card padded={false}>
         <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
           <Input prefix={<Search className="h-3.5 w-3.5" />} placeholder="Name, code, barcode, brand, HSN…" value={q} onChange={(e) => setQ(e.target.value)} className="w-80" autoFocus data-testid="items-search" />
@@ -107,6 +108,24 @@ export function ItemsPage() {
         )}
       </Card>
       {editing !== null && <ItemEditor id={editing || null} onClose={() => open(null)} />}
+    </div>
+  );
+}
+
+/** Totals at the top of Items: how many items, how much stock, and what it is worth. Opens the full report. */
+function StockStrip() {
+  const d = useApi('reports.stockDetail', {}).data;
+  const navigate = useNavigate();
+  if (!d) return null;
+  const t = d.totals;
+  const go = () => navigate('/items/stock');
+  return (
+    <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5" data-testid="stock-strip">
+      <Stat label="Total items" value={t.items} sub={`${t.inStock} in stock`} onClick={go} />
+      <Stat label="Low / out of stock" value={`${t.low} / ${t.out}`} tone={t.out ? 'bad' : t.low ? 'warn' : 'good'} onClick={go} />
+      {d.canCost && <Stat label="Stock value at cost" value={inr(t.costValue)} onClick={go} />}
+      <Stat label="Value at selling price" value={inr(t.retailValue)} tone="good" onClick={go} />
+      <Stat label="Value at MRP" value={inr(t.mrpValue)} sub={<span className="text-primary">Detailed stock report →</span>} onClick={go} />
     </div>
   );
 }

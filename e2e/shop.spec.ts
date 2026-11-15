@@ -166,3 +166,24 @@ test('the lock screen opens on the 4th digit; godown rent shows up as a bill to 
   await page.goto('/#/expenses?tab=due');
   await expect(page.getByText('Rent — Back store').first()).toBeVisible();
 });
+
+test('items show total items and stock value; the stock report breaks it down by category and item', async ({ page }) => {
+  await openShop(page);
+  await page.goto('/#/items');
+  await expect(page.getByTestId('stock-strip')).toContainText('Total items');
+  await page.getByTestId('stock-strip').getByText('Detailed stock report →').click();
+  await expect(page.getByTestId('stock-report')).toBeVisible();
+  const total = Number(await page.getByTestId('stock-total-items').textContent());
+  expect(total).toBeGreaterThan(20);
+  await expect(page.getByTestId('stock-items').getByTestId('stock-row')).toHaveCount(total);
+  await page.getByTestId('stock-by-category').locator('tbody tr').first().click();
+  expect(await page.getByTestId('stock-row').count()).toBeLessThan(total);
+  await page.getByTestId('stock-category').selectOption('');
+  await page.getByTestId('stock-search').fill('sugar');
+  await expect(page.getByTestId('stock-row').first()).toContainText(/Sugar/i);
+  await page.getByTestId('stock-row').first().click();
+  await expect(page.getByRole('dialog')).toContainText(/Sugar/i); // item detail with batches
+  const [dl] = await Promise.all([page.waitForEvent('download'), (await page.keyboard.press('Escape'), page.getByTestId('stock-csv')).click()]);
+  expect(dl.suggestedFilename()).toMatch(/^stock-report-/);
+  await page.screenshot({ path: '/tmp/claude-0/-home-user-ERP/b2553004-ffbc-5c9d-a739-8c93f31c8446/scratchpad/stock-report.png', fullPage: false });
+});

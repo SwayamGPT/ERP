@@ -1,6 +1,7 @@
 import type { Permission } from '@hisaab/core';
 import {
   BarChart3,
+  Boxes,
   Barcode,
   Check,
   ChevronsLeft,
@@ -78,6 +79,7 @@ export function useNav(): Array<{ group: string; items: NavItem[] }> {
       items: [
         { to: '/items', label: t('nav.items'), icon: <Package />, perm: 'item.view', kbd: 'Alt+I', end: true },
         { to: '/items/labels', label: t('nav.labels'), icon: <Barcode />, perm: 'item.edit' },
+        { to: '/items/stock', label: 'Stock report', icon: <Boxes />, perm: 'item.view' },
         { to: '/items/godowns', label: 'Godowns', icon: <Warehouse />, perm: 'item.view' },
       ],
     },

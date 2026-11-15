@@ -52,6 +52,7 @@ release delivers each piece. Tick items as they ship.
 - [x] R3 · GSTR-2B ITC matching against purchases (delivered early in R2)
 
 ## 3. Inventory
+- [x] R2 · Stock report: total items, stock value at cost / selling price / MRP, by category, by godown and item by item (margin, days of stock, expiry, last purchase & sale), CSV & print
 - [x] R1 · Base-unit stock with any number of bigger units; "3 Carton 1 Pcs" display
 - [x] R1 · Batch & expiry tracking; FIFO by earliest expiry; expired batches are never auto-sold
 - [x] R1 · Manual batch pick on the bill
