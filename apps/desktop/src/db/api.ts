@@ -185,6 +185,7 @@ export const api = {
 
   // reports
   'reports.dashboard': (ctx: Ctx) => reports.dashboard(ctx),
+  'reports.salesmen': (ctx: Ctx, a: { from: string; to: string }) => reports.salesmanPerformance(ctx, a),
   'reports.register': (ctx: Ctx, a: Parameters<typeof reports.salesRegister>[1]) => reports.salesRegister(ctx, a),
   'reports.itemProfit': (ctx: Ctx, a: { from: string; to: string }) => reports.itemProfit(ctx, a),
   'reports.billProfit': (ctx: Ctx, a: { from: string; to: string }) => reports.billProfit(ctx, a),

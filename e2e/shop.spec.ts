@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addItem, openShop } from './helpers';
+import { addItem, openShop, SHOP_FILE } from './helpers';
 
 test('purchase order → receive goods, and a distributor bill imported from CSV', async ({ page }) => {
   await openShop(page);
@@ -99,4 +99,25 @@ test('the customer display follows the bill and thanks the customer', async ({ p
   await expect(page.getByTestId('change')).toHaveText('₹8.00');
   await page.keyboard.press('F10');
   await expect(display.getByTestId('display-thanks')).toContainText('change ₹8.00');
+});
+
+test('phone: count stock on the shelf and share the day on WhatsApp', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await ctx.newPage();
+  await page.goto('/');
+  await page.getByTestId('ob-restore-file').setInputFiles(SHOP_FILE);
+  await page.getByRole('button', { name: /Rakesh/ }).click();
+  await expect(page.getByTestId('pin-input')).toBeFocused();
+  await page.keyboard.type('1234');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('m-share-summary')).toHaveAttribute('href', /wa\.me|whatsapp/);
+  await page.getByTestId('m-tab-count').click();
+  await page.getByTestId('m-count-search').fill('sugar');
+  await page.getByTestId('m-row').first().click();
+  await page.getByTestId('m-count-qty').fill('42');
+  await page.getByTestId('m-count-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: /42 Kg/ })).toBeVisible();
+  await page.getByTestId('m-tab-stock').click();
+  await page.getByTestId('m-stock-search').fill('sugar');
+  await expect(page.getByTestId('mobile-app')).toContainText('42 Kg');
 });

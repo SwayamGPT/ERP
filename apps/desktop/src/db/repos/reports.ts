@@ -321,3 +321,20 @@ export function salesByStaff(ctx: Ctx, opts: { from: string; to: string }) {
     ...(showPay && r.employee_id ? { incentivePct: r.incentive_pct ?? 0, incentive: Math.max(0, Math.round((r.sales * (r.incentive_pct ?? 0)) / 100)) } : {}),
   }));
 }
+
+/** Field salesmen: orders taken, how much of it was billed, and collections they recorded. */
+export function salesmanPerformance(ctx: Ctx, opts: { from: string; to: string }) {
+  guard(ctx, 'report.view');
+  return ctx.db.query<{ user_id: number; name: string; orders: number; ordered: number; billed_orders: number; billed: number; cancelled: number; collections: number; collected: number }>(
+    `SELECT u.id AS user_id, u.name,
+       (SELECT COUNT(*) FROM sale_orders o WHERE o.created_by = u.id AND o.date BETWEEN ? AND ?) AS orders,
+       (SELECT COALESCE(SUM(o.total), 0) FROM sale_orders o WHERE o.created_by = u.id AND o.date BETWEEN ? AND ? AND o.status <> 'cancelled') AS ordered,
+       (SELECT COUNT(*) FROM sale_orders o WHERE o.created_by = u.id AND o.date BETWEEN ? AND ? AND o.status = 'billed') AS billed_orders,
+       (SELECT COALESCE(SUM(i.total), 0) FROM sale_orders o JOIN invoices i ON i.id = o.invoice_id WHERE o.created_by = u.id AND o.date BETWEEN ? AND ? AND i.status = 'final') AS billed,
+       (SELECT COUNT(*) FROM sale_orders o WHERE o.created_by = u.id AND o.date BETWEEN ? AND ? AND o.status = 'cancelled') AS cancelled,
+       (SELECT COUNT(*) FROM payments p WHERE p.created_by = u.id AND p.direction = 'in' AND p.kind = 'party' AND p.invoice_id IS NULL AND p.cancelled = 0 AND p.date BETWEEN ? AND ?) AS collections,
+       (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.created_by = u.id AND p.direction = 'in' AND p.kind = 'party' AND p.invoice_id IS NULL AND p.cancelled = 0 AND p.date BETWEEN ? AND ?) AS collected
+     FROM users u WHERE u.role = 'salesman' ORDER BY ordered DESC, u.name`,
+    Array(7).fill([opts.from, opts.to]).flat(),
+  );
+}

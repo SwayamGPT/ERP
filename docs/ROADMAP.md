@@ -63,7 +63,7 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · Negative-stock billing allowed (configurable) so the counter never stops
 - [x] R2 · Multiple godowns & stock transfers (batches keep number/expiry/cost; billing draws from the default godown first)
 - [x] R2 · Item variants (size / colour), each its own SKU, barcode, price and stock
-- [ ] R2 · Physical stock count from the mobile app
+- [x] R2 · Physical stock count from the phone app (count → stock corrected with a note)
 - [x] R2 · Native TSPL / ZPL label printing
 - [ ] R3 · Bill of materials & repacking (50 kg sack → 1 kg packs)
 - [ ] R3 · Serial / IMEI tracking
@@ -124,8 +124,8 @@ release delivers each piece. Tick items as they ship.
 - [x] R1 · 30-day sales chart, top items, running-low and expiring lists, recent bills
 - [x] R1 · Reports: sales & purchase registers, item profit (FIFO cost), bill profit, stock summary, expiry, day book, cash & bank book, outstanding — all CSV
 - [x] R2 · Owner mobile dashboard
-- [ ] R2 · Daily WhatsApp summary
-- [ ] R2 · Salesman performance
+- [x] R2 · Daily WhatsApp summary from the phone app (sales, profit, cash, bank, dues, low stock)
+- [x] R2 · Salesman performance (orders, billed value, cancellations, collections)
 - [ ] R3 · ABC / XYZ analysis, demand forecasting, margin-leak alerts
 - [ ] R3 · Ask questions in plain language ("what sold most last Diwali?")
 

@@ -65,6 +65,8 @@ describe('sale orders (salesman → counter)', () => {
     expect(api['app.status'](ctx).openOrders).toBe(0);
     expect(() => api['invoices.create'](ctx, { kind: 'sale', partyId: cust.id, orderId: o.id, lines: [{ itemId: item.id, unit: item.base_unit, factor: 1, qty: 1, rate: item.wp }] })).toThrow(/already billed/);
     back2();
+    const perf = api['reports.salesmen'](ctx, { from: '2026-11-01', to: '2026-11-30' });
+    expect(perf).toEqual([expect.objectContaining({ name: 'Ramesh (field)', orders: 1, billed_orders: 1, ordered: o.total, billed: inv.total, collections: 0 })]);
   });
 
   it('a salesman only sees his own orders and can cancel open ones', () => {

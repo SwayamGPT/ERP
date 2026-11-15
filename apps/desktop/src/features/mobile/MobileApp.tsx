@@ -1,5 +1,5 @@
 import { can, resolvePrice, type Permission, type PriceTier } from '@hisaab/core';
-import { AlertTriangle, Check, ClipboardList, Cloud, CloudOff, HandCoins, Home, Lock, MessageCircle, Minus, Monitor, Package, Plus, Search, ShoppingBag, Users, X } from 'lucide-react';
+import { AlertTriangle, Check, ClipboardList, ListChecks, Cloud, CloudOff, HandCoins, Home, Lock, MessageCircle, Minus, Monitor, Package, Plus, Search, ShoppingBag, Users, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Badge, Button, Dialog, Field, Input, Loading, MoneyInput, Segmented, toast } from '../../components/ui';
 import { call, db } from '../../db/client';
@@ -15,7 +15,7 @@ import { useApi } from '../../lib/useApi';
  * The phone app (installable web app): the owner's pocket view of the shop and the salesman's order
  * book. Same local database engine as the counter, kept in step by cloud sync, so it works offline.
  */
-type Tab = 'home' | 'dues' | 'stock' | 'requests' | 'orders' | 'new';
+type Tab = 'home' | 'dues' | 'stock' | 'count' | 'requests' | 'orders' | 'new';
 
 export function MobileApp({ company, session, onDesktop }: { company: Company; session: Session; onDesktop?: () => void }) {
   const canDo = (p: Permission) => can(session.role, p);
@@ -27,6 +27,7 @@ export function MobileApp({ company, session, onDesktop }: { company: Company; s
     { value: 'new', label: 'New order', icon: <Plus />, show: canDo('order.create') && salesman },
     { value: 'dues', label: salesman ? 'Collect' : 'Dues', icon: <HandCoins />, show: canDo('party.view') },
     { value: 'stock', label: 'Stock', icon: <Package />, show: canDo('item.view') },
+    { value: 'count', label: 'Count', icon: <ListChecks />, show: canDo('stock.adjust') },
     { value: 'requests', label: 'Staff', icon: <Users />, badge: pending, show: canDo('payroll.manage') },
   ].filter((t) => t.show) as never;
   const [tab, setTab] = useState<Tab>(tabs[0]?.value ?? 'stock');
@@ -47,9 +48,10 @@ export function MobileApp({ company, session, onDesktop }: { company: Company; s
         </button>
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        {tab === 'home' && <Today />}
+        {tab === 'home' && <Today company={company} />}
         {tab === 'dues' && <Dues company={company} />}
         {tab === 'stock' && <Stock />}
+        {tab === 'count' && <StockCount />}
         {tab === 'requests' && <Requests />}
         {tab === 'orders' && <MyOrders onNew={() => setTab('new')} />}
         {tab === 'new' && <NewOrder onDone={() => setTab('orders')} />}
@@ -99,11 +101,22 @@ const Section = ({ title, children, empty }: { title: ReactNode; children: React
   </section>
 );
 
-function Today() {
+function Today({ company }: { company: Company }) {
   const d = useApi('reports.dashboard').data;
   if (!d) return <Loading />;
+  const summary = [
+    `*${company.name} — ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}*`,
+    `Sales: ${inr(d.today.sales)} (${d.today.bills} bills)`,
+    d.today.profit != null ? `Profit: ${inr(d.today.profit)}` : null,
+    `Cash: ${inr(d.cash)} · Bank: ${inr(d.bank)}`,
+    `To collect: ${inr(d.receivable)} · To pay: ${inr(d.payable)}`,
+    d.lowStock.length ? `Low stock: ${d.lowStock.slice(0, 5).map((i) => i.name).join(', ')}${d.lowStock.length > 5 ? '…' : ''}` : null,
+  ].filter(Boolean).join('\n');
   return (
     <div data-testid="m-today">
+      <a className="mb-3 flex items-center justify-center gap-2 rounded-xl border border-good/40 py-2 text-sm font-medium text-good" target="_blank" rel="noreferrer" href={whatsappLink(company.phone, summary)} data-testid="m-share-summary">
+        <MessageCircle className="h-4 w-4" /> Send today's summary on WhatsApp
+      </a>
       <div className="grid grid-cols-2 gap-2">
         <Tile label="Sales today" value={inr(d.today.sales)} sub={`${d.today.bills} bills · yesterday ${inr(d.yesterday.sales)}`} />
         {d.today.profit != null ? <Tile label="Profit today" value={inr(d.today.profit)} tone={d.today.profit >= 0 ? 'good' : 'bad'} /> : <Tile label="Average bill" value={inr(d.today.avgBill)} />}
@@ -371,3 +384,45 @@ function ItemSearch({ onPick, price }: { onPick: (i: Item) => void; price: (i: I
   );
 }
 
+
+/** Physical stock count on the phone: walk the shelves, type what you count, stock is corrected. */
+function StockCount() {
+  const [q, setQ] = useState('');
+  const list = useApi('items.list', { q, limit: 40 });
+  const [item, setItem] = useState<Item | null>(null);
+  const [counted, setCounted] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!item) return;
+    const n = Number(counted);
+    if (!Number.isFinite(n) || counted === '') return toast.error(new Error('Enter the quantity you counted.'));
+    const delta = Math.round((n - item.stock) * 1000) / 1000;
+    setBusy(true);
+    try {
+      if (delta !== 0) await call('items.adjust', { itemId: item.id, delta, note: 'Physical count (phone)' });
+      toast.success(`${item.name}: ${n} ${item.base_unit}`, delta ? `${delta > 0 ? '+' : ''}${delta} corrected` : 'Matches the books');
+      setItem(null);
+      setCounted('');
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Input autoFocus prefix={<Search className="h-4 w-4" />} placeholder="Item to count" value={q} onChange={(e) => setQ(e.target.value)} data-testid="m-count-search" />
+      <div className="mt-3 divide-y divide-border rounded-xl border border-border bg-surface">
+        {(list.data ?? []).map((i) => (
+          <Row key={i.id} title={i.name} sub={`Books: ${fmtQty(i.stock)} ${i.base_unit}`} right={<span className="text-primary">Count</span>} onClick={() => (setItem(i), setCounted(''))} />
+        ))}
+      </div>
+      <Dialog open={!!item} onOpenChange={(v) => !v && setItem(null)} title={item?.name ?? ''} description={item ? `Books say ${fmtQty(item.stock)} ${item.base_unit}` : undefined} size="sm"
+        footer={<Button variant="primary" className="w-full" loading={busy} onClick={save} data-testid="m-count-save">Save count</Button>}>
+        <Field label={`Counted (${item?.base_unit ?? ''})`}>
+          <Input autoFocus inputMode="decimal" value={counted} onChange={(e) => setCounted(e.target.value.replace(/[^\d.]/g, ''))} data-testid="m-count-qty" />
+        </Field>
+      </Dialog>
+    </>
+  );
+}
