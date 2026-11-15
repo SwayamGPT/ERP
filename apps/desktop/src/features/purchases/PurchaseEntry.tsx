@@ -28,17 +28,31 @@ interface Row {
   batch: string;
   expiry: string;
   mrp: string;
+  /** Supplier coupon on this line: rupees per coupon, base units per coupon. */
+  couponValue: string;
+  couponPer: string;
 }
 
 let K = 0;
-const blank = (): Row => ({ key: ++K, item: null, unit: '', factor: 1, qty: '', free: '', rate: '', disc: '', batch: '', expiry: '', mrp: '' });
+const blank = (): Row => ({ key: ++K, item: null, unit: '', factor: 1, qty: '', free: '', rate: '', disc: '', batch: '', expiry: '', mrp: '', couponValue: '', couponPer: '' });
+const couponOf = (item: Item | null) => ({ couponValue: item?.coupon_value ? (item.coupon_value / 100).toFixed(2) : '', couponPer: item?.coupon_per ? String(item.coupon_per) : '' });
+/** Coupons a row earns and their value (paise), and the real cost per base unit after them. */
+export function rowCoupons(r: Pick<Row, 'qty' | 'free' | 'factor' | 'rate' | 'disc' | 'couponValue' | 'couponPer'>) {
+  const units = ((Number(r.qty) || 0) + (Number(r.free) || 0)) * r.factor;
+  const cv = Math.round((Number(r.couponValue) || 0) * 100);
+  const cp = Number(r.couponPer) || 0;
+  const count = cv > 0 && cp > 0 ? Math.floor(units / cp + 1e-9) : 0;
+  const lineValue = Math.round((Number(r.qty) || 0) * (Number(r.rate) || 0) * 100 * (1 - (Number(r.disc) || 0) / 100));
+  const realCost = units > 0 ? Math.round((lineValue - count * cv) / units) : 0;
+  return { count, value: count * cv, realCost, has: cv > 0 && cp > 0 };
+}
 const COLS = ['item', 'qty', 'free', 'rate', 'disc', 'batch', 'expiry', 'mrp'] as const;
 
 /** A filled row for an item (from a purchase order or an imported bill). Rates in paise. */
 export function rowFor(item: Item, o: { qty: number; rate?: number; batch?: string; expiry?: string; mrp?: number; unit?: string; factor?: number } ) {
   const factor = o.factor ?? 1;
   const rate = o.rate ?? Math.round((item.purchase_price ?? 0) * factor);
-  return { ...blank(), item, unit: o.unit ?? item.base_unit, factor, qty: String(o.qty), rate: rate ? (rate / 100).toFixed(2) : '', batch: o.batch ?? '', expiry: o.expiry ?? '', mrp: (o.mrp ?? item.mrp) ? (((o.mrp ?? item.mrp) as number) / 100).toFixed(2) : '' };
+  return { ...blank(), ...couponOf(item), item, unit: o.unit ?? item.base_unit, factor, qty: String(o.qty), rate: rate ? (rate / 100).toFixed(2) : '', batch: o.batch ?? '', expiry: o.expiry ?? '', mrp: (o.mrp ?? item.mrp) ? (((o.mrp ?? item.mrp) as number) / 100).toFixed(2) : '' };
 }
 
 export function PurchaseEntry() {
@@ -83,6 +97,8 @@ export function PurchaseEntry() {
             ...rowFor(items[i], { qty: l.qty, rate: l.rate, unit: l.unit, factor: l.factor, batch: l.batch_no ?? '', expiry: l.expiry ?? '', mrp: l.mrp ?? undefined }),
             free: l.free_qty ? String(l.free_qty) : '',
             disc: l.line_discount_pct ? String(l.line_discount_pct) : '',
+            couponValue: l.coupon_value ? (l.coupon_value / 100).toFixed(2) : '',
+            couponPer: l.coupon_per ? String(l.coupon_per) : '',
           })),
           blank(),
         ]);
@@ -135,6 +151,8 @@ export function PurchaseEntry() {
           batchNo: r.batch || null,
           expiry: r.expiry || null,
           mrp: r.mrp ? Math.round(Number(r.mrp) * 100) : null,
+          couponValue: Math.round((Number(r.couponValue) || 0) * 100),
+          couponPer: Number(r.couponPer) || 0,
         })),
     }),
     [rows, supplier?.id, date, billNo, other, po?.id, godownId],
@@ -225,7 +243,7 @@ export function PurchaseEntry() {
 
       <Card padded={false}>
         <div className="overflow-x-auto">
-          <table className="table-base min-w-[1000px]">
+          <table className="table-base min-w-[1220px]">
             <thead>
               <tr>
                 <th className="w-8">#</th>
@@ -238,6 +256,7 @@ export function PurchaseEntry() {
                 <th className="w-28">Batch</th>
                 <th className="w-36">Expiry</th>
                 <th className="w-24 text-right">MRP</th>
+                <th className="w-32 whitespace-nowrap" title="Supplier coupon: worth (₹), and one coupon per how many units">Coupon ₹ / per</th>
                 <th className="w-28 text-right">Amount</th>
                 <th className="w-8" />
               </tr>
@@ -255,7 +274,7 @@ export function PurchaseEntry() {
                         item={r.item}
                         onText={(t) => update(r.key, { typed: t, ...(r.item && t !== r.item.name ? { item: null } : {}) })}
                         onPick={(it) => {
-                          update(r.key, { typed: '', item: it, unit: it.base_unit, factor: 1, rate: it.purchase_price ? (it.purchase_price / 100).toFixed(2) : '', mrp: it.mrp ? (it.mrp / 100).toFixed(2) : '' });
+                          update(r.key, { typed: '', item: it, unit: it.base_unit, factor: 1, rate: it.purchase_price ? (it.purchase_price / 100).toFixed(2) : '', mrp: it.mrp ? (it.mrp / 100).toFixed(2) : '', ...couponOf(it) });
                           focus(r.key, 'qty');
                         }}
                       />
@@ -280,6 +299,17 @@ export function PurchaseEntry() {
                     <td><input {...cell('batch')} className="input h-8 px-2 font-mono text-xs" disabled={!r.item?.track_batch} placeholder={r.item?.track_batch ? 'B123' : '—'} value={r.batch} onChange={(e) => update(r.key, { batch: e.target.value.toUpperCase() })} data-testid="pur-batch" /></td>
                     <td><input {...cell('expiry')} type="date" className="input h-8 px-2 text-xs" disabled={!r.item?.track_batch} value={r.expiry} onChange={(e) => update(r.key, { expiry: e.target.value })} data-testid="pur-expiry" /></td>
                     <td><NumCell {...cell('mrp')} value={r.mrp} onChange={(v) => update(r.key, { mrp: v })} /></td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <input className="input h-8 w-14 px-1.5 text-right text-xs tnum" inputMode="decimal" placeholder="₹" value={r.couponValue} onChange={(e) => update(r.key, { couponValue: e.target.value })} data-testid="pur-coupon-value" tabIndex={-1} />
+                        <span className="text-xs text-faint">/</span>
+                        <input className="input h-8 w-11 px-1.5 text-right text-xs tnum" inputMode="decimal" placeholder="qty" value={r.couponPer} onChange={(e) => update(r.key, { couponPer: e.target.value })} data-testid="pur-coupon-per" tabIndex={-1} />
+                      </div>
+                      {(() => {
+                        const c = rowCoupons(r);
+                        return c.has && c.count > 0 ? <div className="mt-0.5 whitespace-nowrap text-[11px] text-good" data-testid="pur-real-cost">{c.count} coupon{c.count > 1 ? 's' : ''} · real {inr(c.realCost)}</div> : null;
+                      })()}
+                    </td>
                     <td className="text-right font-medium tnum">{r.item || amt ? inr(amt) : ''}</td>
                     <td>
                       <button tabIndex={-1} className="grid h-7 w-7 place-items-center rounded-md text-faint hover:bg-bad-soft hover:text-bad" onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((x) => x.key !== r.key) : [blank()]))} aria-label="Remove row">
@@ -314,6 +344,11 @@ export function PurchaseEntry() {
             <div className="flex items-center justify-between text-muted"><span>Freight / other</span><MoneyInput className="w-28" value={other} onChange={setOther} /></div>
             {!!t?.roundOff && <div className="flex justify-between text-muted"><span>Round off</span><span className="tnum">{inr(t.roundOff)}</span></div>}
             <div className="flex justify-between border-t border-border pt-2 text-lg font-semibold"><span>Bill total</span><span className="tnum" data-testid="purchase-total">{inr(t?.payable ?? 0)}</span></div>
+            {(() => {
+              const cs = rows.filter((r) => r.item).map(rowCoupons);
+              const n = cs.reduce((a, c) => a + c.count, 0);
+              return n > 0 ? <div className="flex justify-between text-good" data-testid="purchase-coupons"><span>Coupons with this bill · {n}</span><span className="tnum">{inr(cs.reduce((a, c) => a + c.value, 0))} to redeem</span></div> : null;
+            })()}
           </div>
         </div>
       </Card>
@@ -333,7 +368,7 @@ export function PurchaseEntry() {
 }
 
 const NumCell = forwardRef<HTMLInputElement, { value: string; onChange: (v: string) => void; testid?: string; onKeyDown?: (e: React.KeyboardEvent) => void }>(function NumCell({ value, onChange, testid, ...rest }, ref) {
-  return <input ref={ref} {...rest} value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))} onFocus={(e) => e.target.select()} inputMode="decimal" className="input h-8 px-2 text-right tnum" data-testid={testid} />;
+  return <input ref={ref} {...rest} value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d.]/g, ''))} onFocus={(e) => e.target.select()} inputMode="decimal" className="input h-8 min-w-[64px] px-2 text-right tnum" data-testid={testid} />;
 });
 
 function ItemCell({ item, onPick, onText, inputRef }: { item: Item | null; onPick: (i: Item) => void; onText: (t: string) => void; inputRef: (el: HTMLInputElement | null) => void }) {

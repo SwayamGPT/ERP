@@ -232,6 +232,7 @@ function classify(r: RawRow): { group: FlowGroup; label: string; detail: string 
     return { group: salary ? 'salaries' : 'expenses', label: `${r.expense_category ?? 'Expense'}${cancelled}`, detail: r.expense_payee, link: r.expense_id ? `/expenses?id=${r.expense_id}` : null };
   }
   if (vt === 'expense') return { group: 'expenses', label: `${r.legacy_category ?? 'Expense'}${cancelled}`, detail: r.narration, link: null };
+  if (vt === 'coupon_redeem') return { group: 'supplier_refunds', label: 'Coupons redeemed', detail: r.narration, link: '/purchases/coupons' };
   if (vt === 'income') return { group: 'other_income', label: `${r.legacy_category ?? 'Other income'}${cancelled}`, detail: null, link: null };
   if (vt === 'move') {
     const k = r.move_kind;

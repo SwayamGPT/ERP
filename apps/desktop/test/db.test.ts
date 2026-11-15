@@ -383,3 +383,75 @@ describe('correcting a cost after selling', () => {
     expect(api['invoices.get'](ctx, { id: sale.id }).cost_total).toBe(75000);
   });
 });
+
+describe('supplier coupons (pan masala)', () => {
+  const panMasala = (ctx: Ctx) => {
+    const itemId = api['items.save'](ctx, { name: 'Rajni Pan Masala', gst_rate: 0, base_unit: 'Pcs', mrp: 20000, retail_price: 19000, purchase_price: 19500, coupon_value: 5000, coupon_per: 5 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Gupta Distributors' });
+    return { itemId, sup };
+  };
+  const acc = (ctx: Ctx, a: string) => ctx.db.get<{ b: number }>('SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account = ?', [a])!.b;
+  const party = (ctx: Ctx, id: number) => ctx.db.get<{ b: number }>("SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account = 'PARTY' AND party_id = ?", [id])!.b;
+
+  it('Rs 195 a pack with a Rs 50 coupon per 5: real cost Rs 185, selling at Rs 190 is a profit', () => {
+    const ctx = setup('kirana', false);
+    const { itemId, sup } = panMasala(ctx);
+    const p = api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: 'GD-1', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 19500 }] });
+    expect(p.lines![0]).toMatchObject({ coupons: 2, coupon_value: 5000, coupon_per: 5 });
+    expect(ctx.db.get<{ cost: number }>('SELECT cost FROM batches WHERE source_invoice_id = ?', [p.id])!.cost).toBe(18500);
+    expect(ctx.db.get<{ p: number }>('SELECT purchase_price AS p FROM items WHERE id = ?', [itemId])!.p).toBe(19500); // next bill pre-fills the bill rate
+    expect(acc(ctx, 'COUPONS')).toBe(10000);
+    expect(party(ctx, sup)).toBe(-195000); // the supplier is still owed the full bill
+
+    const sale = { kind: 'sale' as const, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 19000 }] };
+    expect(api['invoices.preview'](ctx, sale).belowCost).toBe(false);
+    const inv = api['invoices.create'](ctx, { ...sale, payments: [{ mode: 'cash', amount: 19000 }] });
+    expect(inv.taxable - inv.cost_total!).toBe(500);
+    expect(api['coupons.summary'](ctx)[0]).toMatchObject({ item: 'Rajni Pan Masala', in_hand: 2, value_in_hand: 10000, supplier: 'Gupta Distributors' });
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+  });
+
+  it('redeems for cash, against the distributor bill, and for free goods; never more than in hand', () => {
+    const ctx = setup('kirana', false);
+    const { itemId, sup } = panMasala(ctx);
+    const p = api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: 'GD-2', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 20, rate: 19500 }] });
+    expect(api['coupons.summary'](ctx)[0].in_hand).toBe(4);
+    const cash0 = acc(ctx, 'CASH');
+    api['coupons.redeem'](ctx, { itemId, count: 1, how: 'cash' });
+    expect(acc(ctx, 'CASH') - cash0).toBe(5000);
+    // less on the distributor's bill, and they gave Rs 55 instead of 50
+    api['coupons.redeem'](ctx, { itemId, count: 1, how: 'bill', value: 5500, againstBills: [{ invoiceId: p.id, amount: 5500 }] });
+    expect(party(ctx, sup)).toBe(-390000 + 5500);
+    expect(api['invoices.get'](ctx, { id: p.id }).paid).toBe(5500);
+    // free goods: 1 pack for one coupon
+    const stock0 = ctx.db.get<{ q: number }>('SELECT SUM(qty) AS q FROM batches WHERE item_id = ?', [itemId])!.q;
+    api['coupons.redeem'](ctx, { itemId, count: 1, how: 'goods', goods: { itemId, qty: 1 } });
+    expect(ctx.db.get<{ q: number }>('SELECT SUM(qty) AS q FROM batches WHERE item_id = ?', [itemId])!.q).toBe(stock0 + 1);
+    expect(api['coupons.summary'](ctx)[0]).toMatchObject({ in_hand: 1, value_in_hand: 5000 });
+    expect(() => api['coupons.redeem'](ctx, { itemId, count: 2, how: 'cash' })).toThrow(/Only 1 coupons/);
+    expect(acc(ctx, 'COUPONS')).toBe(5000);
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+  });
+
+  it('editing, returning and cancelling a purchase keep coupons and costs right', () => {
+    const ctx = setup('kirana', false);
+    const { itemId, sup } = panMasala(ctx);
+    const p = api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: 'GD-3', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 19500 }] });
+    const sale = api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 19000 }], payments: [{ mode: 'cash', amount: 19000 }] });
+    // this lot's coupon was Rs 40 per 5
+    api['invoices.update'](ctx, { id: p.id, draft: { kind: 'purchase', supplierBillNo: 'GD-3', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 19500, couponValue: 4000, couponPer: 5 }] } });
+    expect(api['coupons.summary'](ctx)[0]).toMatchObject({ in_hand: 2, value_in_hand: 8000 });
+    expect(api['invoices.get'](ctx, { id: sale.id }).cost_total).toBe(18700);
+    // send 6 back: 4 kept → no whole coupon left for 5, so both... 4 units cover 0 coupons
+    const line = api['invoices.get'](ctx, { id: p.id }).lines![0];
+    api['invoices.return'](ctx, { invoiceId: p.id, lines: [{ lineId: line.id, qty: 6 }] });
+    expect(api['coupons.summary'](ctx)[0].in_hand).toBe(0);
+    expect(acc(ctx, 'COUPONS')).toBe(0);
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+
+    const p2 = api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: 'GD-4', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 5, rate: 19500 }] });
+    api['coupons.redeem'](ctx, { itemId, count: 1, how: 'cash' });
+    expect(() => api['invoices.cancel'](ctx, { id: p2.id, reason: 'wrong bill' })).toThrow(/already redeemed/);
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+  });
+});

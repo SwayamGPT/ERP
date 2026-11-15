@@ -7,6 +7,7 @@ import * as invoices from './repos/invoices';
 import * as items from './repos/items';
 import * as parties from './repos/parties';
 import * as reports from './repos/reports';
+import * as coupons from './repos/coupons';
 import * as expenses from './repos/expenses';
 import * as staff from './repos/staff';
 import * as money from './repos/money';
@@ -141,6 +142,10 @@ export const api = {
   'invoices.list': (ctx: Ctx, a: Parameters<typeof invoices.listInvoices>[1]) => invoices.listInvoices(ctx, a),
   'invoices.return': (ctx: Ctx, a: Parameters<typeof invoices.createReturn>[1]) => invoices.createReturn(ctx, a),
   'invoices.forEdit': (ctx: Ctx, a: { id: number }) => invoices.editDraft(ctx, a.id),
+  'coupons.summary': (ctx: Ctx) => coupons.couponSummary(ctx),
+  'coupons.history': (ctx: Ctx, a: { itemId?: number } = {}) => coupons.couponHistory(ctx, a?.itemId),
+  'coupons.redeem': (ctx: Ctx, a: coupons.RedeemInput) => coupons.redeemCoupons(ctx, a),
+  'coupons.toCollect': (ctx: Ctx) => coupons.couponsToCollect(ctx),
   'invoices.update': (ctx: Ctx, a: { id: number; draft: DraftInvoice }) => invoices.updateInvoice(ctx, a.id, a.draft),
   'invoices.cancel': (ctx: Ctx, a: { id: number; reason: string }) => invoices.cancelInvoice(ctx, a.id, a.reason),
 

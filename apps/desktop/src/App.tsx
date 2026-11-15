@@ -28,6 +28,7 @@ import { PartyDetail } from './features/parties/PartyDetail';
 import { PosPage } from './features/pos/PosPage';
 import { PurchaseEntry } from './features/purchases/PurchaseEntry';
 import { PurchaseOrdersPage } from './features/purchases/OrdersPage';
+import { CouponsPage } from './features/purchases/CouponsPage';
 import { ReportsPage } from './features/reports/ReportsPage';
 import { InvoiceList } from './features/sales/InvoiceList';
 import { InvoiceView } from './features/sales/InvoiceView';
@@ -101,6 +102,7 @@ function Main() {
           <Route path="/sales/:id" element={<RequirePerm perm="sale.view"><InvoiceView /></RequirePerm>} />
           <Route path="/purchases" element={<RequirePerm perm="purchase.view"><InvoiceList kind="purchases_all" /></RequirePerm>} />
           <Route path="/purchases/new" element={<RequirePerm perm="purchase.create"><PurchaseEntry /></RequirePerm>} />
+          <Route path="/purchases/coupons" element={<RequirePerm perm="purchase.view"><CouponsPage /></RequirePerm>} />
           <Route path="/purchases/orders" element={<RequirePerm perm="purchase.view"><PurchaseOrdersPage /></RequirePerm>} />
           <Route path="/purchases/:id" element={<RequirePerm perm="purchase.view"><InvoiceView /></RequirePerm>} />
           <Route path="/items" element={<RequirePerm perm="item.view"><ItemsPage /></RequirePerm>} />

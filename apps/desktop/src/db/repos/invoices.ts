@@ -278,7 +278,9 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
     const intoGodown = draft.godownId ?? sellFrom;
 
     let costTotal = 0;
+    const earned: Array<{ itemId: number; count: number; value: number; couponValue: number; couponPer: number }> = [];
     for (const l of b.lines) {
+      let lineCoupons: { value: number; per: number; count: number } | null = null;
       const baseQty = roundQty((l.draft.qty + l.freeQty) * l.draft.factor);
       let allocations: Allocation[] = [];
       let lineCost = 0;
@@ -324,8 +326,18 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
         expiry = first?.expiry ?? null;
         mrp = first?.mrp ?? l.item.mrp ?? null;
       } else {
-        // Purchase: every line creates a batch. Effective cost per base unit spreads free goods.
-        const cost = baseQty > 0 ? roundHalfUp(l.tax.taxable / baseQty) : 0;
+        // Purchase: every line creates a batch. Effective cost per base unit spreads free goods and
+        // takes off the supplier's coupons (e.g. a Rs 50 coupon in every 5 packs), so selling a little
+        // under the bill rate is not mistaken for a loss.
+        const cv = Math.max(0, Math.round(l.draft.couponValue ?? (l.item as { coupon_value?: number }).coupon_value ?? 0));
+        const cp = Math.max(0, l.draft.couponPer ?? (l.item as { coupon_per?: number }).coupon_per ?? 0);
+        const coupons = cv > 0 && cp > 0 ? Math.floor(baseQty / cp + 1e-9) : 0;
+        const benefit = coupons * cv;
+        if (benefit > l.tax.taxable) throw new AppError(`The coupons on ${l.item.name} are worth more than the line itself. Check the coupon amount.`);
+        if (coupons > 0) earned.push({ itemId: l.item.id, count: coupons, value: benefit, couponValue: cv, couponPer: cp });
+        lineCoupons = { value: cv, per: cp, count: coupons };
+        const cost = baseQty > 0 ? roundHalfUp((l.tax.taxable - benefit) / baseQty) : 0;
+        const billRate = baseQty > 0 ? roundHalfUp(l.tax.taxable / baseQty) : 0;
         batchNo = l.draft.batchNo?.trim() || null;
         expiry = l.draft.expiry || null;
         mrp = l.draft.mrp ?? l.item.mrp ?? null;
@@ -339,13 +351,13 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
         allocations = [{ batchId, qty: baseQty, cost }];
         ctx.db.exec("INSERT INTO stock_moves (item_id, batch_id, qty, cost, reason, ref_id, date) VALUES (?,?,?,?, 'purchase', ?, ?)", [l.item.id, batchId, baseQty, cost, invoiceId, date]);
         lineCost = l.tax.taxable;
-        ctx.db.exec('UPDATE items SET purchase_price = ? WHERE id = ?', [cost, l.item.id]);
+        ctx.db.exec('UPDATE items SET purchase_price = ? WHERE id = ?', [billRate, l.item.id]); // the bill rate; coupons lower the batch cost
         if (l.draft.mrp) ctx.db.exec('UPDATE items SET mrp = ? WHERE id = ? AND ? > 0', [roundHalfUp(l.draft.mrp / l.draft.factor), l.item.id, l.draft.mrp]);
         if (l.draft.newRetailPrice) ctx.db.exec('UPDATE items SET retail_price = ? WHERE id = ?', [l.draft.newRetailPrice, l.item.id]);
       }
       costTotal += lineCost;
 
-      ctx.db.exec(
+      const lineId = ctx.db.exec(
         `INSERT INTO invoice_lines (invoice_id, item_id, name, hsn, unit, factor, qty, free_qty, rate, tax_inclusive, discount_pct, gross, discount, taxable,
           gst_rate, cess_rate, cgst, sgst, igst, cess, total, cost, batch_no, expiry, mrp, allocations) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
@@ -353,9 +365,24 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
           l.discountPct, l.tax.gross, l.tax.discount, l.tax.taxable, l.item.gst_rate, l.item.cess_rate, l.tax.cgst, l.tax.sgst, l.tax.igst, l.tax.cess,
           l.tax.total, lineCost, batchNo, expiry, mrp, JSON.stringify(allocations.map((a) => ({ b: a.batchId, q: a.qty, c: a.cost }))),
         ],
-      );
+      ).lastId;
+      if (lineCoupons) ctx.db.exec('UPDATE invoice_lines SET coupon_value = ?, coupon_per = ?, coupons = ? WHERE id = ?', [lineCoupons.value, lineCoupons.per, lineCoupons.count, lineId]);
     }
     ctx.db.exec('UPDATE invoices SET cost_total = ? WHERE id = ?', [costTotal, invoiceId]);
+    // Supplier coupons that came with this purchase: an asset to redeem later (cash, a cut on a
+    // later bill, or free goods), taken off the cost of the goods.
+    if (earned.length) {
+      const value = earned.reduce((a, e) => a + e.value, 0);
+      for (const e of earned) {
+        ctx.db.exec("INSERT INTO coupon_moves (item_id, party_id, kind, count, value, invoice_id, how, date, created_by) VALUES (?, ?, 'earned', ?, ?, ?, 'purchase', ?, ?)", [
+          e.itemId, b.party.id, e.count, e.value, invoiceId, date, s.userId,
+        ]);
+      }
+      postVoucher(ctx, 'coupon', invoiceId, date, [
+        { account: 'COUPONS', amount: value, narration: `Coupons with ${number}` },
+        { account: 'PURCHASE', amount: -value, narration: `Coupons with ${number}` },
+      ]);
+    }
 
     const inv = { party_id: b.party.id, taxable: t.taxable, cgst: t.cgst, sgst: t.sgst, igst: t.igst, cess: t.cess, other_charges: draft.otherCharges ?? 0, round_off: t.roundOff, total };
     postVoucher(ctx, kind, invoiceId, date, invoicePostings(kind, inv, `${kind === 'sale' ? 'Sale' : 'Purchase'} ${number}`));
@@ -368,6 +395,23 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
     }
     if (!existing) audit(ctx, `${kind}.create`, 'invoice', invoiceId, { number, total });
     return getInvoice(ctx, invoiceId);
+  }
+}
+
+/** Coupons of an item still to be redeemed: earned − redeemed − reversed. */
+export function couponsInHand(ctx: Ctx, itemId: number) {
+  return ctx.db.get<{ n: number; v: number }>(
+    `SELECT COALESCE(SUM(CASE kind WHEN 'earned' THEN count ELSE -count END), 0) AS n,
+            COALESCE(SUM(CASE kind WHEN 'earned' THEN value ELSE -value END), 0) AS v
+     FROM coupon_moves WHERE item_id = ? AND cancelled = 0`,
+    [itemId],
+  )!;
+}
+
+export function assertCouponsInHand(ctx: Ctx, itemId: number, what: string) {
+  if (couponsInHand(ctx, itemId).n < -1e-9) {
+    const name = ctx.db.get<{ name: string }>('SELECT name FROM items WHERE id = ?', [itemId])?.name ?? 'this item';
+    throw new AppError(`${what} would take back ${name} coupons that were already redeemed.`, 'COUPONS_USED');
   }
 }
 
@@ -450,6 +494,9 @@ export function updateInvoice(ctx: Ctx, id: number, draft: DraftInvoice): Invoic
       }
     }
     ctx.db.exec('DELETE FROM ledger_entries WHERE voucher_type = ? AND voucher_id = ?', [old.kind, id]);
+    ctx.db.exec("DELETE FROM ledger_entries WHERE voucher_type = 'coupon' AND voucher_id = ?", [id]);
+    const couponItems = ctx.db.query<{ item_id: number }>("SELECT DISTINCT item_id FROM coupon_moves WHERE invoice_id = ? AND kind = 'earned'", [id]).map((r) => r.item_id);
+    ctx.db.exec("DELETE FROM coupon_moves WHERE invoice_id = ? AND kind = 'earned'", [id]);
 
     // Stock: put back what the sale took; take out what the purchase brought in.
     const moves = ctx.db.query<{ id: number; batch_id: number | null; qty: number }>('SELECT id, batch_id, qty FROM stock_moves WHERE ref_id = ? AND reason = ?', [id, old.kind]);
@@ -479,7 +526,10 @@ export function updateInvoice(ctx: Ctx, id: number, draft: DraftInvoice): Invoic
       else if (b.qty < -1e-9 && !allowNegative) throw new AppError(`More ${b.name} from this bill is already sold than the edited bill brings in.`, 'NO_STOCK');
     }
     // A corrected purchase rate flows into what the stock cost when it was sold.
-    if (old.kind === 'purchase') recostBatches(ctx, oldBatches);
+    if (old.kind === 'purchase') {
+      recostBatches(ctx, oldBatches);
+      for (const itemId of couponItems) assertCouponsInHand(ctx, itemId, 'This bill');
+    }
     const k = old.kind as 'sale' | 'purchase';
     if (old.party_id !== inv.party_id) allocateToBills(ctx, old.party_id, k);
     allocateToBills(ctx, inv.party_id, k);
@@ -591,6 +641,41 @@ export function createReturn(
     ctx.db.exec('UPDATE invoices SET cost_total = ? WHERE id = ?', [costTotal, id]);
     postVoucher(ctx, kind, id, date, invoicePostings(kind, { party_id: orig.party_id, ...t, cgst: t.cgst, other_charges: 0, round_off: t.roundOff, total: t.payable }, `Return ${number} against ${orig.number}`));
 
+    // Goods sent back to the supplier take their coupons back with them (a coupon comes with every
+    // N units; only whole coupons the remaining units no longer cover are reversed).
+    if (kind === 'purchase_return') {
+      let back = 0;
+      for (const l of lines) {
+        const ol = l.ol;
+        if (!ol.coupons || !ol.coupon_per) continue;
+        const returned = ctx.db.get<{ q: number }>(
+          `SELECT COALESCE(SUM(r.qty), 0) AS q FROM invoice_lines r JOIN invoices ri ON ri.id = r.invoice_id
+           WHERE ri.ref_invoice_id = ? AND ri.status = 'final' AND r.item_id = ? AND r.unit = ?`,
+          [orig.id, ol.item_id, ol.unit],
+        )!.q;
+        const keptUnits = Math.max(0, roundQty((ol.qty - returned) * ol.factor + (ol.free_qty ?? 0) * ol.factor));
+        const keep = Math.floor(keptUnits / ol.coupon_per + 1e-9);
+        const already = ctx.db.get<{ n: number }>(
+          "SELECT COALESCE(SUM(count), 0) AS n FROM coupon_moves WHERE invoice_id = ? AND item_id = ? AND kind = 'reversed' AND how = 'return'",
+          [orig.id, ol.item_id],
+        )!.n;
+        const take = ol.coupons - keep - already;
+        if (take <= 0) continue;
+        const value = Math.round(take * (ol.coupon_value ?? 0));
+        ctx.db.exec("INSERT INTO coupon_moves (item_id, party_id, kind, count, value, invoice_id, how, date, note, created_by) VALUES (?, ?, 'reversed', ?, ?, ?, 'return', ?, ?, ?)", [
+          ol.item_id, orig.party_id, take, value, orig.id, date, `Returned with ${number}`, s.userId,
+        ]);
+        assertCouponsInHand(ctx, ol.item_id, 'This return');
+        back += value;
+      }
+      if (back > 0) {
+        postVoucher(ctx, 'coupon_return', id, date, [
+          { account: 'PURCHASE', amount: back, narration: `Coupons returned with ${number}` },
+          { account: 'COUPONS', amount: -back, narration: `Coupons returned with ${number}` },
+        ]);
+      }
+    }
+
     if (input.refundMode && input.refundMode !== 'adjust') {
       recordPayment(ctx, { direction: kind === 'sale_return' ? 'out' : 'in', partyId: orig.party_id, invoiceId: id, amount: t.payable, mode: input.refundMode, note: `Refund ${number}`, date });
       ctx.db.exec('UPDATE invoices SET paid = total WHERE id = ?', [id]);
@@ -623,7 +708,26 @@ export function cancelInvoice(ctx: Ctx, id: number, reason: string) {
     }
     ctx.db.exec("UPDATE invoices SET status = 'cancelled', notes = COALESCE(notes || ' · ', '') || ? WHERE id = ?", [`Cancelled: ${reason}`, id]);
     reversePromo(ctx, id, date);
-    if (inv.kind === 'purchase') unreceivePO(ctx, id);
+    if (inv.kind === 'purchase_return' && ctx.db.get("SELECT 1 FROM ledger_entries WHERE voucher_type = 'coupon_return' AND voucher_id = ?", [id])) {
+      reverseVoucher(ctx, 'coupon_return', id, date, 'cancel_coupon_return');
+      ctx.db.exec("UPDATE coupon_moves SET cancelled = 1 WHERE kind = 'reversed' AND how = 'return' AND invoice_id = ? AND note = ?", [inv.ref_invoice_id, `Returned with ${inv.number}`]);
+    }
+    if (inv.kind === 'purchase') {
+      unreceivePO(ctx, id);
+      const earnedHere = ctx.db.query<{ item_id: number; party_id: number; count: number; value: number }>(
+        "SELECT item_id, party_id, SUM(count) AS count, SUM(value) AS value FROM coupon_moves WHERE invoice_id = ? AND kind = 'earned' AND cancelled = 0 GROUP BY item_id, party_id",
+        [id],
+      );
+      if (earnedHere.length) {
+        reverseVoucher(ctx, 'coupon', id, date, 'cancel_coupon');
+        for (const e of earnedHere) {
+          ctx.db.exec("INSERT INTO coupon_moves (item_id, party_id, kind, count, value, invoice_id, how, date, created_by) VALUES (?, ?, 'reversed', ?, ?, ?, 'cancel', ?, ?)", [
+            e.item_id, e.party_id, e.count, e.value, id, date, ctx.session?.userId ?? null,
+          ]);
+          assertCouponsInHand(ctx, e.item_id, 'This bill');
+        }
+      }
+    }
     ctx.db.exec("UPDATE sale_orders SET status = 'open', invoice_id = NULL, billed_at = NULL WHERE invoice_id = ?", [id]);
     audit(ctx, `${inv.kind}.cancel`, 'invoice', id, { reason });
     return getInvoice(ctx, id);

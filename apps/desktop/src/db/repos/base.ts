@@ -132,6 +132,7 @@ export const ACCOUNTS: Record<string, string> = {
   CAPITAL: 'Owner capital',
   DRAWINGS: 'Owner withdrawals',
   CASH_DIFF: 'Cash short / excess',
+  COUPONS: 'Supplier coupons to redeem',
 };
 
-export const modeAccount = (mode: string) => (mode === 'cash' ? 'CASH' : 'BANK');
+export const modeAccount = (mode: string) => (mode === 'cash' ? 'CASH' : mode === 'coupon' ? 'COUPONS' : 'BANK');

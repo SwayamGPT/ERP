@@ -809,6 +809,62 @@ CREATE TABLE recurring_skips (
 CREATE INDEX idx_recurring_skips ON recurring_skips(recurring_id);
 `,
   },
+  {
+    version: 14,
+    name: 'supplier coupons / schemes',
+    // Rebuilding payments (to allow paying a supplier with coupons) needs foreign keys off.
+    fkOff: true,
+    sql: /* sql */ `
+ALTER TABLE items ADD COLUMN coupon_value INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE items ADD COLUMN coupon_per REAL NOT NULL DEFAULT 0;
+ALTER TABLE invoice_lines ADD COLUMN coupon_value INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE invoice_lines ADD COLUMN coupon_per REAL NOT NULL DEFAULT 0;
+ALTER TABLE invoice_lines ADD COLUMN coupons REAL NOT NULL DEFAULT 0;
+CREATE TABLE coupon_moves (
+  id INTEGER PRIMARY KEY,
+  item_id INTEGER NOT NULL REFERENCES items(id),
+  party_id INTEGER REFERENCES parties(id),
+  kind TEXT NOT NULL CHECK (kind IN ('earned','redeemed','reversed')),
+  count REAL NOT NULL,
+  value INTEGER NOT NULL,
+  invoice_id INTEGER REFERENCES invoices(id),
+  how TEXT NOT NULL CHECK (how IN ('purchase','cash','upi','bill','goods','return','cancel')),
+  payment_id INTEGER REFERENCES payments(id),
+  date TEXT NOT NULL,
+  note TEXT,
+  cancelled INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_coupon_moves_item ON coupon_moves(item_id);
+CREATE INDEX idx_coupon_moves_invoice ON coupon_moves(invoice_id);
+CREATE TABLE payments_new (
+  id INTEGER PRIMARY KEY,
+  direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+  kind TEXT NOT NULL DEFAULT 'party' CHECK (kind IN ('party','expense','income')),
+  party_id INTEGER REFERENCES parties(id),
+  invoice_id INTEGER REFERENCES invoices(id),
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  mode TEXT NOT NULL CHECK (mode IN ('cash','upi','card','bank','cheque','coupon')),
+  category TEXT,
+  reference TEXT,
+  note TEXT,
+  date TEXT NOT NULL,
+  cancelled INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expense_id INTEGER REFERENCES expenses(id)
+);
+INSERT INTO payments_new (id, direction, kind, party_id, invoice_id, amount, mode, category, reference, note, date, cancelled, created_by, created_at, expense_id)
+  SELECT id, direction, kind, party_id, invoice_id, amount, mode, category, reference, note, date, cancelled, created_by, created_at, expense_id FROM payments;
+DROP TABLE payments;
+ALTER TABLE payments_new RENAME TO payments;
+CREATE INDEX idx_payments_date ON payments(date);
+CREATE INDEX idx_payments_party ON payments(party_id);
+CREATE INDEX idx_payments_invoice ON payments(invoice_id);
+CREATE INDEX idx_payments_expense ON payments(expense_id);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

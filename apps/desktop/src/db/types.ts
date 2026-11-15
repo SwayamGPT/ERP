@@ -97,6 +97,9 @@ export interface Batch {
 
 export interface Item {
   id: number;
+  /** Supplier coupon / scheme: paise per coupon, base units per coupon (0 = none). */
+  coupon_value?: number;
+  coupon_per?: number;
   name: string;
   short_code: string | null;
   barcode: string | null;
@@ -158,6 +161,9 @@ export interface DraftLine {
   expiry?: string | null;
   mrp?: number | null;
   newRetailPrice?: number | null;
+  /** purchase only: supplier coupon on this line (default: the item's), paise per coupon and base units per coupon */
+  couponValue?: number;
+  couponPer?: number;
 }
 
 export interface DraftPayment {
@@ -190,6 +196,9 @@ export interface DraftInvoice {
 }
 
 export interface InvoiceLine {
+  coupon_value?: number;
+  coupon_per?: number;
+  coupons?: number;
   id: number;
   invoice_id: number;
   item_id: number;

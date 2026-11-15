@@ -135,6 +135,9 @@ export interface ItemInput {
   active?: boolean;
   units?: ItemUnit[];
   opening?: { qty: number; cost?: number; batchNo?: string | null; expiry?: string | null } | null;
+  /** Supplier coupon / scheme: paise per coupon, base units per coupon (0 = none). */
+  coupon_value?: number;
+  coupon_per?: number;
 }
 
 export function saveItem(ctx: Ctx, input: ItemInput): number {
@@ -171,6 +174,7 @@ export function saveItem(ctx: Ctx, input: ItemInput): number {
     scheme: input.scheme ? JSON.stringify(input.scheme) : null,
     active: input.active === false ? 0 : 1,
     ...(canCost && input.purchase_price !== undefined ? { purchase_price: input.purchase_price } : {}),
+    ...(canCost && input.coupon_value !== undefined ? { coupon_value: Math.max(0, Math.round(input.coupon_value)), coupon_per: Math.max(0, input.coupon_per ?? 0) } : {}),
   };
   const keys = Object.keys(cols) as Array<keyof typeof cols>;
   return ctx.db.transaction(() => {

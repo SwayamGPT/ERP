@@ -19,7 +19,7 @@ export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => 
   const [adjOpen, setAdjOpen] = useState(false);
   const [f, setF] = useState({
     name: '', short_code: '', barcode: '', plu: '', category: '', brand: '', hsn: '', gst_rate: 5, cess_rate: 0, base_unit: 'Pcs', is_loose: false, tax_inclusive: true,
-    mrp: 0, retail_price: 0, wholesale_price: 0, super_price: 0, purchase_price: 0, reorder_level: 0, track_batch: false, active: true,
+    mrp: 0, retail_price: 0, wholesale_price: 0, super_price: 0, purchase_price: 0, coupon_value: 0, coupon_per: 0, reorder_level: 0, track_batch: false, active: true,
     units: [] as ItemUnit[], scheme: null as Scheme | null, openingQty: '', openingExpiry: '', openingBatch: '',
   });
   const [hsnQ, setHsnQ] = useState('');
@@ -30,7 +30,7 @@ export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => 
       ...s,
       name: it.name, short_code: it.short_code ?? '', barcode: it.barcode ?? '', plu: it.plu ?? '', category: it.category ?? '', brand: it.brand ?? '', hsn: it.hsn ?? '',
       gst_rate: it.gst_rate, cess_rate: it.cess_rate, base_unit: it.base_unit, is_loose: !!it.is_loose, tax_inclusive: !!it.tax_inclusive,
-      mrp: it.mrp, retail_price: it.retail_price, wholesale_price: it.wholesale_price ?? 0, super_price: it.super_price ?? 0, purchase_price: it.purchase_price ?? 0,
+      mrp: it.mrp, retail_price: it.retail_price, wholesale_price: it.wholesale_price ?? 0, super_price: it.super_price ?? 0, purchase_price: it.purchase_price ?? 0, coupon_value: it.coupon_value ?? 0, coupon_per: it.coupon_per ?? 0,
       reorder_level: it.reorder_level, track_batch: !!it.track_batch, active: !!it.active, units: it.units.slice(1), scheme: it.scheme,
     }));
   }, [existing.data]);
@@ -53,6 +53,8 @@ export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => 
       wholesale_price: f.wholesale_price || null,
       super_price: f.super_price || null,
       purchase_price: canCost ? f.purchase_price : undefined,
+      coupon_value: canCost ? f.coupon_value : undefined,
+      coupon_per: canCost ? f.coupon_per : undefined,
       plu: f.is_loose ? f.plu : null,
       opening: !id && Number(f.openingQty) ? { qty: Number(f.openingQty), cost: f.purchase_price, expiry: f.openingExpiry || null, batchNo: f.openingBatch || null } : null,
     });
@@ -169,12 +171,28 @@ export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => 
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="MRP"><MoneyInput value={f.mrp} onChange={(v) => set('mrp', v)} /></Field>
               <Field label="Selling (retail) *" error={f.mrp && f.retail_price > f.mrp ? 'Above MRP' : null}><MoneyInput value={f.retail_price} onChange={(v) => set('retail_price', v)} data-testid="item-price" /></Field>
-              {canCost && <Field label="Purchase cost" hint={`${m !== null ? `Margin ${m}% · ` : 'Before GST · '}Updates opening stock and its past sales. Wrong rate on a purchase bill? Edit that bill.`}><MoneyInput value={f.purchase_price} onChange={(v) => set('purchase_price', v)} /></Field>}
+              {canCost && <Field label="Purchase cost" hint={`${m !== null ? `Margin ${m}% · ` : 'Before GST · '}Updates opening stock and its past sales. Wrong rate on a purchase bill? Edit that bill.`}><MoneyInput value={f.purchase_price} onChange={(v) => set('purchase_price', v)} data-testid="item-cost" /></Field>}
               <Field label="Wholesale rate"><MoneyInput value={f.wholesale_price} onChange={(v) => set('wholesale_price', v)} /></Field>
               <Field label="Super-stockist rate"><MoneyInput value={f.super_price} onChange={(v) => set('super_price', v)} /></Field>
               <div className="flex items-end pb-1.5"><Switch checked={f.tax_inclusive} onChange={(v) => set('tax_inclusive', v)} label="Price includes GST" /></div>
             </div>
           </section>
+
+          {canCost && (
+            <section className="rounded-xl border border-border p-4" data-testid="item-coupon">
+              <h4 className="text-sm font-semibold">Supplier coupon / scheme <span className="font-normal text-muted">optional</span></h4>
+              <p className="mb-3 text-xs text-muted">E.g. a coupon in every 5 packs of pan masala that you redeem with the distributor. It lowers the real cost, so selling a little under the bill rate isn't shown as a loss. You can change it on each purchase bill.</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Field label="Coupon worth"><MoneyInput value={f.coupon_value} onChange={(v) => set('coupon_value', v)} data-testid="item-coupon-value" /></Field>
+                <Field label={`One coupon per (${f.base_unit})`}><Input type="number" min={0} step="any" value={f.coupon_per || ''} onChange={(e) => set('coupon_per', Math.max(0, Number(e.target.value) || 0))} placeholder="e.g. 5" data-testid="item-coupon-per" /></Field>
+                <div className="flex items-end pb-2 text-sm">
+                  {f.coupon_value > 0 && f.coupon_per > 0 && f.purchase_price > 0 ? (
+                    <span data-testid="item-real-cost">Real cost <b>{inr(Math.round(f.purchase_price - f.coupon_value / f.coupon_per))}</b> <span className="text-muted">(bill {inr(f.purchase_price)} − coupon {inr(Math.round(f.coupon_value / f.coupon_per))})</span></span>
+                  ) : <span className="text-faint">No coupon</span>}
+                </div>
+              </div>
+            </section>
+          )}
 
           <section className="rounded-xl border border-border p-4">
             <h4 className="mb-3 text-sm font-semibold">GST</h4>

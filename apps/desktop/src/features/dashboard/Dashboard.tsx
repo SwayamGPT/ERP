@@ -75,6 +75,7 @@ export function Dashboard() {
         )}
       </div>
 
+      {canDo('purchase.view') && <CouponsNudge />}
       <MonthStrip />
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -349,6 +350,18 @@ function OrdersAlert() {
       <ClipboardList className="h-4 w-4 shrink-0" />
       <span className="flex-1"><b>{n} sale order{n > 1 ? 's' : ''}</b> from salesmen waiting to be billed.</span>
       <span className="font-medium underline">Open billing</span>
+    </Link>
+  );
+}
+
+/** Supplier coupons waiting to be redeemed with the distributor. */
+function CouponsNudge() {
+  const c = useApi('coupons.toCollect').data;
+  if (!c || c.v <= 0) return null;
+  return (
+    <Link to="/purchases/coupons" className="flex items-center justify-between rounded-xl border border-good/30 bg-good/5 px-4 py-2.5 text-sm hover:bg-good/10" data-testid="dash-coupons">
+      <span>Supplier coupons to collect: <b>{fmtQty(c.n)}</b> · <b className="tnum">{inr(c.v)}</b></span>
+      <span className="flex items-center gap-1 font-medium text-good">Redeem <ChevronRight className="h-4 w-4" /></span>
     </Link>
   );
 }
