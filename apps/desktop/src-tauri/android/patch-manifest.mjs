@@ -52,7 +52,12 @@ writeFileSync(
   activity,
   `${pkg}
 
+import android.content.Context
 import android.os.Bundle
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
 ${edge ? 'import androidx.activity.enableEdgeToEdge\n' : ''}import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
@@ -67,6 +72,23 @@ ${edge ? '    enableEdgeToEdge()\n' : ''}    super.onCreate(savedInstanceState)
       )
       v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
+    }
+  }
+
+  // window.print() does nothing in an Android web view: hand the page (its print layout) to
+  // Android's printing, which offers "Save as PDF" and any printer the phone knows.
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    webView.addJavascriptInterface(PrintBridge(this, webView), "HisaabAndroid")
+  }
+
+  class PrintBridge(private val activity: MainActivity, private val webView: WebView) {
+    @JavascriptInterface
+    fun print(title: String) {
+      activity.runOnUiThread {
+        val pm = activity.getSystemService(Context.PRINT_SERVICE) as PrintManager
+        pm.print(title, webView.createPrintDocumentAdapter(title), PrintAttributes.Builder().build())
+      }
     }
   }
 }

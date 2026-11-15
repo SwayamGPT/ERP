@@ -134,7 +134,7 @@ export const api = {
   // invoices
   'invoices.preview': (ctx: Ctx, a: DraftInvoice) => {
     const b = invoices.previewInvoice(ctx, a);
-    return { totals: b.totals, interState: b.interState, party: b.party, promo: b.promo, promoDiscount: b.promoDiscount, lines: b.lines.map((l) => ({ ...l.tax, gstRate: l.item.gst_rate, cessRate: l.item.cess_rate, hsn: l.item.hsn, taxInclusive: l.taxInclusive, freeQty: l.freeQty, discountPct: l.discountPct, scheme: l.schemeLabel })) };
+    return { totals: b.totals, interState: b.interState, party: b.party, promo: b.promo, promoDiscount: b.promoDiscount, belowCost: b.belowCost, loss: b.loss, lines: b.lines.map((l) => ({ ...l.tax, gstRate: l.item.gst_rate, cessRate: l.item.cess_rate, hsn: l.item.hsn, taxInclusive: l.taxInclusive, freeQty: l.freeQty, discountPct: l.discountPct, scheme: l.schemeLabel, belowCost: l.belowCost, loss: l.loss })) };
   },
   'invoices.create': (ctx: Ctx, a: DraftInvoice) => invoices.createInvoice(ctx, a),
   'invoices.get': (ctx: Ctx, a: { id: number }) => invoices.getInvoice(ctx, a.id),

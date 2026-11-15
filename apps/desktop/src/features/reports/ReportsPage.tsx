@@ -155,7 +155,7 @@ function ItemProfit({ from, to }: { from: string; to: string }) {
         { key: 'qty', label: 'Qty sold', right: true, render: (r) => fmtQty(Number(r.qty)) },
         { key: 'sales', label: 'Sales (excl. GST)', money: true },
         { key: 'cost', label: 'Cost (FIFO)', money: true },
-        { key: 'profit', label: 'Profit', money: true, render: (r) => <span className={Number(r.profit) < 0 ? 'text-bad' : 'text-good'}>{inr(Number(r.profit))}</span> },
+        { key: 'profit', label: 'Profit / loss', money: true, render: (r) => (Number(r.profit) < 0 ? <span className="font-medium text-bad">Loss {inr(-Number(r.profit))}</span> : <span className="text-good">{inr(Number(r.profit))}</span>) },
         { key: 'margin', label: 'Margin', right: true, render: (r) => `${r.margin ?? 0}%` },
       ]}
     />
@@ -171,7 +171,7 @@ function BillProfit({ from, to }: { from: string; to: string }) {
       rows={q.data as R[] | undefined}
       onRow={(r) => nav(`/sales/${r.id}`)}
       totals={['taxable', 'cost', 'profit']}
-      cols={[date(), { key: 'number', label: 'Bill' }, { key: 'party_name', label: 'Customer' }, { key: 'taxable', label: 'Sales (excl. GST)', money: true }, { key: 'cost', label: 'Cost', money: true }, { key: 'profit', label: 'Profit', money: true }, { key: 'margin', label: 'Margin', right: true, render: (r) => `${r.margin ?? 0}%` }]}
+      cols={[date(), { key: 'number', label: 'Bill' }, { key: 'party_name', label: 'Customer' }, { key: 'taxable', label: 'Sales (excl. GST)', money: true }, { key: 'cost', label: 'Cost', money: true }, { key: 'profit', label: 'Profit / loss', money: true, render: (r) => (Number(r.profit) < 0 ? <span className="font-medium text-bad">Loss {inr(-Number(r.profit))}</span> : <span className="text-good">{inr(Number(r.profit))}</span>) }, { key: 'margin', label: 'Margin', right: true, render: (r) => <span className={Number(r.margin) < 0 ? 'text-bad' : ''}>{String(r.margin ?? 0)}%</span> }]}
     />
   );
 }

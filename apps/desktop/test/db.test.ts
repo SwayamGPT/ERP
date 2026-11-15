@@ -326,3 +326,26 @@ describe('editing a saved bill', () => {
     expect(() => api['invoices.update'](ctx, { id: inv2.id, draft: { kind: 'sale', lines: [line], payments: [{ mode: 'cash', amount: 2000 }] } })).toThrow(/cancelled/);
   });
 });
+
+describe('selling below cost', () => {
+  it('flags lines sold for less than the stock cost; only cost-seeing roles get the amount', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Ghee 1L', gst_rate: 0, base_unit: 'Pcs', mrp: 70000, retail_price: 65000, purchase_price: 60000 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 60000 }] });
+    const sale = (rate: number) => ({ kind: 'sale' as const, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 2, rate }] });
+    expect(api['invoices.preview'](ctx, sale(65000))).toMatchObject({ belowCost: false, loss: 0 });
+    const pv = api['invoices.preview'](ctx, sale(55000));
+    expect(pv).toMatchObject({ belowCost: true, loss: 10000 });
+    expect(pv.lines[0]).toMatchObject({ belowCost: true, loss: 10000 });
+    const inv = api['invoices.create'](ctx, { ...sale(55000), payments: [{ mode: 'cash', amount: 110000 }] });
+    expect(inv.taxable - inv.cost_total!).toBe(-10000);
+
+    const ravi = api['users.save'](ctx, { name: 'Ravi', role: 'cashier', pin: '2468' } as never) as unknown as number;
+    api['auth.login'](ctx, { userId: typeof ravi === 'number' ? ravi : (ravi as { id: number }).id, pin: '2468' });
+    const cash = api['invoices.preview'](ctx, sale(55000));
+    expect(cash.belowCost).toBe(true);
+    expect(cash.loss).toBeUndefined();
+    expect(cash.lines[0].loss).toBeUndefined();
+  });
+});

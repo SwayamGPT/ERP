@@ -36,8 +36,12 @@ export function PrintHost() {
   useEffect(() => {
     if (!job) return;
     const t = setTimeout(() => {
-      window.print();
-      setTimeout(() => usePrintJob.getState().set(null), 300);
+      // In the Android app, window.print() does nothing: Android's own printing ("Save as PDF" or
+      // a printer) takes the page, and reads it after its dialog opens, so keep the bill in place.
+      const android = (window as unknown as { HisaabAndroid?: { print: (title: string) => void } }).HisaabAndroid;
+      if (android) android.print(`${job.company.name} ${job.invoice.number}`);
+      else window.print();
+      setTimeout(() => usePrintJob.getState().job === job && usePrintJob.getState().set(null), android ? 120_000 : 300);
     }, 120); // let the UPI QR render first
     return () => clearTimeout(t);
   }, [job]);

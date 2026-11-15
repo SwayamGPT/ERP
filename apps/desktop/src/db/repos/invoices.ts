@@ -104,7 +104,28 @@ function partyBalance(ctx: Ctx, partyId: number): number {
 /** Compute a draft's lines & totals without saving — the POS uses this for the live preview so UI and DB agree to the paisa. */
 export function previewInvoice(ctx: Ctx, draft: DraftInvoice) {
   guard(ctx, draft.kind === 'sale' ? 'sale.create' : 'purchase.create');
-  return buildInvoice(ctx, draft);
+  const b = buildInvoice(ctx, draft);
+  const seeCost = allowed(ctx, 'cost.view');
+  // Selling below cost: compare each line's value (excl. GST) with what the stock cost. Staff who
+  // can't see purchase rates only learn that a line is below cost, never the cost itself.
+  let loss = 0;
+  const lines = b.lines.map((l) => {
+    let lineLoss = 0;
+    if (draft.kind === 'sale') {
+      const baseQty = (l.draft.qty + l.freeQty) * l.draft.factor;
+      lineLoss = Math.max(0, Math.round(unitCost(ctx, l.item) * baseQty) - l.tax.taxable);
+      if (lineLoss <= 2) lineLoss = 0; // paise of rounding on a GST-inclusive rate is not a loss
+    }
+    loss += lineLoss;
+    return { ...l, item: stripCost(ctx, { ...l.item }), belowCost: lineLoss > 0, loss: seeCost ? lineLoss : undefined };
+  });
+  return { ...b, lines, belowCost: loss > 0, loss: seeCost ? loss : undefined };
+}
+
+/** What one base unit of an item cost: the average over stock on hand, else its last purchase rate. */
+function unitCost(ctx: Ctx, item: { id: number; purchase_price: number }) {
+  const r = ctx.db.get<{ q: number; v: number }>('SELECT SUM(qty) AS q, SUM(qty * cost) AS v FROM batches WHERE item_id = ? AND qty > 0', [item.id]);
+  return r && r.q > 0 ? r.v / r.q : item.purchase_price ?? 0;
 }
 
 function buildInvoice(ctx: Ctx, draft: DraftInvoice) {

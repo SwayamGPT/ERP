@@ -131,18 +131,20 @@ export function PosPage() {
     else if (e.key === 'ArrowUp') (e.preventDefault(), setHl((h) => Math.max(h - 1, 0)));
     else if (e.key === 'Enter') {
       e.preventDefault();
-      const term = q.trim();
+      const term = e.currentTarget.value.trim(); // what is in the box now, even if state lags behind
       if (!term) {
         if (lines.length) tenderRef.current?.focus();
         return;
       }
       // Barcode scanners type fast and press Enter — resolve immediately, don't wait for debounce.
-      const r = dq === term && search.data ? search.data : await call('items.search', { q: term });
+      // Only reuse the list on screen if it is for exactly this text (not the previous search still showing).
+      const fresh = dq === term && search.data && !search.isFetching && !search.isPlaceholderData;
+      const r = fresh ? search.data! : await call('items.search', { q: term });
       if (!r.items.length) {
         toast.error(`No item found for "${term}"`);
         return;
       }
-      const item = r.items[term === dq ? hl : 0] ?? r.items[0];
+      const item = r.items[fresh ? hl : 0] ?? r.items[0];
       if (r.scale && r.scale.itemId === item.id) addItem(item, { qty: r.scale.qty, amount: r.scale.amount, fromScan: true });
       else addItem(item, { fromScan: /^\d{8,14}$/.test(term) });
     } else if (e.key === 'Escape') {
@@ -438,6 +440,7 @@ export function PosPage() {
                       <td className="whitespace-nowrap text-right tnum">
                         <div className="font-semibold">{c ? inr(c.total) : '—'}</div>
                         {c && <div className="text-[11px] text-muted" data-testid="line-tax">{c.taxInclusive ? 'incl.' : '+'} GST {inr(c.tax)}</div>}
+                        {c?.belowCost && <div className="text-[11px] font-semibold text-bad" data-testid="line-loss">{c.loss != null ? `Loss ${inr(c.loss)}` : 'Below cost'}</div>}
                       </td>
                       <td>
                         <button onClick={() => pos.remove(i)} className="grid h-7 w-7 place-items-center rounded-md text-faint hover:bg-bad-soft hover:text-bad" tabIndex={-1} aria-label="Remove">
@@ -503,6 +506,11 @@ export function PosPage() {
               </button>
             </div>
             <div className="mt-1 text-4xl font-semibold tracking-tight tnum" data-testid="pos-total">{inr(payable)}</div>
+            {pv?.belowCost && (
+              <div className="mt-1.5 rounded-md bg-bad px-2 py-1 text-xs font-medium text-white" data-testid="bill-loss">
+                Selling below purchase cost{pv.loss != null ? ` · loss ${inr(pv.loss)}` : ''}
+              </div>
+            )}
           </div>
 
           <div className="mt-5 grid grid-cols-3 gap-2">

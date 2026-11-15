@@ -72,6 +72,9 @@ export function PhoneBill({ company }: { company: Company }) {
           ))}
         </div>
       )}
+      {lines.length > 0 && preview.data?.belowCost && (
+        <p className="rounded-lg bg-bad/10 p-2 text-sm font-medium text-bad" data-testid="m-bill-loss">Selling below purchase cost{preview.data.loss != null ? ` · loss ${inr(preview.data.loss)}` : ''}</p>
+      )}
       <Segmented full value={mode} onChange={setMode} options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'card', label: 'Card' }, { value: 'credit', label: 'Udhaar' }]} />
       <div className="sticky bottom-0 -mx-4 border-t border-border bg-surface px-4 py-3">
         <Button variant="primary" size="lg" className="w-full" icon={<Check className="h-4 w-4" />} disabled={!lines.length || !total} loading={busy} onClick={save} data-testid="m-bill-save">

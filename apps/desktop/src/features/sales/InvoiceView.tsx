@@ -112,7 +112,11 @@ export function InvoiceView() {
                 )}
               </div>
             )}
-            {profit !== null && canDo('report.profit') && <Row k="Profit (on cost)" v={`${inr(profit)} · ${v.taxable ? Math.round((profit / v.taxable) * 1000) / 10 : 0}%`} />}
+            {profit !== null && canDo('report.profit') && (profit < 0 ? (
+              <div className="flex justify-between font-semibold text-bad" data-testid="bill-loss"><span>Loss (sold below cost)</span><span className="tnum">{inr(-profit)} · {v.taxable ? Math.round((-profit / v.taxable) * 1000) / 10 : 0}%</span></div>
+            ) : (
+              <Row k="Profit (on cost)" v={`${inr(profit)} · ${v.taxable ? Math.round((profit / v.taxable) * 1000) / 10 : 0}%`} />
+            ))}
           </div>
           {!!v.payments?.length && (
             <div className="card p-4">
