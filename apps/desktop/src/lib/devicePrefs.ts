@@ -1,3 +1,4 @@
+import { profileById, type PrinterProfile } from '@hisaab/core';
 import { create } from 'zustand';
 
 /**
@@ -7,7 +8,10 @@ import { create } from 'zustand';
 export interface DevicePrefs {
   directPrint: boolean;
   receiptPrinter: string;
-  receiptCols: 32 | 48;
+  receiptCols: 32 | 42 | 48;
+  /** Which kind of receipt printer this is (see PRINTER_PROFILES), and what the test page taught us. */
+  printerProfile: string;
+  profileTweaks: Partial<Pick<PrinterProfile, 'cut' | 'feed' | 'drawerPin' | 'qr' | 'bigText'>>;
   autoCut: boolean;
   drawerOnCash: boolean;
   labelPrinter: string;
@@ -25,7 +29,7 @@ export interface DevicePrefs {
 }
 
 const KEY = 'hisaab.device';
-const DEFAULTS: DevicePrefs = { directPrint: false, receiptPrinter: '', receiptCols: 48, autoCut: true, drawerOnCash: true, labelPrinter: '', labelLang: 'tspl', scalePort: '', scaleBaud: 9600, scaleRequest: '', lanEnabled: false, lanPort: 8787, lanAutoPrint: true, wifiPrinter: '' };
+const DEFAULTS: DevicePrefs = { directPrint: false, receiptPrinter: '', receiptCols: 48, printerProfile: 'generic-80', profileTweaks: {}, autoCut: true, drawerOnCash: true, labelPrinter: '', labelLang: 'tspl', scalePort: '', scaleBaud: 9600, scaleRequest: '', lanEnabled: false, lanPort: 8787, lanAutoPrint: true, wifiPrinter: '' };
 
 function load(): DevicePrefs {
   try {
@@ -47,3 +51,9 @@ export const useDevice = create<DevicePrefs & { set: (p: Partial<DevicePrefs>) =
     }
   },
 }));
+
+/** This counter's receipt printer, with the paper width and the answers from the test page. */
+export function activeProfile(d: Pick<DevicePrefs, 'printerProfile' | 'profileTweaks' | 'receiptCols' | 'autoCut'> = useDevice.getState()): PrinterProfile {
+  const base = { ...profileById(d.printerProfile), ...d.profileTweaks, cols: d.receiptCols };
+  return d.autoCut ? base : { ...base, cut: 'none' };
+}

@@ -43,11 +43,29 @@ pub fn send_raw(target: &Target, bytes: &[u8]) -> Result<(), String> {
                 .ok_or_else(|| format!("Printer address {host} not found"))?;
             let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(3)).map_err(|e| format!("Cannot reach the printer at {host}:{port} ({e}). Check it is on and on the same network."))?;
             s.set_write_timeout(Some(Duration::from_secs(10))).ok();
-            s.write_all(bytes).map_err(|e| format!("Printing failed: {e}"))?;
+            s.set_nodelay(true).ok();
+            // Small chunks: cheap printers with tiny buffers drop bytes from one big write.
+            for chunk in bytes.chunks(2048) {
+                s.write_all(chunk).map_err(|e| format!("Printing failed part-way: {e}"))?;
+            }
             s.flush().map_err(|e| format!("Printing failed: {e}"))
         }
         Target::System { name } => system_raw(name, bytes),
     }
+}
+
+/// Whether trying again can help (a busy or waking printer), as opposed to a wrong name or address.
+pub fn worth_retrying(err: &str) -> bool {
+    !(err.contains("not found") || err.contains("No printer chosen") || err.contains("Cannot start the print system"))
+}
+
+/// [`send_raw`] with up to three tries — many cheap network printers accept one connection at a
+/// time and refuse the next job for a moment, or take a second to wake from sleep.
+pub fn send_reliably(target: &Target, bytes: &[u8]) -> Result<(), String> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    crate::guard::retry(3, Duration::from_millis(400), worth_retrying, || send_raw(target, bytes))
 }
 
 #[cfg(windows)]
@@ -131,6 +149,45 @@ mod tests {
         let bytes = [0x1b, 0x40, b'H', b'i', 0x1d, 0x56, 0x00];
         send_raw(&Target::Network { host: "127.0.0.1".into(), port }, &bytes).unwrap();
         assert_eq!(h.join().unwrap(), bytes);
+    }
+
+    #[test]
+    fn retries_a_busy_printer() {
+        // The first connection is refused (nothing listening yet); the printer "wakes up" 300 ms later.
+        let probe = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+        let h = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            let l = TcpListener::bind(("127.0.0.1", port)).unwrap();
+            let (mut c, _) = l.accept().unwrap();
+            let mut got = vec![];
+            c.read_to_end(&mut got).unwrap();
+            got
+        });
+        send_reliably(&Target::Network { host: "127.0.0.1".into(), port }, b"hello").unwrap();
+        assert_eq!(h.join().unwrap(), b"hello");
+    }
+
+    #[test]
+    fn big_jobs_arrive_whole() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let h = std::thread::spawn(move || {
+            let (mut c, _) = l.accept().unwrap();
+            let mut got = vec![];
+            c.read_to_end(&mut got).unwrap();
+            got
+        });
+        let bytes: Vec<u8> = (0..10_000u32).map(|i| (i % 251) as u8).collect();
+        send_raw(&Target::Network { host: "127.0.0.1".into(), port }, &bytes).unwrap();
+        assert_eq!(h.join().unwrap(), bytes);
+    }
+
+    #[test]
+    fn knows_what_not_to_retry() {
+        assert!(!worth_retrying("Printer “X” not found in Windows."));
+        assert!(worth_retrying("Cannot reach the printer at 1.2.3.4:9100"));
     }
 
     #[test]

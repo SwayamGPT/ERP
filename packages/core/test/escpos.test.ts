@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { drawerKick, EscPos, receipt, zplLabel } from '../src/escpos';
+import { drawerKick, EscPos, profileById, receipt, testPage, zplLabel } from '../src/escpos';
+import { cleanScan, ScanDetector } from '../src/barcode';
 
 const text = (b: Uint8Array) => new TextDecoder('latin1').decode(b);
 const has = (b: Uint8Array, seq: number[]) => text(b).includes(String.fromCharCode(...seq));
@@ -50,5 +51,66 @@ describe('ESC/POS receipts', () => {
     expect(z.startsWith('^XA')).toBe(true);
     expect(z).toContain('^BEN,70,Y,N^FD890123456789^FS');
     expect(z).toContain('^PQ3');
+  });
+});
+
+describe('printer profiles', () => {
+  const r = { shop: { name: 'Shop' }, number: 'B-1', date: '01-04-2026', lines: [{ name: 'Tea', qty: 1, unit: 'Pcs', rate: 1000, total: 1000 }], taxable: 1000, cgst: 0, sgst: 0, igst: 0, cess: 0, roundOff: 0, total: 1000, paid: 0, mode: 'credit', upi: 'shop@upi' };
+  it('uses each profile\'s cut and drawer bytes', () => {
+    expect(has(receipt(r, { profile: profileById('cheap-80') }), [0x1d, 0x56, 0x00])).toBe(true);
+    expect(has(receipt(r, { profile: profileById('epson-tm') }), [0x1d, 0x56, 0x42, 0x00])).toBe(true);
+    expect(has(receipt(r, { profile: { ...profileById('generic-80'), cut: 'esc-i' } }), [0x1b, 0x69])).toBe(true);
+    const noCut = receipt(r, { profile: profileById('cheap-58') });
+    expect(has(noCut, [0x1d, 0x56])).toBe(false);
+    expect(has(receipt(r, { profile: { ...profileById('generic-80'), drawerPin: 1 }, drawer: true }), [0x1b, 0x70, 0x01])).toBe(true);
+  });
+
+  it('leaves out the QR code on printers that cannot draw one', () => {
+    expect(has(receipt(r, { profile: profileById('generic-80') }), [0x1d, 0x28, 0x6b])).toBe(true);
+    const plain = receipt(r, { profile: profileById('cheap-80') });
+    expect(has(plain, [0x1d, 0x28, 0x6b])).toBe(false);
+    expect(new TextDecoder().decode(plain)).toContain('Pay by UPI: shop@upi');
+  });
+
+  it('fits 42-column paper', () => {
+    const lines = text(receipt(r, { profile: profileById('font-b-80') })).split('\n');
+    const taxable = lines.find((l) => l.includes('Taxable value'))!;
+    expect(taxable.length).toBe(42);
+    expect(lines.find((l) => l.includes('Tea'))!.replace(/^.*[\x00-\x1f]/, '').length).toBe(42);
+  });
+
+  it('prints a test page with ruler and cut', () => {
+    const t = testPage(profileById('tvs-retsol'), { drawer: true });
+    const s = new TextDecoder().decode(t);
+    expect(s).toContain('123456789012345678901234567890123456789012345678');
+    expect(has(t, [0x1d, 0x56, 0x00])).toBe(true);
+    expect(has(t, [0x1b, 0x70, 0x00])).toBe(true);
+    expect(new TextDecoder().decode(testPage(profileById('cheap-58')))).toContain('Tear here');
+  });
+});
+
+describe('barcode scanners', () => {
+  it('cleans what scanners type', () => {
+    expect(cleanScan(' 8901234567890 ')).toBe('8901234567890');
+    expect(cleanScan(']E08901234567890')).toBe('8901234567890');
+    expect(cleanScan('\x028901234567890\x03')).toBe('8901234567890');
+    expect(cleanScan('*(!)@#$%^&*(!')).toBe('8910234567891');
+    expect(cleanScan('ç(&à"é')).toBe('951032');
+    expect(cleanScan('ABC-123')).toBe('ABC-123');
+  });
+
+  it('tells a scanner from a person typing', () => {
+    const d = new ScanDetector();
+    let t = 0;
+    let out: string | null = null;
+    for (const k of '8901234567890') out = d.key(k, (t += 5));
+    expect(out).toBeNull();
+    expect(d.key('Enter', (t += 5))).toBe('8901234567890');
+    // A person: 150 ms between keys
+    for (const k of '1234') d.key(k, (t += 150));
+    expect(d.key('Enter', (t += 150))).toBeNull();
+    // Tab suffix works too
+    for (const k of 'ABCD1') d.key(k, (t += 4));
+    expect(d.key('Tab', (t += 4))).toBe('ABCD1');
   });
 });

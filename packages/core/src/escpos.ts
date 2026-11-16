@@ -69,20 +69,96 @@ export class EscPos {
   feed(n = 3) {
     return this.raw(ESC, 0x64, n);
   }
-  cut() {
-    return this.raw(GS, 0x56, 0x42, 0x00); // feed to cutter and partial cut
+  /** Cut the paper the way this printer understands (see {@link PrinterProfile.cut}). */
+  cut(kind: CutKind = 'feed-partial') {
+    return this.raw(...cutBytes(kind));
   }
-  /** Open the cash drawer on pin 2 (pulse 50 ms / 500 ms). */
-  drawer() {
-    return this.raw(ESC, 0x70, 0x00, 0x19, 0xfa);
+  /** Open the cash drawer: pin 2 (0) or pin 5 (1). */
+  drawer(pin: 0 | 1 = 0) {
+    return this.raw(ESC, 0x70, pin, 0x19, 0xfa);
   }
   bytes() {
     return new Uint8Array(this.out);
   }
 }
 
+/**
+ * How a particular receipt printer behaves. Cheap printers sold in India mostly speak ESC/POS but
+ * differ in the details — which cut command works, which drawer pin is wired, whether they can draw
+ * a QR code, and how many characters fit on a line. A profile captures that per counter.
+ */
+export type CutKind = 'feed-partial' | 'partial' | 'full' | 'esc-i' | 'none';
+export interface PrinterProfile {
+  id: string;
+  name: string;
+  cols: 32 | 42 | 48;
+  cut: CutKind;
+  /** Blank lines before cutting (printers whose cutter sits far above the print head need more). */
+  feed: number;
+  drawerPin: 0 | 1;
+  /** GS ( k native QR codes. Many cheap printers print junk instead: then the UPI QR is left out. */
+  qr: boolean;
+  /** Double-size shop name and total (some clones ignore GS ! and print normal size anyway). */
+  bigText: boolean;
+}
+
+export const PRINTER_PROFILES: PrinterProfile[] = [
+  { id: 'generic-80', name: 'Any 80 mm ESC/POS printer', cols: 48, cut: 'feed-partial', feed: 3, drawerPin: 0, qr: true, bigText: true },
+  { id: 'epson-tm', name: 'Epson TM-T82 / TM-T88', cols: 48, cut: 'feed-partial', feed: 3, drawerPin: 0, qr: true, bigText: true },
+  { id: 'tvs-retsol', name: 'TVS RP / Retsol / Posiflex', cols: 48, cut: 'full', feed: 4, drawerPin: 0, qr: true, bigText: true },
+  { id: 'cheap-80', name: 'Xprinter / Rugtek / unbranded 80 mm', cols: 48, cut: 'full', feed: 5, drawerPin: 0, qr: false, bigText: true },
+  { id: 'font-b-80', name: '80 mm with 42-character lines', cols: 42, cut: 'full', feed: 4, drawerPin: 0, qr: false, bigText: true },
+  { id: 'cheap-58', name: '58 mm (2 inch) printer', cols: 32, cut: 'none', feed: 4, drawerPin: 0, qr: false, bigText: false },
+];
+
+export const profileById = (id: string | undefined): PrinterProfile => PRINTER_PROFILES.find((p) => p.id === id) ?? PRINTER_PROFILES[0];
+
+export function cutBytes(kind: CutKind): number[] {
+  switch (kind) {
+    case 'feed-partial':
+      return [GS, 0x56, 0x42, 0x00]; // feed to the cutter, then partial cut
+    case 'partial':
+      return [GS, 0x56, 0x01];
+    case 'full':
+      return [GS, 0x56, 0x00];
+    case 'esc-i':
+      return [ESC, 0x69]; // older and clone printers
+    case 'none':
+      return [];
+  }
+}
+
 /** Just the drawer kick, for "open drawer" without a receipt. */
-export const drawerKick = () => new Uint8Array([ESC, 0x40, ESC, 0x70, 0x00, 0x19, 0xfa]);
+export const drawerKick = (pin: 0 | 1 = 0) => new Uint8Array([ESC, 0x40, ESC, 0x70, pin, 0x19, 0xfa]);
+
+/**
+ * A page that shows at a glance what this printer can do: the line width ruler (so the right
+ * number of columns can be picked), bold and big text, the ₹ fallback, a QR code and the cut.
+ */
+export function testPage(p: PrinterProfile, opts: { drawer?: boolean } = {}): Uint8Array {
+  const e = new EscPos(p.cols);
+  e.align('center').bold(true).line('HISAAB PRINTER TEST').bold(false).line(p.name.slice(0, p.cols)).align('left');
+  e.line('Line width ruler - the last digit you see');
+  e.line('on ONE line is your column count:');
+  let ruler = '';
+  for (let i = 1; i <= 48; i++) ruler += String(i % 10);
+  e.line(ruler);
+  e.line('.........1.........2.........3.........4........');
+  e.rule('=');
+  e.line('Normal text  0123456789');
+  e.bold(true).line('Bold text').bold(false);
+  if (p.bigText) e.size(2, 2).line('BIG TEXT').size(1, 1);
+  e.line('Rupee prints as: Rs.100.00');
+  e.lr('Left', 'Right');
+  if (p.qr) e.align('center').line('QR code below (UPI bills use this):').qr('https://hisaab.app', 4).line().align('left');
+  else e.line('QR codes: off for this printer');
+  e.rule('=');
+  e.line(p.cut === 'none' ? 'Tear here - cutting is off.' : 'The paper should cut below this line.');
+  e.feed(p.feed);
+  if (p.cut !== 'none') e.cut(p.cut);
+  if (opts.drawer) e.drawer(p.drawerPin);
+  return e.bytes();
+}
 
 export interface ReceiptData {
   shop: { name: string; address?: string | null; phone?: string | null; gstin?: string | null; fssai?: string | null; footer?: string | null };
@@ -108,11 +184,24 @@ export interface ReceiptData {
 
 const money = (p: number) => formatINR(p).replace('₹', '');
 
-/** A receipt laid out for 58 mm (32 columns) or 80 mm (48 columns) paper. */
-export function receipt(r: ReceiptData, opts: { cols?: 32 | 48; cut?: boolean; drawer?: boolean } = {}): Uint8Array {
-  const cols = opts.cols ?? 48;
+export interface ReceiptOptions {
+  cols?: 32 | 42 | 48;
+  cut?: boolean;
+  drawer?: boolean;
+  /** The printer's quirks; `cols` given here wins over the profile's. */
+  profile?: PrinterProfile;
+}
+
+/** A receipt laid out for 58 mm (32 columns), 80 mm (48) or 42-column paper. */
+export function receipt(r: ReceiptData, opts: ReceiptOptions = {}): Uint8Array {
+  const prof = opts.profile ?? PRINTER_PROFILES[0];
+  const cols = opts.cols ?? prof.cols;
   const p = new EscPos(cols);
-  p.align('center').bold(true).size(2, 2).line(r.shop.name.slice(0, cols / 2)).size(1, 1).bold(false);
+  const big = prof.bigText;
+  p.align('center').bold(true);
+  if (big) p.size(2, 2).line(r.shop.name.slice(0, Math.floor(cols / 2))).size(1, 1);
+  else p.line(r.shop.name.slice(0, cols));
+  p.bold(false);
   if (r.shop.address) p.line(r.shop.address.slice(0, cols * 2));
   if (r.shop.phone) p.line(`Ph: ${r.shop.phone}`);
   if (r.shop.gstin) p.line(`GSTIN: ${r.shop.gstin}`);
@@ -122,9 +211,10 @@ export function receipt(r: ReceiptData, opts: { cols?: 32 | 48; cut?: boolean; d
   if (r.party) p.line(`To: ${r.party}`.slice(0, cols));
   if (r.partyGstin) p.line(`GSTIN: ${r.partyGstin}`);
   p.rule();
-  const w = cols === 48 ? [22, -7, -9, -10] : [14, -5, 0, -13];
-  p.bold(true).row(['Item', 'Qty', cols === 48 ? 'Rate' : '', 'Amount'], w).bold(false);
-  for (const l of r.lines) p.row([l.name, `${+l.qty.toFixed(3)}`, cols === 48 ? money(l.rate) : '', money(l.total)], w);
+  const wide = cols >= 42;
+  const w = cols === 48 ? [22, -7, -9, -10] : cols === 42 ? [18, -6, -8, -10] : [14, -5, 0, -13];
+  p.bold(true).row(['Item', 'Qty', wide ? 'Rate' : '', 'Amount'], w).bold(false);
+  for (const l of r.lines) p.row([l.name, `${+l.qty.toFixed(3)}`, wide ? money(l.rate) : '', money(l.total)], w);
   p.rule();
   p.lr('Taxable value', money(r.taxable));
   if (r.cgst) p.lr('CGST', money(r.cgst));
@@ -133,17 +223,20 @@ export function receipt(r: ReceiptData, opts: { cols?: 32 | 48; cut?: boolean; d
   if (r.cess) p.lr('Cess', money(r.cess));
   if (r.discount) p.lr('Discount', `-${money(r.discount)}`);
   if (r.roundOff) p.lr('Round off', money(r.roundOff));
-  p.bold(true).size(1, 2).lr('TOTAL', `Rs.${money(r.total)}`).size(1, 1).bold(false);
+  p.bold(true);
+  if (big) p.size(1, 2);
+  p.lr('TOTAL', `Rs.${money(r.total)}`).size(1, 1).bold(false);
   p.lr(`Paid (${r.mode})`, money(r.paid));
   if (r.total > r.paid) p.bold(true).lr('Balance due', money(r.total - r.paid)).bold(false);
   if (r.savings && r.savings > 0) p.align('center').line(`You saved Rs.${money(r.savings)} on MRP`).align('left');
-  if (r.upi && r.total > r.paid) {
+  if (r.upi && r.total > r.paid && prof.qr) {
     const link = `upi://pay?pa=${encodeURIComponent(r.upi)}&pn=${encodeURIComponent(r.shop.name)}&am=${((r.total - r.paid) / 100).toFixed(2)}&cu=INR&tn=${encodeURIComponent(r.number)}`;
     p.align('center').line('Scan to pay by UPI').qr(link, cols === 48 ? 6 : 4).line().align('left');
   }
-  p.align('center').line(r.shop.footer ?? 'Thank you! Visit again.').align('left').feed(3);
-  if (opts.cut !== false) p.cut();
-  if (opts.drawer) p.drawer();
+  else if (r.upi && r.total > r.paid) p.align('center').line(`Pay by UPI: ${r.upi}`.slice(0, cols)).align('left');
+  p.align('center').line(r.shop.footer ?? 'Thank you! Visit again.').align('left').feed(prof.feed);
+  if (opts.cut !== false && prof.cut !== 'none') p.cut(prof.cut);
+  if (opts.drawer) p.drawer(prof.drawerPin);
   return p.bytes();
 }
 

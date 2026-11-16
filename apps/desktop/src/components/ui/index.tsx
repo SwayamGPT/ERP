@@ -364,7 +364,8 @@ const useToasts = create<{ toasts: Toast[]; push: (t: Omit<Toast, 'id'>) => void
 export const toast = {
   success: (title: string, body?: string, action?: Toast['action']) => useToasts.getState().push({ tone: 'good', title, body, action }),
   error: (e: unknown) => useToasts.getState().push({ tone: 'bad', title: e instanceof Error ? e.message : String(e) }),
-  info: (title: string, body?: string) => useToasts.getState().push({ tone: 'neutral', title, body }),
+  info: (title: string, body?: string, action?: Toast['action']) => useToasts.getState().push({ tone: 'neutral', title, body, action }),
+  warn: (title: string, body?: string, action?: Toast['action']) => useToasts.getState().push({ tone: 'bad', title, body, action }),
 };
 
 export function Toaster() {

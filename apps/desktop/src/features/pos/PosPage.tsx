@@ -1,4 +1,5 @@
-import { CASHIER_DISCOUNT_CAP, describeScheme, expiryBucket, formatINR, roundQty } from '@hisaab/core';
+import { CASHIER_DISCOUNT_CAP, cleanScan, describeScheme, expiryBucket, formatINR, roundQty, ScanDetector } from '@hisaab/core';
+import { beep } from '../../lib/beep';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   ClipboardList,
@@ -131,6 +132,59 @@ export function PosPage() {
     else setTimeout(() => qtyRefs.current[key]?.select(), 0);
   };
 
+  /** Find what was typed or scanned and put it on the bill. */
+  const addByTerm = async (raw: string, scanned: boolean) => {
+    const term = scanned ? cleanScan(raw) : raw;
+    // Barcode scanners type fast and press Enter — resolve immediately, don't wait for debounce.
+    // Only reuse the list on screen if it is for exactly this text (not the previous search still showing).
+    const fresh = !scanned && dq === term && search.data && !search.isFetching && !search.isPlaceholderData;
+    const r = fresh ? search.data! : await call('items.search', { q: term });
+    if (!r.items.length) {
+      setQ('');
+      if (scanned || /^\d{8,14}$/.test(term)) {
+        beep();
+        const add = canDo('item.edit') ? { label: 'Add item', run: () => navigate(`/items?new=1&barcode=${encodeURIComponent(term)}`) } : undefined;
+        toast.warn(`Barcode ${term} is not in your items`, 'Check the pack, or add it as a new item.', add);
+      } else toast.error(`No item found for "${term}"`);
+      focusSearch();
+      return;
+    }
+    const item = r.items[fresh ? hl : 0] ?? r.items[0];
+    if (r.scale && r.scale.itemId === item.id) addItem(item, { qty: r.scale.qty, amount: r.scale.amount, fromScan: true });
+    else addItem(item, { fromScan: scanned || /^\d{8,14}$/.test(term) });
+  };
+
+  // A scan while the cursor is in another box (quantity, tendered…) would type the barcode there.
+  // Watch every key on the bill screen: a fast burst ending in Enter/Tab is a scan — undo it in
+  // that box and add the item instead.
+  const scanDet = useRef(new ScanDetector());
+  const burst = useRef<{ el: HTMLInputElement | null; before: string } | null>(null);
+  const scanHandler = useRef<(code: string) => void>(() => undefined);
+  scanHandler.current = (code) => void addByTerm(code, true);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target instanceof HTMLInputElement ? e.target : null;
+      const wasPending = scanDet.current.pending.length > 0;
+      if (!wasPending && e.key.length === 1) burst.current = { el, before: el?.value ?? '' };
+      const code = scanDet.current.key(e.key, e.timeStamp || performance.now());
+      // Only barcode-like bursts (6+ characters with digits, no spaces — not a fast-typed quantity), and never inside a dialog (customer search…).
+      if (!code || code.length < 6 || !/\d{4,}/.test(code) || /\s/.test(code) || (e.target instanceof Element && e.target.closest('[role="dialog"]'))) return;
+      if (el && el === searchRef.current && e.key === 'Enter') return; // the search box handles its own Enter
+      e.preventDefault();
+      e.stopPropagation();
+      const b = burst.current;
+      if (b?.el && b.el !== searchRef.current) {
+        // Put the box back the way it was (React-controlled inputs need the native setter + event).
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(b.el, b.before);
+        b.el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      setQ('');
+      scanHandler.current(code);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+
   const onSearchKey = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') (e.preventDefault(), setHl((h) => Math.min(h + 1, results.length - 1)));
     else if (e.key === 'ArrowUp') (e.preventDefault(), setHl((h) => Math.max(h - 1, 0)));
@@ -141,17 +195,7 @@ export function PosPage() {
         if (lines.length) tenderRef.current?.focus();
         return;
       }
-      // Barcode scanners type fast and press Enter — resolve immediately, don't wait for debounce.
-      // Only reuse the list on screen if it is for exactly this text (not the previous search still showing).
-      const fresh = dq === term && search.data && !search.isFetching && !search.isPlaceholderData;
-      const r = fresh ? search.data! : await call('items.search', { q: term });
-      if (!r.items.length) {
-        toast.error(`No item found for "${term}"`);
-        return;
-      }
-      const item = r.items[fresh ? hl : 0] ?? r.items[0];
-      if (r.scale && r.scale.itemId === item.id) addItem(item, { qty: r.scale.qty, amount: r.scale.amount, fromScan: true });
-      else addItem(item, { fromScan: /^\d{8,14}$/.test(term) });
+      await addByTerm(term, /^\d{8,14}$/.test(term) || term !== cleanScan(term));
     } else if (e.key === 'Escape') {
       if (q) (e.stopPropagation(), setQ(''));
     }

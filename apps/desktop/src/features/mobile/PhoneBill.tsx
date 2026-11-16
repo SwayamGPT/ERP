@@ -11,8 +11,9 @@ import { billMessage, whatsappLink } from '../../lib/share';
 import { useApi } from '../../lib/useApi';
 import { useCan } from '../../lib/perm';
 import { autoPrinted, lanPrint } from '../../lan/client';
-import { isNative, native } from '../../native';
+import { isNative } from '../../native';
 import { receiptBytes } from '../../native/print';
+import { printQueued } from '../../native/printQueue';
 
 type Line = { item: Item; qty: number };
 type Mode = 'cash' | 'upi' | 'card' | 'credit';
@@ -108,7 +109,7 @@ function AfterSave({ inv, printed, company, onClose }: { inv: Invoice; printed: 
     ? run(`Printed on ${wifi}`, async () => {
         if (!wifi.trim()) throw new Error('Enter the Wi-Fi printer address, e.g. 192.168.1.60.');
         d.set({ wifiPrinter: wifi.trim() });
-        await native.printRaw(wifi.trim(), receiptBytes(inv, company, { drawer: false }));
+        await printQueued(wifi.trim(), receiptBytes(inv, company, { drawer: false }), `Bill ${inv.number}`);
       })
     : LAN
       ? run('Sent to the Wi-Fi printer', () => lanPrint(inv.id, 'network'))

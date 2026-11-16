@@ -27,5 +27,9 @@ export const native = {
   printRaw: (target: string, bytes: Uint8Array) => invoke<void>('print_raw', bytes, { 'x-target': target }),
   printers: () => invoke<string[]>('printers_list'),
   serialPorts: () => invoke<string[]>('serial_ports'),
+  /** Try every serial port at the usual speeds (takes up to a minute). */
+  scaleFind: () => invoke<{ port: string; baud: number; request: string | null; kg: number } | null>('scale_find'),
+  /** The last 50 printer / scale calls, newest first. */
+  hwEvents: () => invoke<Array<{ at: number; device: string; ok: boolean; detail: string; ms: number }>>('hw_events'),
   scaleRead: (port: string, baud: number, request?: string) => invoke<{ kg: number; stable: boolean }>('scale_read', { port, baud, request: request || null }),
 };

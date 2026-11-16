@@ -25,5 +25,7 @@ tauri-plugin-opener = "2"
 codegen-units = 1
 lto = true
 opt-level = "s"
-panic = "abort"
+# "unwind", not "abort": a panic in a printer or scale call must become an error message, not close
+# the app in the middle of a sale (see hisaab_hw::guard).
+panic = "unwind"
 strip = true

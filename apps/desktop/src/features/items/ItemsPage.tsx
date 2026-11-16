@@ -23,7 +23,7 @@ export function ItemsPage() {
   const canCost = canDo('cost.view');
 
   const setFilter = (f: string) => setParams((p) => (f === 'all' ? p.delete('filter') : p.set('filter', f), p));
-  const open = (id: number | null) => setParams((p) => (p.delete('id'), p.delete('new'), id === 0 ? p.set('new', '1') : id ? p.set('id', String(id)) : null, p));
+  const open = (id: number | null) => setParams((p) => (p.delete('id'), p.delete('new'), p.delete('barcode'), id === 0 ? p.set('new', '1') : id ? p.set('id', String(id)) : null, p));
 
   const exportCsv = () =>
     downloadCsv(
@@ -110,7 +110,7 @@ export function ItemsPage() {
           </div>
         )}
       </Card>
-      {editing !== null && <ItemEditor id={editing || null} onClose={() => open(null)} />}
+      {editing !== null && <ItemEditor id={editing || null} barcode={params.get('barcode') ?? undefined} onClose={() => open(null)} />}
     </div>
   );
 }

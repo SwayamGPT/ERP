@@ -75,7 +75,7 @@ impl RateLimit {
     }
     pub fn allow(&self, ip: IpAddr) -> bool {
         let now = Instant::now();
-        let mut m = self.hits.lock().unwrap();
+        let mut m = crate::guard::lock(&self.hits);
         let v = m.entry(ip).or_default();
         v.retain(|t| now.duration_since(*t) < self.window);
         if v.len() >= self.max {

@@ -3,14 +3,16 @@
 //!
 //! * database files on disk, saved atomically with daily backups (`store_*`)
 //! * raw printing to receipt and label printers — ESC/POS, TSPL, ZPL — and the cash drawer (`print_raw`)
-//! * reading a weighing scale over serial / USB (`scale_read`)
+//! * reading a weighing scale over serial / USB (`scale_read`, `scale_find`)
+//! * every device call runs on its own thread with a deadline and panics caught, so a bad driver
+//!   or a hung port returns an error instead of freezing or closing the app (`hw_events` logs them)
 //! * "Phones on Wi-Fi": a small web server on the shop network that phones use to reach this
 //!   computer's data (`lan_*`); requests are answered by the web view, where the database lives
 //!
 //! The hardware code lives in the `hisaab-hw` crate (src-tauri/hw) with its own tests.
 
 use hisaab_hw::lan::{local_addresses, Assets, LanServer, Relay};
-use hisaab_hw::{printer, scale, store::Store};
+use hisaab_hw::{guard, printer, scale, store::Store};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
@@ -62,22 +64,60 @@ fn store_info(key: String, store: State<'_, AppStore>) -> (String, Vec<String>) 
     (store.0.dir().display().to_string(), store.0.backups(&key))
 }
 
-/// Send raw bytes to a printer. Header x-target: "192.168.1.50:9100" or an installed printer's name.
+/// Run a device call off the UI thread, with a deadline and panics caught (see `hisaab_hw::guard`).
+async fn hw<T, F>(device: &'static str, secs: u64, f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(move || guard::guarded(device, Duration::from_secs(secs), f)).await.map_err(|e| e.to_string())?
+}
+
+/// Send raw bytes to a printer (three tries). Header x-target: "192.168.1.50:9100" or an installed printer's name.
 #[tauri::command]
 async fn print_raw(request: Request<'_>) -> Result<(), String> {
     let target = printer::Target::parse(header(&request, "x-target")?)?;
     let bytes = raw_body(&request)?;
-    tauri::async_runtime::spawn_blocking(move || printer::send_raw(&target, &bytes)).await.map_err(|e| e.to_string())?
+    hw("printer", 30, move || printer::send_reliably(&target, &bytes)).await
 }
 
 #[tauri::command]
 async fn printers_list() -> Vec<String> {
-    tauri::async_runtime::spawn_blocking(printer::list_system_printers).await.unwrap_or_default()
+    hw("printer list", 10, || Ok(printer::list_system_printers())).await.unwrap_or_default()
 }
 
 #[tauri::command]
-fn serial_ports() -> Vec<String> {
-    scale::list_ports()
+async fn serial_ports() -> Vec<String> {
+    hw("serial ports", 5, || Ok(scale::list_ports())).await.unwrap_or_default()
+}
+
+#[derive(Serialize)]
+struct HwEvent {
+    at: u64,
+    device: String,
+    ok: bool,
+    detail: String,
+    ms: u64,
+}
+
+/// The last 50 printer / scale calls, newest first (Settings → Hardware → Diagnostics).
+#[tauri::command]
+fn hw_events() -> Vec<HwEvent> {
+    guard::events().into_iter().map(|e| HwEvent { at: e.at, device: e.device, ok: e.ok, detail: e.detail, ms: e.ms }).collect()
+}
+
+#[derive(Serialize)]
+struct FoundScale {
+    port: String,
+    baud: u32,
+    request: Option<String>,
+    kg: f64,
+}
+
+/// "Find my scale": try every serial port at the usual speeds; put something on the scale first.
+#[tauri::command]
+async fn scale_find() -> Result<Option<FoundScale>, String> {
+    hw("scale search", 120, || Ok(scale::find(Duration::from_millis(700)).map(|f| FoundScale { port: f.port, baud: f.baud, request: f.request, kg: f.reading.kg }))).await
 }
 
 #[derive(Serialize)]
@@ -90,9 +130,9 @@ struct Weight {
 /// answer when asked (e.g. "W" or "P\r").
 #[tauri::command]
 async fn scale_read(port: String, baud: u32, request: Option<String>) -> Result<Weight, String> {
-    tauri::async_runtime::spawn_blocking(move || scale::read(&port, baud, Duration::from_millis(1500), request.as_deref().map(str::as_bytes)))
+    let request = request.map(|r| r.replace("\\r", "\r").replace("\\x05", "\x05"));
+    hw("scale", 4, move || scale::read(&port, baud, Duration::from_millis(1500), request.as_deref().map(str::as_bytes)))
         .await
-        .map_err(|e| e.to_string())?
         .map(|r| Weight { kg: r.kg, stable: r.stable })
 }
 
@@ -120,13 +160,13 @@ struct LanCall {
 }
 
 fn lan_info_of(lan: &Lan) -> LanInfo {
-    let g = lan.server.lock().unwrap();
+    let g = lan.server.lock().unwrap_or_else(|e| e.into_inner());
     LanInfo { running: g.is_some(), port: g.as_ref().map(|s| s.port).unwrap_or(0), addresses: local_addresses() }
 }
 
 #[tauri::command]
 fn lan_start(app: AppHandle, port: u16, lan: State<'_, Lan>) -> Result<LanInfo, String> {
-    if let Some(old) = lan.server.lock().unwrap().take() {
+    if let Some(old) = lan.server.lock().unwrap_or_else(|e| e.into_inner()).take() {
         old.stop();
     }
     let files = app.clone();
@@ -138,23 +178,23 @@ fn lan_start(app: AppHandle, port: u16, lan: State<'_, Lan>) -> Result<LanInfo, 
     let relay: Relay = Arc::new(move |op: &str, body: String| {
         let rid = next.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = mpsc::channel();
-        pending.lock().unwrap().insert(rid, tx);
+        pending.lock().unwrap_or_else(|e| e.into_inner()).insert(rid, tx);
         if let Err(e) = view.emit_to("main", "lan-call", LanCall { rid, path: op.to_string(), body }) {
-            pending.lock().unwrap().remove(&rid);
+            pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&rid);
             return Err(e.to_string());
         }
         let out = rx.recv_timeout(Duration::from_secs(20));
-        pending.lock().unwrap().remove(&rid);
+        pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&rid);
         out.map_err(|_| "The shop computer did not answer in time. Is Hisaab open and unlocked there?".to_string())
     });
     let server = LanServer::start(port, assets, relay)?;
-    *lan.server.lock().unwrap() = Some(server);
+    *lan.server.lock().unwrap_or_else(|e| e.into_inner()) = Some(server);
     Ok(lan_info_of(&lan))
 }
 
 #[tauri::command]
 fn lan_stop(lan: State<'_, Lan>) -> LanInfo {
-    if let Some(s) = lan.server.lock().unwrap().take() {
+    if let Some(s) = lan.server.lock().unwrap_or_else(|e| e.into_inner()).take() {
         s.stop();
     }
     lan_info_of(&lan)
@@ -168,7 +208,7 @@ fn lan_info(lan: State<'_, Lan>) -> LanInfo {
 /// The web view's answer to a phone request.
 #[tauri::command]
 fn lan_reply(rid: u64, body: String, lan: State<'_, Lan>) {
-    if let Some(tx) = lan.pending.lock().unwrap().remove(&rid) {
+    if let Some(tx) = lan.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&rid) {
         let _ = tx.send(body);
     }
 }
@@ -184,7 +224,7 @@ pub fn run() {
             app.manage(Lan::default());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![app_version, store_read, store_write, store_delete, store_info, print_raw, printers_list, serial_ports, scale_read, lan_start, lan_stop, lan_info, lan_reply])
+        .invoke_handler(tauri::generate_handler![app_version, store_read, store_write, store_delete, store_info, print_raw, printers_list, serial_ports, scale_read, scale_find, hw_events, lan_start, lan_stop, lan_info, lan_reply])
         .run(tauri::generate_context!())
         .expect("error while running Hisaab");
 }

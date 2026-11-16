@@ -44,6 +44,7 @@ import { CommandPalette } from './CommandPalette';
 import { toast } from './ui';
 import { ShortcutSheet } from './ShortcutSheet';
 import { Logo } from './Logo';
+import { PrintQueueBanner } from './PrintQueueBanner';
 import * as Popover from '@radix-ui/react-popover';
 import { db } from '../db/client';
 import { useApi } from '../lib/useApi';
@@ -250,6 +251,7 @@ export function AppShell({ company, children }: { company: Company; children: Re
             <Lock className="h-3.5 w-3.5 text-faint" />
           </button>
         </header>
+        <PrintQueueBanner />
         <main className={cn('min-h-0 flex-1 overflow-y-auto', isPos ? '' : 'px-6 py-6')}>
           <div className={cn(isPos ? 'h-full' : 'mx-auto max-w-[1400px]')}>{children}</div>
         </main>

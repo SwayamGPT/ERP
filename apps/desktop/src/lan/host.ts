@@ -8,13 +8,14 @@ import { workerSend } from '../db/client';
 import type { Company, Invoice } from '../db/types';
 import type { LanReply, LanRequest } from '../db/lan';
 import { useDevice } from '../lib/devicePrefs';
-import { isNative, native } from '../native';
+import { isNative } from '../native';
 import { receiptBytes } from '../native/print';
+import { printQueued } from '../native/printQueue';
 
 type Wire = { ok: true; result: unknown } | { ok: false; error: { message: string; code: string } };
 
 /** Where receipts go (the tests swap this for a fake printer). */
-export const printSink = { send: (target: string, bytes: Uint8Array) => native.printRaw(target, bytes) };
+export const printSink = { send: (target: string, bytes: Uint8Array) => printQueued(target, bytes, 'Phone bill') };
 
 const asPhone = (req: LanRequest, method: string, args?: unknown) =>
   workerSend<LanReply>({ type: 'lan', req: { op: 'call', device: req.device, session: req.session, method, args } });

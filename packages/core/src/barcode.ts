@@ -85,3 +85,50 @@ export function tsplLabel(opts: { name: string; barcode: string; mrp: string; pr
     '',
   ].join('\r\n');
 }
+
+/* ───────── barcode scanners (keyboard wedge) ───────── */
+
+// Digits as they arrive when the scanner and the computer disagree on the keyboard layout.
+const SHIFTED_DIGITS: Record<string, string> = { ')': '0', '!': '1', '@': '2', '#': '3', $: '4', '%': '5', '^': '6', '&': '7', '*': '8', '(': '9' };
+const AZERTY_DIGITS: Record<string, string> = { 'à': '0', '&': '1', 'é': '2', '"': '3', "'": '4', '(': '5', '-': '6', 'è': '7', _: '8', 'ç': '9' };
+
+/**
+ * What a USB scanner typed, cleaned up: control characters and AIM symbology prefixes (`]E0`,
+ * `]C1`) dropped, surrounding spaces trimmed, and a code typed in the wrong keyboard layout
+ * (`!@#…` for `123…`, or French AZERTY) turned back into digits.
+ */
+export function cleanScan(raw: string): string {
+  let s = Array.from(raw).filter((c) => c.charCodeAt(0) >= 0x20 && c.charCodeAt(0) !== 0x7f).join('').trim();
+  s = s.replace(/^\][A-Za-z][0-9A-Za-z]/, '');
+  for (const map of [SHIFTED_DIGITS, AZERTY_DIGITS]) {
+    if (s.length >= 6 && Array.from(s).every((c) => c in map || /\d/.test(c)) && !/^\d+$/.test(s)) return Array.from(s).map((c) => map[c] ?? c).join('');
+  }
+  return s;
+}
+
+/**
+ * Tells a scanner from a person: scanners "type" a whole code within a few milliseconds per key and
+ * end with Enter (or Tab). Feed it every key with its time; it returns the code when a scan ends.
+ */
+export class ScanDetector {
+  private buf = '';
+  private last = 0;
+  constructor(private opts: { maxGapMs?: number; minLength?: number } = {}) {}
+  /** Returns the scanned code on the terminating key, else null. `key` is KeyboardEvent.key. */
+  key(key: string, at: number): string | null {
+    const gap = this.opts.maxGapMs ?? 35;
+    if (this.buf && at - this.last > gap) this.buf = '';
+    this.last = at;
+    if (key === 'Enter' || key === 'Tab') {
+      const code = this.buf;
+      this.buf = '';
+      return code.length >= (this.opts.minLength ?? 4) ? cleanScan(code) : null;
+    }
+    if (key.length === 1) this.buf += key;
+    return null;
+  }
+  /** Characters seen so far in what looks like a scan (to take back out of the wrong box). */
+  get pending() {
+    return this.buf;
+  }
+}

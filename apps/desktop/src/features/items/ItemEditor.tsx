@@ -11,14 +11,14 @@ import { useAction, useApi } from '../../lib/useApi';
 
 const UNITS = ['Pcs', 'Kg', 'g', 'L', 'ml', 'Pkt', 'Box', 'Dozen', 'Bag', 'Bottle', 'Strip', 'Pair', 'Set', 'Mtr'];
 
-export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => void }) {
+export function ItemEditor({ id, onClose, barcode }: { id: number | null; onClose: () => void; barcode?: string }) {
   const canDo = useCan();
   const existing = useApi('items.get', { id: id ?? 0 }, { enabled: !!id });
   const nextPlu = useApi('items.nextPlu', undefined, { enabled: !id });
   const [tab, setTab] = useState<'details' | 'stock' | 'variants'>('details');
   const [adjOpen, setAdjOpen] = useState(false);
   const [f, setF] = useState({
-    name: '', short_code: '', barcode: '', plu: '', category: '', brand: '', hsn: '', gst_rate: 5, cess_rate: 0, base_unit: 'Pcs', is_loose: false, tax_inclusive: true,
+    name: '', short_code: '', barcode: barcode ?? '', plu: '', category: '', brand: '', hsn: '', gst_rate: 5, cess_rate: 0, base_unit: 'Pcs', is_loose: false, tax_inclusive: true,
     mrp: 0, retail_price: 0, wholesale_price: 0, super_price: 0, purchase_price: 0, coupon_value: 0, coupon_per: 0, reorder_level: 0, track_batch: false, active: true,
     units: [] as ItemUnit[], scheme: null as Scheme | null, openingQty: '', openingExpiry: '', openingBatch: '',
   });
