@@ -1,6 +1,7 @@
 import type { SqlValue } from 'sql.js';
 import type { SqlJsAdapter } from '../adapter';
 import { ID_BLOCK, LOCAL_COLS, SYNCED, SYNC_TABLES, deviceCode } from './tables';
+import { detectCreditOverrun, detectOversell, stockBefore } from './alerts';
 
 /**
  * Sync engine: the local half of cloud sync. Pure database work, no network — the worker's sync loop
@@ -209,6 +210,12 @@ interface Touched {
   batches: Set<number>;
   parties: Set<number>;
   expenses: Set<number>;
+  /** Items whose stock moves arrived, and customers with sale bills that arrived (for oversell / credit alerts). */
+  saleParties: Set<number>;
+  /** Stock per item before this pull, and the sale bills per item that arrived in it. */
+  stockBefore: Map<number, number>;
+  pulledSales: Map<number, Set<number>>;
+  joining: boolean;
 }
 
 /**
@@ -218,7 +225,10 @@ interface Touched {
  */
 export function applyPull(db: SqlJsAdapter, rows: RemoteRow[], seq: number, hooks: RecomputeHooks): { applied: number; conflicts: number } {
   const pending = new Set(db.query<{ k: string }>("SELECT DISTINCT tbl || ':' || row_id AS k FROM _outbox").map((r) => r.k));
-  const touched: Touched = { batches: new Set(), parties: new Set(), expenses: new Set() };
+  // A device joining the shop pulls its whole history: nothing to compare with yet.
+  const joining = (db.get<{ s: number | null }>('SELECT pull_seq AS s FROM _sync_state WHERE id = 1')?.s ?? 0) === 0;
+  const incoming = joining ? new Set<number>() : new Set(rows.filter((r) => r.t === 'stock_moves' && r.r?.item_id != null && !pending.has(`${r.t}:${r.id}`)).map((r) => Number(r.r!.item_id)));
+  const touched: Touched = { batches: new Set(), parties: new Set(), expenses: new Set(), saleParties: new Set(), stockBefore: stockBefore(db, incoming), pulledSales: new Map(), joining };
   let applied = 0;
   let conflicts = 0;
   db.db.exec('PRAGMA foreign_keys = OFF;'); // rows arrive in server order, not parent-first
@@ -263,6 +273,12 @@ function note(table: string, r: Record<string, SqlValue>, t: Touched) {
   const n = (v: SqlValue) => (v == null ? null : Number(v));
   if (table === 'batches') t.batches.add(Number(r.id));
   if (table === 'stock_moves' && r.batch_id != null) t.batches.add(n(r.batch_id)!);
+  if (table === 'stock_moves' && r.item_id != null && r.reason === 'sale' && r.ref_id != null && Number(r.qty) < 0) {
+    const item = n(r.item_id)!;
+    if (!t.pulledSales.has(item)) t.pulledSales.set(item, new Set());
+    t.pulledSales.get(item)!.add(n(r.ref_id)!);
+  }
+  if (table === 'invoices' && r.kind === 'sale' && r.party_id != null) t.saleParties.add(n(r.party_id)!);
   if (table === 'payments') {
     if (r.party_id != null && r.invoice_id == null) t.parties.add(n(r.party_id)!);
     if (r.expense_id != null) t.expenses.add(n(r.expense_id)!);
@@ -289,6 +305,9 @@ function recompute(db: SqlJsAdapter, t: Touched, hooks: RecomputeHooks) {
   }
   for (const p of t.parties) if (!db.get('SELECT 1 FROM parties WHERE id = ? AND is_walkin = 1', [p])) hooks.allocateParty(p);
   for (const e of t.expenses) if (db.get('SELECT 1 FROM expenses WHERE id = ?', [e])) hooks.refreshExpense(e);
+  // After the derived values are right: did merging other devices' bills oversell anything?
+  detectOversell(db, t.stockBefore, t.pulledSales);
+  if (!t.joining) detectCreditOverrun(db, t.saleParties);
 }
 
 /* ───────── unique keys two offline devices can both claim ───────── */

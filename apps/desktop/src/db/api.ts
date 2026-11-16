@@ -2,6 +2,7 @@ import type { SqlJsAdapter } from './adapter';
 import { guard, type Ctx } from './repos/base';
 import { conflicts as syncConflicts, syncState } from './sync/engine';
 import { statusLine } from './sync/loop';
+import { dismissAlert, listAlerts } from './sync/alerts';
 import * as company from './repos/company';
 import * as invoices from './repos/invoices';
 import * as items from './repos/items';
@@ -112,6 +113,8 @@ export const api = {
     return s?.shop_id ? { serverUrl: s.server_url!, deviceToken: s.device_token!, shopId: s.shop_id, deviceId: s.device_id! } : null;
   },
   'sync.conflicts': (ctx: Ctx) => (guard(ctx, 'settings.edit'), syncConflicts(ctx.db as SqlJsAdapter)),
+  'sync.alerts': (ctx: Ctx, a: { includeResolved?: boolean } | undefined) => (guard(ctx, 'item.view'), listAlerts(ctx.db as SqlJsAdapter, a ?? {})),
+  'sync.dismissAlert': (ctx: Ctx, a: { id: number }) => (guard(ctx, 'item.edit'), dismissAlert(ctx.db as SqlJsAdapter, a.id), true),
   'sync.clearConflicts': (ctx: Ctx) => (guard(ctx, 'settings.edit'), ctx.db.exec('UPDATE _sync_conflicts SET seen = 1'), true),
   'company.setup': (ctx: Ctx, a: company.SetupInput) => company.setupCompany(ctx, a),
   'company.save': (ctx: Ctx, a: Parameters<typeof company.saveCompany>[1]) => company.saveCompany(ctx, a),

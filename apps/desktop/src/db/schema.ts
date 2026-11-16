@@ -976,6 +976,25 @@ CREATE TABLE quotation_lines (
 CREATE INDEX idx_quotation_lines ON quotation_lines(quotation_id);
 `,
   },
+  {
+    version: 19,
+    name: 'sync alerts (oversold stock, credit limits crossed offline)',
+    sql: /* sql */ `
+-- Local to each device: what the sync noticed after merging other devices' bills.
+CREATE TABLE _sync_alerts (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('stock','credit')),
+  ref_id INTEGER NOT NULL,
+  message TEXT NOT NULL,
+  detail TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  resolved_at TEXT,
+  dismissed_at TEXT
+);
+CREATE UNIQUE INDEX idx_sync_alerts_open ON _sync_alerts(kind, ref_id) WHERE resolved_at IS NULL AND dismissed_at IS NULL;
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

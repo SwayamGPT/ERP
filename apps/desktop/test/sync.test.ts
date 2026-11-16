@@ -111,6 +111,95 @@ describe('cloud sync between devices', () => {
     expect(balanced(a) && balanced(b)).toBe(true);
   });
 
+  it('two phones offline both sell the last packet: both bills stand, and the shortfall is flagged on both', async () => {
+    const { a, b, ta, tb } = await twoCounters();
+    login(a);
+    const sup = api['parties.save'](a, { kind: 'supplier', name: 'Maggi Distributor' });
+    const maggi = api['items.save'](a, { name: 'Maggi 70g', gst_rate: 18, base_unit: 'Pcs', mrp: 1500, retail_price: 1500, purchase_price: 1200 }) as number;
+    api['invoices.create'](a, { kind: 'purchase', partyId: sup, supplierBillNo: 'MD-1', lines: [{ itemId: maggi, unit: 'Pcs', factor: 1, qty: 1, rate: 1200 }] } as never);
+    await syncOnce(a, ta);
+    await syncOnce(b, tb);
+    const sellOne = (c: Ctx) => api['invoices.create'](c, { kind: 'sale', lines: [{ itemId: maggi, unit: 'Pcs', factor: 1, qty: 1, rate: 1500 }], payments: [{ mode: 'cash', amount: 1500 }] } as never);
+    // Both offline: each sees one packet and sells it.
+    const ia = sellOne(a);
+    const ib = sellOne(b);
+    expect(api['sync.alerts'](a, undefined)).toEqual([]);
+    await syncOnce(a, ta);
+    await syncOnce(b, tb);
+    await syncOnce(a, ta);
+    const stockOf = (c: Ctx) => c.db.get<{ s: number }>('SELECT SUM(qty) AS s FROM batches WHERE item_id = ?', [maggi])!.s;
+    for (const c of [a, b]) {
+      expect(stockOf(c)).toBe(-1);
+      expect(c.db.get('SELECT 1 FROM invoices WHERE id = ?', [ia.id]) && c.db.get('SELECT 1 FROM invoices WHERE id = ?', [ib.id])).toBeTruthy();
+      const alerts = api['sync.alerts'](c, undefined);
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].kind).toBe('stock');
+      expect(alerts[0].message).toContain('Maggi 70g went 1 Pcs short');
+      expect(alerts[0].bills.map((x) => x.number).sort()).toEqual([ia.number, ib.number].sort());
+      expect(alerts[0].bills.find((x) => x.number === ib.number)!.device).toBe(c === b ? 'this device' : 'device B');
+      expect(balanced(c)).toBe(true);
+    }
+    // The owner records the purchase nobody entered: the alert closes itself.
+    api['invoices.create'](a, { kind: 'purchase', partyId: sup, supplierBillNo: 'MD-2', lines: [{ itemId: maggi, unit: 'Pcs', factor: 1, qty: 12, rate: 1200 }] } as never);
+    expect(api['sync.alerts'](a, undefined)).toEqual([]);
+    await syncOnce(a, ta);
+    await syncOnce(b, tb);
+    expect(api['sync.alerts'](b, undefined)).toEqual([]);
+    expect(api['sync.alerts'](b, { includeResolved: true })[0].resolvedAt).toBeTruthy();
+  });
+
+  it('a big bill on one device and a small one on the other: both are named, whatever the clocks say', async () => {
+    const { a, b, ta, tb } = await twoCounters();
+    login(a);
+    const sup = api['parties.save'](a, { kind: 'supplier', name: 'Salt Agency' });
+    const salt = api['items.save'](a, { name: 'Rock Salt', gst_rate: 0, base_unit: 'Pcs', mrp: 3000, retail_price: 3000, purchase_price: 2500 }) as number;
+    api['invoices.create'](a, { kind: 'purchase', partyId: sup, supplierBillNo: 'SA-1', lines: [{ itemId: salt, unit: 'Pcs', factor: 1, qty: 5, rate: 2500 }] } as never);
+    await syncOnce(a, ta);
+    await syncOnce(b, tb);
+    const ia = api['invoices.create'](a, { kind: 'sale', lines: [{ itemId: salt, unit: 'Pcs', factor: 1, qty: 1, rate: 3000 }], payments: [{ mode: 'cash', amount: 3000 }] } as never);
+    const ib = api['invoices.create'](b, { kind: 'sale', lines: [{ itemId: salt, unit: 'Pcs', factor: 1, qty: 5, rate: 3000 }], payments: [{ mode: 'cash', amount: 15000 }] } as never);
+    await syncOnce(b, tb);
+    await syncOnce(a, ta);
+    await syncOnce(b, tb);
+    for (const c of [a, b]) {
+      const al = api['sync.alerts'](c, undefined);
+      expect(al).toHaveLength(1);
+      expect(al[0].message).toContain('Rock Salt went 1 Pcs short');
+      expect(al[0].bills.map((x) => x.number).sort()).toEqual([ia.number, ib.number].sort());
+    }
+  });
+
+  it('one counter overselling on its own is not a sync alert (the bill screen already warned)', async () => {
+    const { a, b, ta, tb } = await twoCounters();
+    login(a);
+    const item = api['items.save'](a, { name: 'Rare Biscuit', gst_rate: 18, base_unit: 'Pcs', mrp: 1000, retail_price: 1000, purchase_price: 800 }) as number;
+    api['invoices.create'](a, { kind: 'sale', lines: [{ itemId: item, unit: 'Pcs', factor: 1, qty: 2, rate: 1000 }], payments: [{ mode: 'cash', amount: 2000 }] } as never);
+    await syncOnce(a, ta);
+    await syncOnce(b, tb);
+    expect(api['sync.alerts'](b, undefined)).toEqual([]);
+  });
+
+  it('udhaar given on two devices past the credit limit is flagged', async () => {
+    const { a, b, ta, tb } = await twoCounters();
+    login(a);
+    const cust = api['parties.save'](a, { kind: 'customer', name: 'Verma ji', phone: '9822000077', credit_limit: 10000 });
+    const item = a.db.get<{ id: number }>('SELECT id FROM items WHERE is_loose = 0 AND retail_price > 0 ORDER BY id LIMIT 1')!.id;
+    await syncOnce(a, ta);
+    await syncOnce(b, tb);
+    const credit = (c: Ctx) => api['invoices.create'](c, { kind: 'sale', partyId: cust, lines: [{ itemId: item, unit: 'Pcs', factor: 1, qty: 1, rate: 8000 }] } as never);
+    credit(a);
+    credit(b); // each is within ₹100 on its own
+    await syncOnce(a, ta);
+    await syncOnce(b, tb);
+    await syncOnce(a, ta);
+    for (const c of [a, b]) {
+      const al = api['sync.alerts'](c, undefined).filter((x) => x.kind === 'credit');
+      expect(al).toHaveLength(1);
+      expect(al[0].message).toMatch(/Verma ji is ₹\d+\.\d\d over the credit limit/);
+      expect(al[0].bills).toHaveLength(2);
+    }
+  });
+
   it('a payment taken on one device settles the bill on the other', async () => {
     const { a, b, ta, tb } = await twoCounters();
     const item = a.db.get<{ id: number; price: number }>('SELECT id, retail_price AS price FROM items WHERE is_loose = 0 AND retail_price > 0 ORDER BY id LIMIT 1')!;

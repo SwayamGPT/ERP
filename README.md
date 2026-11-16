@@ -144,6 +144,7 @@ server/              Go + Postgres cloud sync and backup service
 e2e/                 Playwright journeys (incl. two-browser phone ↔ computer and cloud sync)
 .github/workflows/   desktop installers (Windows / macOS) and Android APK
 docs/ROADMAP.md      Product checklist
+docs/SYNC.md         How devices sync, and what happens when two sell the last packet
 ```
 
 ## Run it

@@ -12,6 +12,7 @@ import { useT } from '../../lib/i18n';
 import { useCan } from '../../lib/perm';
 import { useUi } from '../../lib/store';
 import { useAction, useApi } from '../../lib/useApi';
+import { SyncAlerts } from './SyncAlerts';
 
 export function Dashboard() {
   const t = useT();
@@ -46,6 +47,7 @@ export function Dashboard() {
         </div>
       </div>
 
+      <SyncAlerts />
       <StaffRequestAlert />
       <ReminderQueue />
       <OrdersAlert />

@@ -64,10 +64,13 @@ function send<T>(msg: Record<string, unknown>, transfer?: Transferable[]): Promi
   });
 }
 
+// networkMode 'always': every query reads the local database, so it must run with the internet
+// down too (React Query's default pauses queries while the browser says it is offline — an
+// offline counter would show ₹0 totals and could not save bills).
 export const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 5_000, refetchOnWindowFocus: false, retry: false },
-    mutations: { retry: false },
+    queries: { staleTime: 5_000, refetchOnWindowFocus: false, retry: false, networkMode: 'always' },
+    mutations: { retry: false, networkMode: 'always' },
   },
 });
 

@@ -170,3 +170,63 @@ test('two counters and a salesman phone share one shop through the cloud; encryp
   await a.getByTestId('cloud-restore-go').click();
   await expect(a.getByTestId('toast').filter({ hasText: 'Backup restored' })).toBeVisible({ timeout: 30_000 });
 });
+
+test('two counters offline sell the last of an item: both bills stand and the dashboard flags it', async ({ browser }) => {
+  test.setTimeout(180_000);
+  const a = await freshPage(browser);
+  await openShop(a);
+  await a.goto('/#/settings?tab=cloud');
+  await a.getByTestId('cloud-server').fill(SERVER);
+  await a.getByTestId('cloud-email').fill(`oversell${Date.now()}@kirana.in`);
+  await a.getByTestId('cloud-password').fill('secret123');
+  await a.getByTestId('cloud-signin').click();
+  await a.getByTestId('cloud-connect').click();
+  await expect(a.getByTestId('sync-state')).toContainText('Synced', { timeout: 30_000 });
+  await a.getByTestId('cloud-add-device').click();
+  const code = (await a.getByTestId('pairing-code').textContent())!.trim();
+  await a.keyboard.press('Escape');
+  const b = await freshPage(browser);
+  await b.goto('/');
+  await b.getByTestId('ob-join').click();
+  await b.getByTestId('join-code').fill(code);
+  await b.getByTestId('join-server').fill(SERVER);
+  await b.getByTestId('join-go').click();
+  await unlock(b, /Rakesh/, '1234');
+  await expect(b.getByTestId('sync-state')).toContainText(/Synced/);
+
+  // How many packets of salt are on the shelf (the same on both counters)?
+  await b.goto('/#/pos');
+  await b.getByTestId('pos-search').fill('iodised salt');
+  const stockText = await b.getByTestId('pos-results').getByText(/\d+ Pcs/).first().innerText();
+  const stock = Number(/(\d+)/.exec(stockText)![1]);
+  expect(stock).toBeGreaterThan(0);
+  await b.getByTestId('pos-search').fill('');
+
+  // The internet drops. Counter 2 sells all of it; counter 1 sells one more.
+  await a.context().setOffline(true);
+  await b.context().setOffline(true);
+  await a.goto('/#/pos');
+  await addItem(b, 'iodised salt', String(stock));
+  await b.keyboard.press('F10');
+  await expect(b.getByTestId('toast').filter({ hasText: /Bill INV-B-\d+ saved/ })).toBeVisible();
+  await addItem(a, 'iodised salt', '1');
+  await a.keyboard.press('F10');
+  await expect(a.getByTestId('toast').filter({ hasText: /Bill INV-\d+ saved/ })).toBeVisible();
+  await expect(a.getByTestId('sync-state')).toContainText('Offline');
+
+  // Back online: sync both ways; the owner's dashboard shows what happened.
+  await a.context().setOffline(false);
+  await b.context().setOffline(false);
+  await expect(async () => {
+    await b.getByTestId('sync-state').click();
+    await a.getByTestId('sync-state').click();
+    await a.goto('/#/sales'); // leave and come back so the dashboard reads afresh
+    await a.goto('/#/');
+    await expect(a.getByTestId('sync-alert')).toBeVisible({ timeout: 3000 });
+  }).toPass({ timeout: 60_000 });
+  await expect(a.getByTestId('sync-alert')).toContainText(/Iodised Salt.* went 1 Pcs short/i);
+  await expect(a.getByTestId('sync-alert')).toContainText('INV-B-');
+  await expect(a.getByTestId('sync-alert')).toContainText('device B');
+  await a.getByTestId('sync-alert-dismiss').click();
+  await expect(a.getByTestId('sync-alert')).toHaveCount(0);
+});
