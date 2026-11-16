@@ -1,13 +1,14 @@
 import { isMobile } from '@hisaab/core';
-import { BadgeIndianRupee, CalendarCheck, Check, Gift, HandCoins, MessageSquareText, Pencil, Plus, Send, UserRound, Users, X } from 'lucide-react';
+import { BadgeIndianRupee, CalendarCheck, Check, Gift, HandCoins, MessageSquareText, Pencil, Plus, Printer, Send, UserRound, Users, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, Dialog, Drawer, EmptyState, Field, Input, Loading, MoneyInput, PageHeader, Segmented, Select, Switch } from '../../components/ui';
+import { Badge, Button, Card, Dialog, Drawer, EmptyState, Field, Input, Loading, MoneyInput, PageHeader, Segmented, Select, Switch, toast } from '../../components/ui';
 import { relative } from '../../lib/format';
 import type { PayMode } from '../../db/types';
 import type { Employee, SalaryRow, StaffRequest } from '../../db/repos/staff';
 import { cn } from '../../lib/cn';
 import { fmtDate, inr, prevMonth, thisMonth } from '../../lib/format';
 import { whatsappLink } from '../../lib/share';
+import { printStaffReceipt } from './StaffReceiptDoc';
 import { useAction, useApi } from '../../lib/useApi';
 import { PayExpenseDialog } from '../expenses/ExpenseDialog';
 
@@ -134,7 +135,14 @@ function AdvanceDialog({ employee, onClose }: { employee: Employee; onClose: () 
   const [amount, setAmount] = useState(0);
   const [mode, setMode] = useState<PayMode>('cash');
   const [note, setNote] = useState('');
-  const act = useAction('staff.advance', { success: direction === 'give' ? 'Advance recorded' : 'Repayment recorded', onSuccess: onClose });
+  const [printIt, setPrintIt] = useState(true);
+  const act = useAction('staff.advance', {
+    onSuccess: (id) => {
+      toast.success(direction === 'give' ? 'Money given recorded' : 'Repayment recorded', undefined, { label: 'Print receipt', run: () => void printStaffReceipt({ kind: 'move', id }) });
+      if (printIt) void printStaffReceipt({ kind: 'move', id });
+      onClose();
+    },
+  });
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()} title={`Give money · ${employee.name}`} description={employee.advance ? `${inr(employee.advance)} already taken before payday — you decide how much to adjust at salary time.` : 'An advance or a small amount on request. You decide how much to adjust at salary time.'} size="sm"
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={act.isPending} disabled={amount <= 0} onClick={() => act.mutate({ employeeId: employee.id, amount, mode, direction, note })} data-testid="advance-save">Save</Button></>}>
@@ -148,6 +156,7 @@ function AdvanceDialog({ employee, onClose }: { employee: Employee; onClose: () 
         <Field label="Amount"><MoneyInput autoFocus value={amount} onChange={setAmount} data-testid="advance-amount" /></Field>
         <Segmented size="sm" value={mode} onChange={setMode} options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'bank', label: 'Bank' }]} />
         <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Diwali advance" /></Field>
+        <Switch checked={printIt} onChange={setPrintIt} label="Print a receipt" hint="A hard copy of the money taken, with this month's total — one copy for them, one signed for the shop." />
       </div>
     </Dialog>
   );
@@ -267,6 +276,11 @@ function EmployeeDrawer({ id, onClose, onEdit, onAdvance, onBonus }: { id: numbe
                           href={whatsappLink(e.phone, salarySlip(company.name, e.name, monthName(t.note), t.amount, e.advance))}>
                           <Send className="h-3.5 w-3.5" />
                         </a>
+                      )}
+                      {!t.cancelled && (t.kind.endsWith('_paid') || t.kind === 'advance' || t.kind === 'advance_return' || t.kind === 'advance_recovery') && (
+                        <button className="text-muted hover:text-ink" title="Print receipt" onClick={() => void printStaffReceipt({ kind: t.kind.endsWith('_paid') ? 'pay' : 'move', id: t.ref_id })} data-testid="staff-receipt-print">
+                          <Printer className="h-3.5 w-3.5" />
+                        </button>
                       )}
                       <span className={cn('font-medium tnum', KIND[t.kind]?.sign === -1 && 'text-bad', KIND[t.kind]?.sign === 1 && 'text-good')}>{inr(t.amount)}</span>
                     </span>

@@ -1,3 +1,4 @@
+import { DocPrintHost } from './components/print/PrintDoc';
 import { AppWindow } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { MobileApp } from './features/mobile/MobileApp';
@@ -58,6 +59,7 @@ export function App({ blocked }: { blocked: boolean }) {
       <Boot />
       <Toaster />
       <PrintHost />
+      <DocPrintHost />
     </>
   );
 }

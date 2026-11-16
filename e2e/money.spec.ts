@@ -73,7 +73,7 @@ test('staff: advance, salary run and payment with the advance adjusted', async (
   await page.getByTestId('salary-pay').click();
   await expect(page.getByTestId('pay-expense-amount')).toHaveValue('10000'); // 12,000 − 2,000 advance
   await page.getByTestId('pay-expense-save').click();
-  await expect(page.getByTestId('toast').filter({ hasText: 'Salary payment recorded' })).toBeVisible();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Salary paid in full' })).toBeVisible();
   await expect(page.getByTestId('staff-timeline')).toContainText('Advance adjusted in salary');
   await page.keyboard.press('Escape');
   const row = page.getByTestId('staff-table').locator('tr', { hasText: 'Sunil' });
@@ -227,4 +227,52 @@ test('optional "served by" on bills feeds sales-by-staff and the incentive in sa
   await page.goto('/#/staff');
   await page.getByTestId('salary-run').click();
   await expect(page.getByTestId('salary-incentive')).toHaveValue('26.1'); // 2% of ₹1,304.76
+});
+
+test('staff receipts: money taken before payday, a part payment, then the rest', async ({ page }) => {
+  // Keep the printed sheet on the page (as the Android app does) so it can be read here.
+  await page.addInitScript(() => {
+    const w = window as unknown as { HisaabAndroid: unknown; __printed: string[] };
+    w.__printed = [];
+    w.HisaabAndroid = { print: (t: string) => w.__printed.push(t) };
+  });
+  await openShop(page);
+  await page.goto('/#/staff');
+  await page.getByTestId('staff-new').click();
+  await page.getByTestId('staff-name').fill('Kavita');
+  await page.getByTestId('staff-salary').fill('10000');
+  await page.getByTestId('staff-save').click();
+
+  await page.getByTestId('staff-table').locator('tr', { hasText: 'Kavita' }).getByRole('button', { name: 'Give money' }).click();
+  await page.getByTestId('advance-amount').fill('1500');
+  await page.getByTestId('advance-save').click();
+  const sheet = page.getByTestId('print-doc');
+  await expect(sheet).toContainText('MONEY TAKEN BEFORE PAYDAY');
+  await expect(sheet).toContainText('Employee copy');
+  await expect(sheet).toContainText('Shop copy');
+  await expect(sheet.getByTestId('staff-receipt').first()).toContainText('₹1,500.00');
+  await expect(sheet.getByTestId('staff-receipt').first()).toContainText('Signature of Kavita');
+
+  await page.getByTestId('salary-run').click();
+  await page.getByTestId('salary-create').click();
+  await page.getByTestId('staff-table').getByText('Kavita').click();
+  await page.getByTestId('salary-pay').click();
+  await page.getByTestId('pay-expense-amount').fill('5000'); // part: ₹5,000 + ₹1,500 advance adjusted
+  await page.getByTestId('pay-expense-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Part payment recorded · ₹3,500.00 still due' })).toBeVisible();
+  const first = sheet.getByTestId('staff-receipt').first();
+  await expect(first).toContainText('PART PAYMENT');
+  await expect(first).toContainText('Adjusted from advance');
+  await expect(first.getByTestId('receipt-balance')).toHaveText('₹3,500.00');
+  await expect(first.getByTestId('receipt-taken')).toContainText('₹1,500.00');
+
+  await page.getByTestId('salary-pay').click();
+  await expect(page.getByTestId('pay-expense-amount')).toHaveValue('3500');
+  await page.getByTestId('pay-expense-save').click();
+  await expect(sheet.getByTestId('staff-receipt').first()).toContainText('PAID IN FULL');
+  await expect(sheet.getByTestId('staff-receipt').first().getByTestId('receipt-balance')).toHaveText('₹0.00');
+
+  // Any earlier payment can be printed again from the history.
+  await page.getByTestId('staff-receipt-print').last().click();
+  await expect(sheet.getByTestId('staff-receipt').first()).toContainText('MONEY TAKEN BEFORE PAYDAY');
 });

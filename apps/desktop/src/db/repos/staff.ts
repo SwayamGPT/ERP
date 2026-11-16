@@ -203,7 +203,13 @@ export function runSalary(ctx: Ctx, input: { period: string; rows: Array<{ emplo
 /** Pay a salary or bonus bill: cash/bank part plus (optionally) the part adjusted from their advance. */
 export function paySalary(ctx: Ctx, input: { expenseId: number; amount: number; mode: PayMode; recoverAdvance?: number; date?: string }) {
   guard(ctx, 'payroll.manage');
-  return payExpense(ctx, { id: input.expenseId, amount: input.amount, mode: input.mode, recoverAdvance: input.recoverAdvance, date: input.date });
+  const x = payExpense(ctx, { id: input.expenseId, amount: input.amount, mode: input.mode, recoverAdvance: input.recoverAdvance, date: input.date });
+  // Which receipt prints this payment: the cash part, or (advance adjusted only) the adjustment.
+  const receipt: { kind: 'pay' | 'move'; id: number } =
+    input.amount > 0
+      ? { kind: 'pay', id: ctx.db.get<{ id: number }>('SELECT MAX(id) AS id FROM payments WHERE expense_id = ?', [input.expenseId])!.id }
+      : { kind: 'move', id: ctx.db.get<{ id: number }>("SELECT MAX(id) AS id FROM money_moves WHERE expense_id = ? AND kind = 'advance_recovery'", [input.expenseId])!.id };
+  return { ...x, receipt };
 }
 
 /** Give money before payday (an advance or a small amount on request), or record the employee paying some back. */
@@ -401,3 +407,152 @@ function addDaysIso(iso: string, n: number) {
 export const monthLabel = (period: string) => new Date(Date.UTC(+period.slice(0, 4), +period.slice(5, 7) - 1, 1)).toLocaleString('en-IN', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 
 export { getExpense };
+
+/* ───────── receipts for money paid to staff ───────── */
+
+export interface ReceiptLine {
+  date: string;
+  label: string;
+  amount: number;
+  mode: string | null;
+  /** Part of the payment this receipt is for. */
+  current: boolean;
+}
+
+export type StaffReceipt =
+  | {
+      type: 'salary';
+      number: string;
+      date: string;
+      cancelled: boolean;
+      employee: { name: string; designation: string | null; phone: string | null };
+      title: string;
+      period: string | null;
+      /** How the salary was worked out (salary bills from the salary run). */
+      working: { monthly: number; daysInMonth: number; paidDays: number; bonus: number; incentive: number; deduction: number } | null;
+      billAmount: number;
+      paidNow: number;
+      adjustedNow: number;
+      mode: string | null;
+      history: ReceiptLine[];
+      paidToDate: number;
+      balance: number;
+      /** Money taken before payday in the salary month (advances and amounts on request). */
+      takenInMonth: ReceiptLine[];
+      advanceOutstanding: number;
+    }
+  | {
+      type: 'advance' | 'advance_return';
+      number: string;
+      date: string;
+      cancelled: boolean;
+      employee: { name: string; designation: string | null; phone: string | null };
+      amount: number;
+      mode: string | null;
+      note: string | null;
+      takenInMonth: ReceiptLine[];
+      advanceOutstanding: number;
+    };
+
+const MONEY_TAKEN = "('advance')";
+
+/**
+ * A printable receipt for money handed to a staff member: a salary or bonus payment (full or part,
+ * with what was paid before and what is still due), or money given before payday.
+ * `kind: 'pay'` is a payment against a salary / bonus bill; `kind: 'move'` an advance, a repayment,
+ * or an advance adjusted in salary.
+ */
+export function staffReceipt(ctx: Ctx, input: { kind: 'pay' | 'move'; id: number }): StaffReceipt {
+  guard(ctx, 'payroll.manage');
+  let expenseId: number | null = null;
+  let move: { id: number; kind: string; amount: number; mode: string | null; note: string | null; date: string; employee_id: number; cancelled: number; created_at: string } | undefined;
+  if (input.kind === 'pay') {
+    const p = ctx.db.get<{ expense_id: number | null }>('SELECT expense_id FROM payments WHERE id = ?', [input.id]);
+    if (!p?.expense_id) throw new AppError('Payment not found.', 'NOT_FOUND');
+    expenseId = p.expense_id;
+  } else {
+    move = ctx.db.get('SELECT id, kind, amount, mode, note, date, employee_id, cancelled, created_at, expense_id FROM money_moves WHERE id = ? AND employee_id IS NOT NULL', [input.id]);
+    if (!move) throw new AppError('Entry not found.', 'NOT_FOUND');
+    if (move.kind === 'advance_recovery') expenseId = (move as unknown as { expense_id: number | null }).expense_id;
+    else if (move.kind !== 'advance' && move.kind !== 'advance_return') throw new AppError('No receipt for this entry.');
+  }
+  const employeeOf = (id: number) => ctx.db.get<{ name: string; designation: string | null; phone: string | null }>('SELECT name, designation, phone FROM employees WHERE id = ?', [id])!;
+  // "As of this receipt" by position in the books (ledger entry ids), not by the clock.
+  const lastLedgerId = (type: string, id: number) => ctx.db.get<{ s: number | null }>('SELECT MAX(id) AS s FROM ledger_entries WHERE voucher_type = ? AND voucher_id = ?', [type, id])?.s ?? 0;
+  let upToLedger = 0;
+  const advanceAsOf = (employeeId: number) =>
+    ctx.db.get<{ b: number }>("SELECT COALESCE(SUM(debit - credit), 0) AS b FROM ledger_entries WHERE account = 'EMP_ADVANCE' AND employee_id = ? AND id <= ?", [employeeId, upToLedger])!.b;
+  const taken = (employeeId: number, month: string) =>
+    ctx.db
+      .query<{ id: number; date: string; amount: number; mode: string | null; note: string | null }>(
+        `SELECT m.id, m.date, m.amount, m.mode, m.note FROM money_moves m WHERE m.employee_id = ? AND m.kind IN ${MONEY_TAKEN} AND m.cancelled = 0 AND substr(m.date, 1, 7) = ?
+           AND (SELECT MIN(l.id) FROM ledger_entries l WHERE l.voucher_type = 'move' AND l.voucher_id = m.id) <= ? ORDER BY m.date, m.id`,
+        [employeeId, month, upToLedger],
+      )
+      .map((m) => ({ date: m.date, label: m.note || 'Money taken', amount: m.amount, mode: m.mode, current: move?.id === m.id }));
+
+  if (expenseId == null) {
+    const m = move!;
+    upToLedger = lastLedgerId('move', m.id);
+    return {
+      type: m.kind as 'advance' | 'advance_return',
+      number: `ADV-${m.id}`,
+      date: m.date,
+      cancelled: !!m.cancelled,
+      employee: employeeOf(m.employee_id),
+      amount: m.amount,
+      mode: m.mode,
+      note: m.note,
+      takenInMonth: taken(m.employee_id, m.date.slice(0, 7)),
+      advanceOutstanding: advanceAsOf(m.employee_id),
+    };
+  }
+
+  const x = ctx.db.get<{ id: number; employee_id: number; amount: number; description: string; salary_period: string | null; salary_detail: string | null; status: string; date: string }>(
+    'SELECT id, employee_id, amount, description, salary_period, salary_detail, status, date FROM expenses WHERE id = ? AND employee_id IS NOT NULL',
+    [expenseId],
+  );
+  if (!x) throw new AppError('Salary bill not found.', 'NOT_FOUND');
+  // Order by the books (ledger entry ids), not the clock: two payments can share a second. One
+  // "Pay" is its cash part plus the advance adjusted with it (money_moves.payment_id).
+  const seq = (type: string, id: number) => ctx.db.get<{ s: number | null }>('SELECT MIN(id) AS s FROM ledger_entries WHERE voucher_type = ? AND voucher_id = ?', [type, id])?.s ?? 0;
+  const entries = [
+    ...ctx.db
+      .query<{ date: string; amount: number; mode: string | null; id: number; cancelled: number }>('SELECT date, amount, mode, id, cancelled FROM payments WHERE expense_id = ?', [x.id])
+      .map((p) => ({ ...p, adjusted: false, batch: `pay:${p.id}`, seq: seq('expense_payment', p.id) })),
+    ...ctx.db
+      .query<{ date: string; amount: number; id: number; cancelled: number; payment_id: number | null }>("SELECT date, amount, id, cancelled, payment_id FROM money_moves WHERE expense_id = ? AND kind = 'advance_recovery'", [x.id])
+      .map((m) => ({ ...m, mode: null as string | null, adjusted: true, batch: m.payment_id ? `pay:${m.payment_id}` : `move:${m.id}`, seq: seq('move', m.id) })),
+  ];
+  const batchSeq = new Map<string, number>();
+  for (const e of entries) batchSeq.set(e.batch, Math.min(batchSeq.get(e.batch) ?? Infinity, e.seq));
+  const self = input.kind === 'pay' ? `pay:${input.id}` : entries.find((e) => e.adjusted && e.id === input.id)!.batch;
+  const selfSeq = batchSeq.get(self)!;
+  entries.sort((a, b) => batchSeq.get(a.batch)! - batchSeq.get(b.batch)! || a.seq - b.seq);
+  const current = entries.filter((e) => e.batch === self);
+  upToLedger = Math.max(...current.map((e) => lastLedgerId(e.adjusted ? 'move' : 'expense_payment', e.id)));
+  const mine = current[0];
+  const upTo = entries.filter((e) => !e.cancelled && batchSeq.get(e.batch)! <= selfSeq);
+  const d = x.salary_detail ? (JSON.parse(x.salary_detail) as { monthly: number; daysInMonth: number; paidDays: number; bonus: number; deduction: number; incentive?: number }) : null;
+  const paidToDate = upTo.reduce((s, e) => s + e.amount, 0);
+  const cashNow = current.filter((e) => !e.adjusted);
+  return {
+    type: 'salary',
+    number: `SAL-${input.kind === 'pay' ? input.id : `A${input.id}`}`,
+    date: mine.date,
+    cancelled: current.every((e) => !!e.cancelled) || x.status === 'cancelled',
+    employee: employeeOf(x.employee_id),
+    title: x.description,
+    period: x.salary_period,
+    working: d ? { monthly: d.monthly, daysInMonth: d.daysInMonth, paidDays: d.paidDays, bonus: d.bonus ?? 0, incentive: d.incentive ?? 0, deduction: d.deduction ?? 0 } : null,
+    billAmount: x.amount,
+    paidNow: cashNow.reduce((s, e) => s + e.amount, 0),
+    adjustedNow: current.filter((e) => e.adjusted).reduce((s, e) => s + e.amount, 0),
+    mode: cashNow[0]?.mode ?? null,
+    history: upTo.map((e) => ({ date: e.date, label: e.adjusted ? 'Adjusted from advance' : 'Paid', amount: e.amount, mode: e.mode, current: e.batch === self })),
+    paidToDate,
+    balance: Math.max(0, x.amount - paidToDate),
+    takenInMonth: taken(x.employee_id, x.salary_period ?? x.date.slice(0, 7)),
+    advanceOutstanding: advanceAsOf(x.employee_id),
+  };
+}

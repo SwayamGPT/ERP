@@ -1,7 +1,8 @@
 import { computeLine, validateGstin } from '@hisaab/core';
 import { Banknote, CalendarClock, Landmark, Smartphone } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Dialog, Field, Input, MoneyInput, Segmented, Select, Switch } from '../../components/ui';
+import { Button, Dialog, Field, Input, MoneyInput, Segmented, Select, Switch, toast } from '../../components/ui';
+import { printStaffReceipt } from '../staff/StaffReceiptDoc';
 import { BankPicker } from '../money/BankAccounts';
 import type { PayMode } from '../../db/types';
 import { cn } from '../../lib/cn';
@@ -157,7 +158,15 @@ export function PayExpenseDialog({ expense, onClose, advance = 0 }: { expense: {
   const [mode, setMode] = useState<PayMode>('cash');
   const [bankId, setBankId] = useState<number | null>(null);
   const [date, setDate] = useState(today());
-  const paySalary = useAction('staff.paySalary', { success: 'Salary payment recorded', onSuccess: onClose });
+  const [printIt, setPrintIt] = useState(true);
+  const paySalary = useAction('staff.paySalary', {
+    onSuccess: (r) => {
+      const left = r.amount - r.paid;
+      toast.success(left > 0 ? `Part payment recorded · ${inr(left)} still due` : 'Salary paid in full', undefined, { label: 'Print receipt', run: () => void printStaffReceipt(r.receipt) });
+      if (printIt) void printStaffReceipt(r.receipt);
+      onClose();
+    },
+  });
   const payBill = useAction('expenses.pay', { success: 'Payment recorded', onSuccess: onClose });
   const total = amount + recover;
   return (
@@ -194,6 +203,7 @@ export function PayExpenseDialog({ expense, onClose, advance = 0 }: { expense: {
         <Field label={expense.employee_id && advance > 0 ? 'Paid in money' : 'Amount'} error={total > due ? 'More than the amount due' : null}>
           <MoneyInput autoFocus value={amount} onChange={setAmount} className="[&_input]:h-11 [&_input]:text-lg" data-testid="pay-expense-amount" />
         </Field>
+        {expense.employee_id && <Switch checked={printIt} onChange={setPrintIt} label="Print a receipt for the employee" hint="Two copies on one sheet: one for them, one signed for the shop. Shows paid so far and what is still due." />}
         <div className="flex flex-wrap items-center gap-3">
           <Segmented value={mode} onChange={setMode} options={MODES.map((m) => ({ value: m.value, label: m.label }))} />
           {mode !== 'cash' && !expense.employee_id && <BankPicker value={bankId} onChange={setBankId} label="From account" />}

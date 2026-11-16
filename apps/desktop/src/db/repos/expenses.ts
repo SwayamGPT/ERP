@@ -211,8 +211,9 @@ export function payExpense(ctx: Ctx, input: { id: number; amount: number; mode: 
   const label = [e.category, e.payee].filter(Boolean).join(' · ');
   const acct = payAccount(ctx, input.mode, input.bankAccountId);
   return ctx.db.transaction(() => {
+    let pid: number | null = null;
     if (input.amount > 0) {
-      const pid = ctx.db.exec(
+      pid = ctx.db.exec(
         "INSERT INTO payments (direction, kind, amount, mode, category, reference, note, date, expense_id, created_by, created_at, bank_account_id) VALUES ('out', 'expense', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [input.amount, input.mode, e.category, input.reference ?? null, label, date, e.id, s.userId, localNow(), isBankCode(acct) ? bankIdOf(acct) : null],
       ).lastId;
@@ -223,8 +224,8 @@ export function payExpense(ctx: Ctx, input: { id: number; amount: number; mode: 
     }
     if (recover > 0) {
       const mid = ctx.db.exec(
-        "INSERT INTO money_moves (kind, amount, employee_id, expense_id, note, date, created_by, created_at) VALUES ('advance_recovery', ?, ?, ?, ?, ?, ?, ?)",
-        [recover, e.employee_id, e.id, `Adjusted from ${label}`, date, s.userId, localNow()],
+        "INSERT INTO money_moves (kind, amount, employee_id, expense_id, payment_id, note, date, created_by, created_at) VALUES ('advance_recovery', ?, ?, ?, ?, ?, ?, ?, ?)",
+        [recover, e.employee_id, e.id, pid, `Adjusted from ${label}`, date, s.userId, localNow()],
       ).lastId;
       postVoucher(ctx, 'move', mid, date, [
         { account: 'EXPENSE_PAYABLE', amount: recover, narration: 'Advance adjusted in salary' },

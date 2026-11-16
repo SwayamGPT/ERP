@@ -196,6 +196,7 @@ export const api = {
   'staff.runSalary': (ctx: Ctx, a: Parameters<typeof staff.runSalary>[1]) => staff.runSalary(ctx, a),
   'staff.paySalary': (ctx: Ctx, a: Parameters<typeof staff.paySalary>[1]) => staff.paySalary(ctx, a),
   'staff.advance': (ctx: Ctx, a: Parameters<typeof staff.staffAdvance>[1]) => staff.staffAdvance(ctx, a),
+  'staff.receipt': (ctx: Ctx, a: { kind: 'pay' | 'move'; id: number }) => staff.staffReceipt(ctx, a),
   'staff.request': (ctx: Ctx, a: { amount: number; reason?: string }) => staff.requestAdvance(ctx, a),
   'staff.withdrawRequest': (ctx: Ctx, a: { id: number }) => staff.withdrawRequest(ctx, a.id),
   'staff.myPay': (ctx: Ctx) => staff.myPay(ctx),

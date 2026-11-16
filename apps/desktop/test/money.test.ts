@@ -99,6 +99,41 @@ describe('expenses', () => {
 });
 
 describe('staff & salary', () => {
+  it('every payment to staff has a receipt: part payments show what was paid before and what is still due', () => {
+    const { ctx } = shop('2026-11-30');
+    const ravi = api['staff.save'](ctx, { name: 'Ravi', monthlySalary: 1500000, designation: 'Counter', phone: '9876543210' });
+    const adv1 = api['staff.advance'](ctx, { employeeId: ravi, amount: 100000, mode: 'cash', direction: 'give', note: 'Rent' });
+    api['staff.advance'](ctx, { employeeId: ravi, amount: 50000, mode: 'upi', direction: 'give' });
+    // The hard copy of money taken before payday
+    const a = api['staff.receipt'](ctx, { kind: 'move', id: adv1 });
+    expect(a).toMatchObject({ type: 'advance', amount: 100000, mode: 'cash', note: 'Rent', advanceOutstanding: 100000, employee: { name: 'Ravi' } });
+    expect(a.takenInMonth.map((t) => t.amount)).toEqual([100000]); // as of that receipt
+
+    const [billId] = api['staff.runSalary'](ctx, { period: '2026-11', rows: [{ employeeId: ravi, paidDays: 30 }] });
+    // First part: ₹5,000 cash and the ₹1,500 advance adjusted
+    api['staff.paySalary'](ctx, { expenseId: billId, amount: 500000, mode: 'cash', recoverAdvance: 150000 });
+    // Second part: ₹4,000 by UPI
+    api['staff.paySalary'](ctx, { expenseId: billId, amount: 400000, mode: 'upi' });
+    const pays = ctx.db.query<{ id: number }>('SELECT id FROM payments WHERE expense_id = ? ORDER BY id', [billId]);
+    const r1 = api['staff.receipt'](ctx, { kind: 'pay', id: pays[0].id });
+    if (r1.type !== 'salary') throw new Error('salary receipt expected');
+    expect(r1).toMatchObject({ period: '2026-11', billAmount: 1500000, paidNow: 500000, adjustedNow: 150000, mode: 'cash', paidToDate: 650000, balance: 850000, advanceOutstanding: 0 });
+    expect(r1.working).toMatchObject({ monthly: 1500000, paidDays: 30, daysInMonth: 30 });
+    expect(r1.history.map((h) => [h.label, h.amount, h.current])).toEqual([['Paid', 500000, true], ['Adjusted from advance', 150000, true]]);
+    expect(r1.takenInMonth.map((t) => t.amount)).toEqual([100000, 50000]);
+    const r2 = api['staff.receipt'](ctx, { kind: 'pay', id: pays[1].id });
+    if (r2.type !== 'salary') throw new Error('salary receipt expected');
+    expect(r2).toMatchObject({ paidNow: 400000, adjustedNow: 0, mode: 'upi', paidToDate: 1050000, balance: 450000 });
+    expect(r2.history.map((h) => h.current)).toEqual([false, false, true]);
+    // The rest: a full-payment receipt
+    api['staff.paySalary'](ctx, { expenseId: billId, amount: 450000, mode: 'cash' });
+    const last = ctx.db.get<{ id: number }>('SELECT MAX(id) AS id FROM payments WHERE expense_id = ?', [billId])!.id;
+    expect(api['staff.receipt'](ctx, { kind: 'pay', id: last })).toMatchObject({ paidToDate: 1500000, balance: 0 });
+    // the adjustment entry opens the receipt of the payment it was part of
+    const rec = ctx.db.get<{ id: number }>("SELECT id FROM money_moves WHERE kind = 'advance_recovery'")!.id;
+    expect(api['staff.receipt'](ctx, { kind: 'move', id: rec })).toMatchObject({ paidNow: 500000, adjustedNow: 150000 });
+  });
+
   it('runs salary with days worked, recovers advance, keeps salaries private', () => {
     const { ctx, bal } = shop('2026-11-30');
     const ravi = api['staff.save'](ctx, { name: 'Ravi', monthlySalary: 1500000, designation: 'Counter', phone: '9876543210' });

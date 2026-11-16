@@ -995,6 +995,13 @@ CREATE TABLE _sync_alerts (
 CREATE UNIQUE INDEX idx_sync_alerts_open ON _sync_alerts(kind, ref_id) WHERE resolved_at IS NULL AND dismissed_at IS NULL;
 `,
   },
+  {
+    version: 20,
+    name: 'advance adjusted in a salary payment knows its payment (for the receipt)',
+    sql: /* sql */ `
+ALTER TABLE money_moves ADD COLUMN payment_id INTEGER REFERENCES payments(id);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {
