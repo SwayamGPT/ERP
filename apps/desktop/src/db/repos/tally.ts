@@ -47,6 +47,7 @@ const FIXED: Record<string, { name: string; parent: string; dutyHead?: TallyLedg
   DISCOUNT_ALLOWED: { name: 'Discount Allowed', parent: 'Indirect Expenses' },
   DISCOUNT_RECEIVED: { name: 'Discount Received', parent: 'Indirect Incomes' },
   WALKIN: { name: 'Cash Customers', parent: 'Sundry Debtors' },
+  PURCHASE_NOBILL: { name: 'Purchase - Without GST Bill', parent: 'Purchase Accounts' },
 };
 
 /** Keys for the sales / purchase ledger of a GST rate, e.g. SALES@18, SALES_IS@18 (inter-state). */
@@ -114,6 +115,7 @@ interface InvoiceRow {
   supplier_bill_no: string | null;
   ref_invoice_id: number | null;
   notes: string | null;
+  no_bill: number;
 }
 
 const VOUCHER_FOR_INVOICE: Record<InvoiceRow['kind'], TallyVoucherType> = { sale: 'Sales', purchase: 'Purchase', sale_return: 'Credit Note', purchase_return: 'Debit Note' };
@@ -260,7 +262,7 @@ export function tallyVouchers(ctx: Ctx, opts: { from: string; to: string }) {
   }
 
   const invoices = new Map(
-    ctx.db.query<InvoiceRow>('SELECT id, kind, number, date, party_id, party_gstin, place_of_supply, inter_state, supplier_bill_no, ref_invoice_id, notes FROM invoices WHERE date BETWEEN ? AND ?', [opts.from, opts.to]).map((i) => [i.id, i]),
+    ctx.db.query<InvoiceRow>('SELECT id, kind, number, date, party_id, party_gstin, place_of_supply, inter_state, supplier_bill_no, ref_invoice_id, notes, no_bill FROM invoices WHERE date BETWEEN ? AND ?', [opts.from, opts.to]).map((i) => [i.id, i]),
   );
   const invNumber = (id: number | null) => (id ? (invoices.get(id)?.number ?? ctx.db.get<{ number: string }>('SELECT number FROM invoices WHERE id = ?', [id])?.number ?? null) : null);
   const lines = (invoiceId: number) =>
@@ -298,7 +300,8 @@ export function tallyVouchers(ctx: Ctx, opts: { from: string; to: string }) {
           qty: (l.qty + l.free_qty) * (l.factor || 1),
           billedQty: l.qty * (l.factor || 1),
           amount: stockIn ? l.taxable : -l.taxable,
-          ledger: n.rateLedger(isSaleSide ? 'SALES' : 'PURCHASE', l.gst_rate, !!inv.inter_state),
+          // Bought without a GST bill: its own ledger, outside Tally's GST rate ledgers.
+          ledger: inv.no_bill ? n.account('PURCHASE_NOBILL') : n.rateLedger(isSaleSide ? 'SALES' : 'PURCHASE', l.gst_rate, !!inv.inter_state),
         };
       });
       const valueAccount = isSaleSide ? 'SALES' : 'PURCHASE';

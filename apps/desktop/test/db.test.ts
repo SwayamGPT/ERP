@@ -482,6 +482,29 @@ describe('buying without a GST bill', () => {
   });
 });
 
+describe('purchases without a GST bill stay out of GST returns', () => {
+  it('cash and challan purchases are not inward supplies: not counted, no nil-rated inward, no ITC; a real GST bill is', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Biscuit carton', gst_rate: 18, base_unit: 'Pcs', mrp: 50000, retail_price: 48000, purchase_price: 40000 });
+    const exempt = api['items.save'](ctx, { name: 'Loose rice', gst_rate: 0, base_unit: 'Kg', mrp: 6000, retail_price: 6000, purchase_price: 5000 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Challan Traders', gstin: `27AAKFM4821K1Z${gstinCheckChar('27AAKFM4821K1Z')}` });
+    const nb = api['invoices.create'](ctx, { kind: 'purchase', noBill: true, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 2, rate: 40000 }, { itemId: exempt, unit: 'Kg', factor: 1, qty: 10, rate: 5000 }] });
+    const period = nb.date.slice(0, 7);
+    const before = api['gst.summary'](ctx, { period });
+    expect(before.counts.purchases).toBe(0);
+    expect(JSON.stringify(before.gstr3b)).not.toContain('"txval":500'); // the rice is not reported as nil-rated inward
+    // returning part of a challan purchase is not a GST document either
+    api['invoices.return'](ctx, { invoiceId: nb.id, lines: [{ lineId: ctx.db.get<{ id: number }>('SELECT id FROM invoice_lines WHERE invoice_id = ? ORDER BY id LIMIT 1', [nb.id])!.id, qty: 1 }] } as never);
+    expect(api['gst.summary'](ctx, { period }).counts.purchases).toBe(0);
+    expect(api['gst.summary'](ctx, { period }).counts.returns).toBe(0);
+    // the supplier's GST invoice when it comes
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: 'CT-501', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 40000 }] });
+    const after = api['gst.summary'](ctx, { period });
+    expect(after.counts.purchases).toBe(1);
+    expect(after.net.itc.cgst + after.net.itc.sgst).toBeGreaterThan(0);
+  });
+});
+
 describe('people: delete, and what the owner allows each person', () => {
   it('owner takes credit away from a salesman and a cashier; removed users cannot sign in', () => {
     const ctx = setup('kirana', false);

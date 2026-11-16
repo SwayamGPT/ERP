@@ -222,7 +222,12 @@ export function gstDocs(ctx: Ctx, period: string): GstDoc[] {
   const from = `${period}-01`;
   const to = `${period}-31`;
   const invs = ctx.db.query<{ id: number; kind: GstDoc['type']; number: string; date: string; party_gstin: string | null; party_name: string; place_of_supply: string; inter_state: number; total: number; status: string }>(
-    'SELECT id, kind, number, date, party_gstin, party_name, place_of_supply, inter_state, total, status FROM invoices WHERE date BETWEEN ? AND ? ORDER BY date, id',
+    // Goods bought without a GST invoice (cash from a nearby shop, on a delivery challan) are not
+    // inward supplies for GST: no credit, nothing to report. Their returns are left out too.
+    `SELECT id, kind, number, date, party_gstin, party_name, place_of_supply, inter_state, total, status FROM invoices i
+     WHERE date BETWEEN ? AND ? AND no_bill = 0
+       AND NOT (kind = 'purchase_return' AND ref_invoice_id IN (SELECT id FROM invoices WHERE no_bill = 1))
+     ORDER BY date, id`,
     [from, to],
   );
   // Expense bills with a supplier GSTIN give input credit too (rent, internet, CA fees…).

@@ -224,12 +224,12 @@ export function PurchaseEntry() {
       )}
       <Card className="mb-4">
         <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-5">
-          <Field label="Bill">
+          <Field label="Bill" hint={noBill ? 'No input GST, and left out of GST returns. Enter the supplier’s invoice later as a GST bill if one comes.' : undefined}>
             <Segmented value={noBill ? 'none' : 'gst'} onChange={(v) => {
               const nb = v === 'none';
               setNoBill(nb);
               if (nb && !supplier && payNow === 'none') setPayNow('cash');
-            }} options={[{ value: 'gst', label: 'GST bill' }, { value: 'none', label: 'No bill' }]} />
+            }} options={[{ value: 'gst', label: 'GST bill' }, { value: 'none', label: 'No bill / challan' }]} />
           </Field>
           <Field label={noBill ? 'Bought from (optional)' : 'Supplier *'}>
             <button onClick={() => setPick(true)} className="input flex items-center justify-between text-left" data-testid="purchase-supplier">
