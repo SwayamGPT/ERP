@@ -19,7 +19,7 @@ test('a scan while the cursor is in the quantity box adds the item instead of ty
   const qty = page.getByTestId('line-qty').first();
   await qty.focus();
   // A scanner "types" the whole code within milliseconds and presses Enter.
-  await page.keyboard.type(salt, { delay: 3 });
+  await page.keyboard.type(salt, { delay: 1 });
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('line-qty')).toHaveCount(2);
   await expect(page.getByTestId('cart')).toContainText(/iodised salt/i);

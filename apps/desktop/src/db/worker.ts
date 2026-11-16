@@ -182,9 +182,30 @@ const SYNC_AFTER_CHANGE_MS = 3_000;
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let syncing: Promise<void> | null = null;
 
+/**
+ * A migration under review: the database as it was just before a big import, kept until the owner
+ * presses Keep or Undo. Cloud sync waits meanwhile, so an import that gets undone never reaches
+ * the other devices.
+ */
+let importCheckpoint: { at: string; auditId: number } | null = null;
+const CHECKPOINT = (id: string) => `preimport:${id}`;
+const CHECKPOINT_META = (id: string) => `preimport-meta:${id}`;
+
+async function loadCheckpoint(id: string) {
+  const raw = await storeGet(CHECKPOINT_META(id));
+  importCheckpoint = raw ? (JSON.parse(new TextDecoder().decode(raw)) as { at: string; auditId: number }) : null;
+}
+
+async function dropCheckpoint(id: string) {
+  importCheckpoint = null;
+  await storeDel(CHECKPOINT(id));
+  await storeDel(CHECKPOINT_META(id));
+}
+
 function scheduleSync(ms: number) {
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = null;
+  if (importCheckpoint) return;
   if (!adapter || !isConnected(syncState(adapter))) return;
   syncTimer = setTimeout(() => void runSync(), ms);
 }
@@ -192,6 +213,7 @@ function scheduleSync(ms: number) {
 /** One push + pull round. Never throws: errors are recorded and shown in the top bar. */
 function runSync(): Promise<void> {
   if (syncing) return syncing;
+  if (importCheckpoint) return Promise.resolve();
   const a = adapter;
   const c = ctx;
   const s = a ? syncState(a) : null;
@@ -257,6 +279,7 @@ async function open(id: string, bytes?: Uint8Array | null) {
     syncEntry();
     await flush();
   }
+  await loadCheckpoint(id);
   scheduleSync(1_000);
 }
 
@@ -367,6 +390,49 @@ self.onmessage = async (e: MessageEvent) => {
         if (!asNew) requireOwner();
         const target = asNew ? newId() : currentId!;
         await open(target, bytes);
+        return reply(meta());
+      }
+      case 'import.checkpoint': {
+        if (!ctx || !currentId) throw new AppError('Open an enterprise first.');
+        requireOwner();
+        // Several files (items, then parties…) make one migration: keep the copy from before the first.
+        if (importCheckpoint) return reply(importCheckpoint);
+        await syncing;
+        await flush();
+        const bytes = adapter!.exportDb();
+        adapter!.db.exec('PRAGMA foreign_keys = ON;');
+        const meta = { at: new Date().toISOString(), auditId: ctx.db.get<{ id: number | null }>('SELECT MAX(id) AS id FROM audit_log')?.id ?? 0 };
+        await storePut(CHECKPOINT(currentId), bytes);
+        await storePut(CHECKPOINT_META(currentId), new TextEncoder().encode(JSON.stringify(meta)));
+        importCheckpoint = meta;
+        if (syncTimer) clearTimeout(syncTimer);
+        syncTimer = null;
+        return reply(meta);
+      }
+      case 'import.status': {
+        if (!ctx || !importCheckpoint) return reply(null);
+        // Work done after the import (bills, payments…) would be lost by an undo: say how much.
+        const later = ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE id > ? AND action NOT LIKE 'import.%' AND action NOT LIKE 'auth.%'", [importCheckpoint.auditId])?.n ?? 0;
+        return reply({ ...importCheckpoint, changesSince: later });
+      }
+      case 'import.keep': {
+        if (!currentId) throw new AppError('Open an enterprise first.');
+        requireOwner();
+        await dropCheckpoint(currentId);
+        scheduleSync(500);
+        return reply(true);
+      }
+      case 'import.undo': {
+        if (!currentId) throw new AppError('Open an enterprise first.');
+        requireOwner();
+        const id = currentId;
+        const bytes = await storeGet(CHECKPOINT(id));
+        if (!bytes) throw new AppError('There is no import to undo.');
+        importCheckpoint = null; // so open() doesn't keep sync paused on the restored copy
+        await storeDel(CHECKPOINT_META(id));
+        await open(id, bytes);
+        await dropCheckpoint(id);
+        scheduleSync(1_000);
         return reply(meta());
       }
       case 'lan': {

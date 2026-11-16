@@ -30,15 +30,25 @@ export function importItems(ctx: Ctx, input: { records: ItemRecord[]; updateExis
     groups.set(key, [...(groups.get(key) ?? []), r]);
   }
   let stockNotChanged = 0;
+  // Look-ups by barcode / code / name, built once: a per-row case-insensitive search scans the whole
+  // items table, which makes a 15,000-item migration quadratic.
+  const byBarcode = new Map<string, number>();
+  const byCode = new Map<string, number>();
+  const byName = new Map<string, number>();
+  for (const it of ctx.db.query<{ id: number; barcode: string | null; short_code: string | null; name: string; active: number }>('SELECT id, barcode, short_code, name, active FROM items ORDER BY id')) {
+    if (it.barcode && !byBarcode.has(it.barcode)) byBarcode.set(it.barcode, it.id);
+    if (!it.active) continue;
+    if (it.short_code && !byCode.has(it.short_code.toLowerCase())) byCode.set(it.short_code.toLowerCase(), it.id);
+    if (!byName.has(it.name.toLowerCase())) byName.set(it.name.toLowerCase(), it.id);
+  }
+  const unitBarcodes = new Set(ctx.db.query<{ b: string }>("SELECT barcode AS b FROM item_units WHERE barcode IS NOT NULL AND barcode <> ''").map((x) => x.b));
   ctx.db.transaction(() => {
     for (const recs of groups.values()) {
       const r = recs[0];
       try {
         ctx.db.transaction(() => {
-          const existing =
-            (r.barcode && ctx.db.get<{ id: number }>('SELECT id FROM items WHERE barcode = ?', [r.barcode])) ||
-            (r.code && ctx.db.get<{ id: number }>('SELECT id FROM items WHERE short_code = ? COLLATE NOCASE AND active = 1', [r.code])) ||
-            ctx.db.get<{ id: number }>('SELECT id FROM items WHERE name = ? COLLATE NOCASE AND active = 1', [r.name]);
+          const found = (r.barcode && byBarcode.get(r.barcode)) || (r.code && byCode.get(r.code.toLowerCase())) || byName.get(r.name.toLowerCase());
+          const existing = found ? { id: found } : null;
           if (existing) {
             if (recs.some((x) => x.qty)) stockNotChanged++;
             if (!input.updateExisting) return void res.unchanged++;
@@ -64,7 +74,7 @@ export function importItems(ctx: Ctx, input: { records: ItemRecord[]; updateExis
           const id = saveItem(ctx, {
             name: r.name,
             short_code: r.code ?? null,
-            barcode: r.barcode && !ctx.db.get('SELECT 1 FROM item_units WHERE barcode = ?', [r.barcode]) ? r.barcode : null,
+            barcode: r.barcode && !unitBarcodes.has(r.barcode) ? r.barcode : null,
             category: r.category ?? null,
             brand: r.brand ?? null,
             hsn: r.hsn ?? null,
@@ -92,6 +102,9 @@ export function importItems(ctx: Ctx, input: { records: ItemRecord[]; updateExis
           }
           res.batches += stock.length;
           res.created++;
+          if (r.barcode) byBarcode.set(r.barcode, id);
+          if (r.code) byCode.set(r.code.toLowerCase(), id);
+          byName.set(r.name.toLowerCase(), id);
         });
       } catch (e) {
         res.errors.push({ row: r.row, name: r.name, reason: (e as Error).message });
@@ -141,4 +154,61 @@ export function importParties(ctx: Ctx, input: { records: PartyRecord[]; default
   });
   if (balanceSkipped) res.notes.push(`${balanceSkipped} parties already existed, so their balance was not added again.`);
   return res;
+}
+
+/* ───────── migration safety: trial run and reconciliation ───────── */
+
+/** What the books hold, for comparing an import with the old software's own totals. Money in paise. */
+export interface BookTotals {
+  items: number;
+  batches: number;
+  stockQty: number;
+  stockValue: number;
+  parties: number;
+  receivable: number;
+  payable: number;
+}
+
+export function bookTotals(ctx: Ctx): BookTotals {
+  const g = <T>(sql: string) => ctx.db.get<T>(sql)!;
+  const party = g<{ r: number; p: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN b > 0 THEN b ELSE 0 END), 0) AS r, COALESCE(SUM(CASE WHEN b < 0 THEN -b ELSE 0 END), 0) AS p
+       FROM (SELECT party_id, SUM(debit - credit) AS b FROM ledger_entries WHERE account = 'PARTY' AND party_id IS NOT NULL GROUP BY party_id)`,
+  );
+  return {
+    items: g<{ n: number }>('SELECT COUNT(*) AS n FROM items WHERE active = 1').n,
+    batches: g<{ n: number }>('SELECT COUNT(*) AS n FROM batches WHERE qty <> 0').n,
+    stockQty: Math.round(g<{ q: number }>('SELECT COALESCE(SUM(qty), 0) AS q FROM batches').q * 1000) / 1000,
+    stockValue: Math.round(g<{ v: number }>('SELECT COALESCE(SUM(qty * cost), 0) AS v FROM batches WHERE qty > 0').v),
+    parties: g<{ n: number }>('SELECT COUNT(*) AS n FROM parties WHERE is_walkin = 0 AND active = 1').n,
+    receivable: party.r,
+    payable: party.p,
+  };
+}
+
+const ROLLBACK = new Error('trial run');
+
+/**
+ * Run an import for real inside a transaction, measure what it would do, then roll everything
+ * back. Nothing is saved, synced or audited; the owner sees the outcome first.
+ */
+export function trialImport(
+  ctx: Ctx,
+  input: { kind: 'items'; records: ItemRecord[]; updateExisting?: boolean; ratesIncludeGst?: boolean } | { kind: 'parties'; records: PartyRecord[]; defaultKind?: 'customer' | 'supplier'; updateExisting?: boolean },
+) {
+  guard(ctx, 'settings.edit');
+  const before = bookTotals(ctx);
+  let out: { result: ImportResult; after: BookTotals } | null = null;
+  try {
+    ctx.db.transaction(() => {
+      const result = input.kind === 'items' ? importItems(ctx, input) : importParties(ctx, input);
+      out = { result, after: bookTotals(ctx) };
+      throw ROLLBACK;
+    });
+  } catch (e) {
+    if (e !== ROLLBACK) throw e;
+  }
+  const { result, after } = out!;
+  const delta = Object.fromEntries(Object.keys(before).map((k) => [k, Math.round(((after as never)[k] - (before as never)[k]) * 1000) / 1000])) as unknown as BookTotals;
+  return { result, before, after, delta };
 }

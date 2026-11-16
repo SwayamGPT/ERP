@@ -28,7 +28,10 @@ instead of accounting jargon, while keeping proper double-entry books underneath
 | **Many staff at the counter** | A long user list | A searchable sign-in grid, the last person first, and 4-digit PINs |
 | **Cash, banks and cheques** | One bank ledger, cheques as journal entries | Several bank accounts, deposit slips for cash and cheques, cheques counted when they clear, statement matching |
 | **Backups** | Manual copies | Automatic, encrypted backups to the owner's Google Drive on a schedule, plus encrypted cloud backups |
-| **Moving in** | Re-type everything | Import items, stock and dues from other software's Excel / CSV exports with a smart column matcher |
+| **Moving in** | Re-type everything, or a consultant's data import | Import items, batch-wise stock with expiry and party balances from Excel / CSV exports; fix problem rows, do a trial run that saves nothing, compare totals with the old software, import, and undo in one click if anything is off |
+| **Your CA** | CA asks you to stay on (or move back to) Tally | One-click Tally XML: ledgers, parties, stock items and a month's vouchers with item lines, ready for Tally import; ledger names can match the CA's |
+| **Cheap counter hardware** | A printer or scale hang can freeze the billing screen | Every device call runs apart with a deadline; receipts wait in a print queue if the printer is off; printer profiles and a test page; "Find my scale" tries the ports and speeds; scans land on the bill wherever the cursor is |
+| **Two counters offline** | One central server; offline means no billing | Each counter bills offline; when two sell the last packet, both bills stand and the owner is shown the shortfall |
 | **GST** | Separate utilities | GSTR-1, GSTR-3B, HSN summary, e-Way Bill, e-Invoice and GSTR-2B matching from the same data; GST and cess default from the HSN code |
 | **Correct numbers** | Floating-point totals, rounding surprises | Every amount in whole paise; GST rounded per line; every voucher balances to the paisa; a bill saves completely or not at all |
 
@@ -52,6 +55,10 @@ instead of accounting jargon, while keeping proper double-entry books underneath
 ### Printing & hardware (desktop app)
 - 5 templates: classic and big-print receipts (58 / 80 mm), GST tax invoice, modern A4, half-page A5 — live preview, choose how much GST to show
 - Silent ESC/POS printing to the receipt printer (F9), cash drawer kick, auto-cut, barcode labels (TSPL / ZPL), weighing scale over serial / USB
+- **Never freezes the counter**: every printer / scale call runs on its own thread with a deadline, panics are caught; a bill is saved first and its receipt waits in a print queue (with Retry) if the printer is off
+- **Printer profiles** (Epson, TVS / Retsol, Xprinter-style, 42-column, 58 mm) and a test page with five yes / no questions that tune the cut command, line width, QR code and drawer pin
+- **Find my scale** tries every port at the usual baud rates; **scanner** scans are caught even when the cursor is in the quantity box; unknown barcodes offer *Add item*
+- Diagnostics: the last 50 hardware calls with result and time
 - Step-by-step guide for 80 mm printers in Settings → Print setup
 
 ### Purchases & stock
@@ -83,6 +90,7 @@ instead of accounting jargon, while keeping proper double-entry books underneath
 - GSTR-1 and GSTR-3B JSON (GSTN offline-tool format), HSN summary
 - e-Invoice (IRN, signed QR) and e-Way Bill — test mode built in, live through a GSP
 - GSTR-2B import and matching: what's matched, what credit is at risk
+- **Export to Tally** for the CA: masters (ledgers with GSTIN and opening balances, stock items with HSN and GST) and vouchers for any period, each balanced to the paisa; ledger names can be set to the CA's own
 
 ### People & control
 - Owner / Manager / Cashier / Salesman roles, enforced in the data layer (the screen can't bypass them)
@@ -93,12 +101,15 @@ instead of accounting jargon, while keeping proper double-entry books underneath
 ### Devices, sync & backup
 - **Phones on Wi-Fi**: the shop computer serves its data to paired phones on the local network — bill, collect, check stock; print on the counter printer, a Wi-Fi printer, the phone itself, or WhatsApp
 - **Android app** (built by CI) — the phone client for the shop Wi-Fi, prints straight to Wi-Fi thermal printers, Save as PDF
-- **Cloud sync** (optional, Go server): several counters and phones share one shop, each working offline
+- **Cloud sync** (optional, Go server): several counters and phones share one shop, each working offline; stock sold twice while offline is flagged with the bills involved ([docs/SYNC.md](docs/SYNC.md))
 - Automatic encrypted backups to **Google Drive** on a schedule; encrypted cloud backups; restore as a separate business
 - Several businesses on one computer, each with its own database, staff and open bills
 
 ### Moving in
 - Import items, opening stock and party balances from Marg, Tally, Busy or any Excel / CSV export — the smart matcher finds the columns
+- **Staged migration**: checks flag duplicate barcodes, expired stock, impossible GST rates and duplicate parties; fix or skip rows; a trial run imports into a scratch copy and shows the totals (items, stock quantity, stock value at cost, receivable, payable) next to the old software's figures; the real import can be undone exactly, and cloud sync waits until it is kept
+- Batch-wise stock with expiry and each batch's own cost; 15,000 items with 30,000 batches import in about 10 seconds
+- Day-one cut-over checklist and a migration check to send to the CA
 - "Bring in your shop" quick grids for shops that were already running
 
 ### Insights

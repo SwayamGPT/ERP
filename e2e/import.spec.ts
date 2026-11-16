@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createEnterprise, openShop } from './helpers';
+import { createEnterprise, openShop, unlock } from './helpers';
 
 test('import items with stock and parties with balances from Marg-style exports', async ({ page }) => {
   await openShop(page);
@@ -34,6 +34,9 @@ test('import items with stock and parties with balances from Marg-style exports'
   await expect(page.getByTestId('map-mrp')).toHaveValue('5');
   await expect(page.getByTestId('import-preview')).toContainText('Kaju W240 500g');
   await expect(page.getByTestId('import-preview')).toContainText('DRY FRUITS');
+  await expect(page.getByTestId('import-go')).toBeDisabled(); // trial run first
+  await page.getByTestId('import-trial').click();
+  await expect(page.getByTestId('recon-items')).toContainText('matches');
   await page.getByTestId('import-go').click();
   await expect(page.getByTestId('import-summary')).toContainText('2 added');
   await expect(page.getByTestId('import-summary')).toContainText('2 opening stock batches');
@@ -42,8 +45,12 @@ test('import items with stock and parties with balances from Marg-style exports'
   await page.getByRole('button', { name: /marg-outstanding/ }).click();
   await expect(page.getByTestId('import-preview')).toContainText('Dr (owes you)');
   await expect(page.getByTestId('import-preview')).toContainText('Cr (you owe)');
+  await page.getByTestId('import-trial').click();
+  await expect(page.getByTestId('recon-receivable')).toContainText('₹3,450.00');
   await page.getByTestId('import-go').click();
   await expect(page.getByTestId('import-summary')).toContainText('2 added');
+  await page.getByTestId('import-keep').click();
+  await expect(page.getByTestId('import-review')).toHaveCount(0);
 
   await page.goto('/#/items/stock');
   await page.getByTestId('stock-search').fill('Kaju');
@@ -89,4 +96,65 @@ test('a shop that was already running lands on "bring in your shop" and adds ite
   await expect(page.getByTestId('stock-total-items')).toHaveText('2');
   await page.goto('/#/parties');
   await expect(page.getByText('Sharma Aunty')).toBeVisible();
+});
+
+test('migrating a medical store: fix rows, trial run, compare with the old software, import, undo', async ({ page }) => {
+  await openShop(page);
+  const file = join(tmpdir(), `marg-batch-stock-${Date.now()}.csv`);
+  await writeFile(file, [
+    'Item Name,Unit,Batch,Exp.,Qty,M.R.P.,P.Rate,S.Rate,GST %,HSN',
+    'Paracetamol 650 Tab 15s,NOS,PC101,08/27,40,"30.00","18.00","28.00",12,3004',
+    'Paracetamol 650 Tab 15s,NOS,PC102,11/27,25,"30.00","18.50","28.00",12,3004',
+    'Cough Syrup 100ml,NOS,CS9,01/25,6,"95.00","60.00","90.00",12,3004',
+    'Vitamin C Chewable,NOS,VC1,05/28,10,"120.00","70.00","110.00",13,2106',
+  ].join('\n'));
+  await page.goto('/#/import');
+  await page.getByTestId('cutover-toggle').click();
+  await expect(page.getByTestId('cutover')).toContainText('Keep');
+  await page.getByTestId('import-file').setInputFiles(file);
+
+  // The checks flag the expired syrup and the impossible GST rate.
+  await expect(page.getByTestId('import-preview')).toContainText('Stock already expired');
+  await expect(page.getByTestId('import-preview')).toContainText('GST 13% is not a GST rate');
+  // Fix the GST on line 5; leave the expired syrup out.
+  await page.getByTestId('fix-5').click();
+  await page.getByTestId('edit-gst').fill('12');
+  await page.getByTestId('edit-done').click();
+  await expect(page.getByTestId('import-preview')).not.toContainText('not a GST rate');
+  await page.getByTestId('skip-4').click();
+
+  // Trial run: nothing saved; totals compared with the file and with the old software.
+  await page.getByTestId('import-trial').click();
+  await expect(page.getByTestId('import-reconcile')).toContainText('Would add 2');
+  await expect(page.getByTestId('recon-items')).toContainText('matches');
+  await expect(page.getByTestId('recon-stockQty')).toContainText('75');
+  // 40 × 18 + 25 × 18.50 + 10 × 70 = 1,882.50
+  await expect(page.getByTestId('recon-stockValue')).toContainText('₹1,882.50');
+  await expect(page.getByTestId('recon-stockValue')).toContainText('matches');
+  await page.getByTestId('recon-old-stockValue').fill('2000');
+  await expect(page.getByTestId('recon-stockValue')).toContainText('−₹117.50');
+  await page.getByTestId('recon-old-stockValue').fill('1882.50');
+  await page.goto('/#/items');
+  await expect(page.getByText('Vitamin C Chewable')).toHaveCount(0); // the trial saved nothing
+
+  // Import for real, look, then undo: Hisaab is exactly as before.
+  await page.goto('/#/import');
+  await page.getByTestId('import-file').setInputFiles(file);
+  await page.getByTestId('skip-4').click();
+  await page.getByTestId('fix-5').click();
+  await page.getByTestId('edit-gst').fill('12');
+  await page.getByTestId('edit-done').click();
+  await page.getByTestId('import-trial').click();
+  await page.getByTestId('import-go').click();
+  await expect(page.getByTestId('import-summary')).toContainText('2 added · 3 opening stock batches');
+  await expect(page.getByTestId('import-review')).toBeVisible();
+  await page.goto('/#/items/stock');
+  await page.getByTestId('stock-search').fill('Paracetamol');
+  await expect(page.getByTestId('stock-row').first()).toContainText('65 Pcs');
+  await page.getByTestId('import-undo').click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Undo import' }).click();
+  await unlock(page, /Rakesh/, '1234');
+  await expect(page.getByTestId('import-review')).toHaveCount(0);
+  await page.goto('/#/items');
+  await expect(page.getByText('Paracetamol 650 Tab 15s')).toHaveCount(0);
 });

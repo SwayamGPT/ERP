@@ -151,6 +151,15 @@ export const db = {
     await queryClient.invalidateQueries();
     return r;
   },
+  /** Migration safety: copy the database before a big import, then keep the import or undo it exactly. */
+  importCheckpoint: () => send<{ at: string; auditId: number }>({ type: 'import.checkpoint' }),
+  importStatus: () => (LAN ? Promise.resolve(null) : send<{ at: string; auditId: number; changesSince: number } | null>({ type: 'import.status' })),
+  importKeep: async () => {
+    const r = await send<boolean>({ type: 'import.keep' });
+    await queryClient.invalidateQueries();
+    return r;
+  },
+  importUndo: () => entOp({ type: 'import.undo' }),
   onSave: (l: SaveListener) => {
     saveListeners.add(l);
     return () => saveListeners.delete(l);

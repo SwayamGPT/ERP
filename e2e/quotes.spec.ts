@@ -34,7 +34,7 @@ test('HSN code sets the GST rate; a quotation sells nothing until it is billed; 
   await expect(page.getByTestId('bill-from-quote')).toBeVisible();
   await page.keyboard.press('F10');
   await expect(page.getByTestId('toast').filter({ hasText: /Bill INV-\d+ saved/ })).toBeVisible();
-  expect(await stock()).not.toBe(before);
+  await expect.poll(stock).not.toBe(before); // the list refreshes just after the save
   await page.goto('/#/quotations');
   await page.getByRole('button', { name: 'All' }).click();
   await expect(page.getByTestId('quote-row').first()).toContainText('Billed');

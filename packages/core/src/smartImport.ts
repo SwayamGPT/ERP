@@ -468,3 +468,72 @@ export function toParties(d: Pick<Detected, 'body' | 'mapping'> & { bodyStart?: 
   });
   return { records, skipped };
 }
+
+/* ───────── checks before a migration ───────── */
+
+const GST_RATES = new Set([0, 0.1, 0.25, 1.5, 3, 5, 6, 7.5, 12, 18, 28, 40]);
+
+/**
+ * Problems worth a look before importing a whole shop, added to each record's warnings:
+ * the same barcode or code on two different items, stock already expired, an unusual GST rate,
+ * cost above MRP, a zero selling price, a batch line with no quantity. Returns new records.
+ */
+export function checkItems(records: ItemRecord[], today: string): ItemRecord[] {
+  const byBarcode = new Map<string, Set<string>>();
+  const byCode = new Map<string, Set<string>>();
+  for (const r of records) {
+    const n = r.name.toLowerCase();
+    if (r.barcode) byBarcode.set(r.barcode, (byBarcode.get(r.barcode) ?? new Set()).add(n));
+    if (r.code) byCode.set(r.code.toLowerCase(), (byCode.get(r.code.toLowerCase()) ?? new Set()).add(n));
+  }
+  return records.map((r) => {
+    const w = r.warnings.filter((x) => !x.startsWith('⚑ '));
+    const add = (m: string) => w.push(`⚑ ${m}`);
+    if (r.barcode && (byBarcode.get(r.barcode)?.size ?? 0) > 1) add(`Barcode ${r.barcode} is on ${byBarcode.get(r.barcode)!.size} different items in this file`);
+    if (r.code && (byCode.get(r.code.toLowerCase())?.size ?? 0) > 1) add(`Code ${r.code} is on ${byCode.get(r.code.toLowerCase())!.size} different items`);
+    if (r.expiry && r.expiry < today && (r.qty ?? 0) > 0) add('Stock already expired');
+    if (r.gst != null && !GST_RATES.has(r.gst)) add(`GST ${r.gst}% is not a GST rate`);
+    if (r.cost != null && r.mrp != null && r.mrp > 0 && r.cost > r.mrp) add('Cost is above MRP');
+    if ((r.rate ?? r.mrp ?? 0) === 0) add('No selling price');
+    if ((r.batch || r.expiry) && !r.qty) add('Batch line with no quantity');
+    return { ...r, warnings: w };
+  });
+}
+
+/** Customers / suppliers: the same name twice with different phones, missing type, huge balances. */
+export function checkParties(records: PartyRecord[]): PartyRecord[] {
+  const byName = new Map<string, number>();
+  for (const r of records) {
+    const k = `${r.kind}|${r.name.toLowerCase()}`;
+    byName.set(k, (byName.get(k) ?? 0) + 1);
+  }
+  return records.map((r) => {
+    const w = r.warnings.filter((x) => !x.startsWith('⚑ '));
+    if ((byName.get(`${r.kind}|${r.name.toLowerCase()}`) ?? 0) > 1) w.push('⚑ Same name appears more than once — only the first is imported unless the names differ');
+    return { ...r, warnings: w };
+  });
+}
+
+/** The file's own totals, to compare with the old software's report and with what was imported. */
+export function fileTotals(kind: ImportKind, records: Array<ItemRecord | PartyRecord>) {
+  if (kind === 'items') {
+    const rs = records as ItemRecord[];
+    const keys = new Set(rs.map((r) => (r.barcode || r.code || r.name).trim().toLowerCase()));
+    const stockQty = rs.reduce((s, r) => s + Math.max(0, r.qty ?? 0), 0);
+    // Cost of a batch line falls back to the item's first line, as the import does.
+    const firstCost = new Map<string, number | undefined>();
+    for (const r of rs) {
+      const k = (r.barcode || r.code || r.name).trim().toLowerCase();
+      if (!firstCost.has(k)) firstCost.set(k, r.cost);
+    }
+    const stockValue = rs.reduce((s, r) => s + Math.max(0, r.qty ?? 0) * (r.cost ?? firstCost.get((r.barcode || r.code || r.name).trim().toLowerCase()) ?? 0), 0);
+    return { items: keys.size, batches: rs.filter((r) => (r.qty ?? 0) > 0).length, stockQty: Math.round(stockQty * 1000) / 1000, stockValue: Math.round(stockValue), parties: 0, receivable: 0, payable: 0 };
+  }
+  const rs = records as PartyRecord[];
+  return {
+    items: 0, batches: 0, stockQty: 0, stockValue: 0,
+    parties: rs.length,
+    receivable: rs.reduce((s, r) => s + Math.max(0, r.balance ?? 0), 0),
+    payable: rs.reduce((s, r) => s + Math.max(0, -(r.balance ?? 0)), 0),
+  };
+}

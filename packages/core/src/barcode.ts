@@ -116,7 +116,7 @@ export class ScanDetector {
   constructor(private opts: { maxGapMs?: number; minLength?: number } = {}) {}
   /** Returns the scanned code on the terminating key, else null. `key` is KeyboardEvent.key. */
   key(key: string, at: number): string | null {
-    const gap = this.opts.maxGapMs ?? 35;
+    const gap = this.opts.maxGapMs ?? 50; // scanners: a few ms per key; people: 100 ms or more
     if (this.buf && at - this.last > gap) this.buf = '';
     this.last = at;
     if (key === 'Enter' || key === 'Tab') {
