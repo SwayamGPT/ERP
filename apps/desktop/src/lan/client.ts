@@ -141,3 +141,62 @@ export function startLanWatch(refresh: () => void) {
   const t = setInterval(() => void tick(), 4000);
   return () => clearInterval(t);
 }
+
+/* ───────── pairing links (QR code on the computer → the Android app) ───────── */
+
+/** A pairing link: `hisaab://pair?host=192.168.1.5:8787&code=123456`, or the web link the QR holds. */
+export function parsePairLink(url: string): { base: string; code: string } | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'hisaab:') {
+      const host = u.searchParams.get('host') ?? '';
+      const code = u.searchParams.get('code') ?? '';
+      if (!/^[\w.-]+(:\d+)?$/.test(host) || !/^\d{6}$/.test(code)) return null;
+      return { base: `http://${host}`, code };
+    }
+    const code = /[#&?]pair=(\d{6})/.exec(url)?.[1];
+    return code && /^https?:$/.test(u.protocol) ? { base: u.origin, code } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The link a phone browser hands to the Hisaab app: Chrome's `intent:` form opens the app that
+ * handles hisaab://pair (ours, see android/patch-manifest.mjs) and falls back to carrying on in the
+ * browser (`?web=1`) when the app isn't installed.
+ */
+export function appIntentUrl(webUrl: string): string | null {
+  const p = parsePairLink(webUrl);
+  if (!p) return null;
+  const host = p.base.replace(/^https?:\/\//, '');
+  const back = new URL(webUrl);
+  back.searchParams.set('web', '1');
+  return `intent://pair?host=${encodeURIComponent(host)}&code=${p.code}#Intent;scheme=hisaab;S.browser_fallback_url=${encodeURIComponent(back.toString())};end`;
+}
+
+let pendingCode = '';
+/** The code from a pairing link the app was opened with (shown pre-filled on the pairing screen). */
+export const pendingPairCode = () => pendingCode;
+
+/** Use a pairing link: remember which computer, and pair again if it's a different one. */
+export function acceptPairLink(url: string): boolean {
+  const p = parsePairLink(url);
+  if (!p) return false;
+  pendingCode = p.code;
+  if (cfg.base !== p.base || !cfg.device) save({ base: p.base, device: null, session: null });
+  else listeners.forEach((l) => l()); // already paired with this computer: nothing to redo
+  return true;
+}
+
+type AndroidBridge = { takeLink?: () => string | null };
+/** In the Android app: the link it was opened with, and links that arrive while it is open. */
+export function watchAppLinks(onLink?: () => void) {
+  if (typeof window === 'undefined') return;
+  const bridge = (window as unknown as { HisaabAndroid?: AndroidBridge }).HisaabAndroid;
+  const first = bridge?.takeLink?.();
+  if (first && acceptPairLink(first)) onLink?.();
+  window.addEventListener('hisaab-link', (e) => {
+    if (acceptPairLink((e as CustomEvent<string>).detail)) onLink?.();
+  });
+}

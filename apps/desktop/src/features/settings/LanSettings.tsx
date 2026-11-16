@@ -81,7 +81,7 @@ export function LanSettings() {
           <div className="mb-4 flex flex-wrap items-center gap-5 rounded-xl bg-surface-2 p-4">
             {qr && <img src={qr} alt="Scan with the phone camera" className="h-40 w-40 rounded bg-white p-1" />}
             <div>
-              <p className="text-sm text-muted">On the phone, scan this (or open the address above) and enter:</p>
+              <p className="text-sm text-muted">Scan this with the phone camera: it opens the <b>Hisaab app</b> if it is installed and connects by itself, otherwise the phone's browser. Or enter the address above and this code:</p>
               <p className="my-1 font-mono text-4xl font-semibold tracking-[0.3em]" data-testid="lan-code-shown">{code.value}</p>
               <p className="text-xs text-muted">Works once, for 10 minutes. Then each person signs in with their own PIN.</p>
             </div>

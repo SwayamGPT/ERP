@@ -4,7 +4,7 @@ import type { ArgsOf, Method, ResultOf } from './api';
 import { isMutation } from './methods';
 import type { EnterpriseEntry } from './types';
 import type { ConnectInfo } from './sync/engine';
-import { isLanClient, lanCall, startLanWatch } from '../lan/client';
+import { isLanClient, lanCall, startLanWatch, watchAppLinks } from '../lan/client';
 
 /** On a phone using the shop computer over Wi-Fi there is no local database at all. */
 export const LAN = isLanClient();
@@ -95,7 +95,10 @@ const lastEnterprise = () => {
 const ready: Promise<Meta> = LAN
   ? Promise.resolve({ enterprises: [], enterpriseId: 'shop-computer' })
   : send<Meta>({ type: 'init', wasmUrl, enterpriseId: lastEnterprise(), native: typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window }).then(remember);
-if (LAN && typeof window !== 'undefined') startLanWatch(() => void queryClient.invalidateQueries());
+if (LAN && typeof window !== 'undefined') {
+  startLanWatch(() => void queryClient.invalidateQueries());
+  watchAppLinks(); // the Android app opened from the pairing QR code
+}
 
 /** A message to the database worker (used by the desktop app's Wi-Fi bridge for phones). */
 export const workerSend = <T,>(msg: Record<string, unknown>) => send<T>(msg);

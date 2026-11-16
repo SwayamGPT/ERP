@@ -15,6 +15,23 @@ if (!/usesCleartextTraffic/.test(xml)) xml = xml.replace('<application', '<appli
 if (!/networkSecurityConfig/.test(xml)) xml = xml.replace('<application', '<application android:networkSecurityConfig="@xml/network_security_config"');
 if (!/ACCESS_NETWORK_STATE/.test(xml)) xml = xml.replace('<application', '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <application');
 if (!/android.permission.INTERNET/.test(xml)) xml = xml.replace('<application', '<uses-permission android:name="android.permission.INTERNET" />\n    <application');
+// Pairing links: the QR code on the computer opens in the phone's browser, which hands
+// hisaab://pair?host=…&code=… to this app (see lan/client.ts appIntentUrl).
+if (!/android:scheme="hisaab"/.test(xml)) {
+  const filter = `
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hisaab" android:host="pair" />
+            </intent-filter>`;
+  const act = xml.search(/<activity[^>]*MainActivity/);
+  if (act < 0) throw new Error('MainActivity not found in AndroidManifest.xml');
+  const end = xml.indexOf('</activity>', act);
+  xml = xml.slice(0, end) + filter + '\n        ' + xml.slice(end);
+  // One app window: a second link reaches the open app (onNewIntent) instead of stacking a copy.
+  xml = xml.replace(/<activity\b[^>]*MainActivity[^>]*>/, (tag) => tag.replace(/\s+android:launchMode="[^"]*"/, '').replace('<activity', '<activity android:launchMode="singleTask"'));
+}
 writeFileSync(manifest, xml);
 
 const res = join(main, 'res', 'xml');
@@ -53,6 +70,7 @@ writeFileSync(
   `${pkg}
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.print.PrintAttributes
 import android.print.PrintManager
@@ -62,7 +80,12 @@ ${edge ? 'import androidx.activity.enableEdgeToEdge\n' : ''}import androidx.core
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  // A hisaab://pair link the app was opened with, until the page asks for it.
+  @Volatile var pendingLink: String? = null
+  private var web: WebView? = null
+
   override fun onCreate(savedInstanceState: Bundle?) {
+    pendingLink = intent?.dataString?.takeIf { it.startsWith("hisaab:") }
 ${edge ? '    enableEdgeToEdge()\n' : ''}    super.onCreate(savedInstanceState)
     // Keep Hisaab clear of the status bar, camera cut-out, navigation bar and the keyboard.
     val root = findViewById<android.view.View>(android.R.id.content)
@@ -79,10 +102,30 @@ ${edge ? '    enableEdgeToEdge()\n' : ''}    super.onCreate(savedInstanceState)
   // Android's printing, which offers "Save as PDF" and any printer the phone knows.
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    web = webView
     webView.addJavascriptInterface(PrintBridge(this, webView), "HisaabAndroid")
   }
 
+  // Scanned another pairing code while the app is open: tell the page.
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    val link = intent.dataString?.takeIf { it.startsWith("hisaab:") } ?: return
+    setIntent(intent)
+    val w = web
+    if (w == null) { pendingLink = link; return }
+    val js = "window.dispatchEvent(new CustomEvent('hisaab-link',{detail:" + org.json.JSONObject.quote(link) + "}))"
+    w.post { w.evaluateJavascript(js, null) }
+  }
+
   class PrintBridge(private val activity: MainActivity, private val webView: WebView) {
+    /** The pairing link the app was opened with (once). */
+    @JavascriptInterface
+    fun takeLink(): String? {
+      val l = activity.pendingLink
+      activity.pendingLink = null
+      return l
+    }
+
     @JavascriptInterface
     fun print(title: String) {
       activity.runOnUiThread {
