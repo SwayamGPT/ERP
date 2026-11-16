@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge, Button, Card, Loading, PageHeader, Select, Stat, Tabs, toast } from '../../components/ui';
 import { downloadJson } from '../../lib/download';
+import { TallyTab } from './TallyTab';
 import { inr, prevMonth, thisMonth } from '../../lib/format';
 import { useApi } from '../../lib/useApi';
 import { EinvoiceTab, Gstr2bTab } from './Compliance';
@@ -16,7 +17,7 @@ export function GstPage() {
     return m;
   });
   const [period, setPeriod] = useState(prevMonth());
-  const [tab, setTab] = useState<'gstr1' | 'gstr3b' | 'hsn' | 'einvoice' | 'gstr2b'>('gstr1');
+  const [tab, setTab] = useState<'gstr1' | 'gstr3b' | 'hsn' | 'einvoice' | 'gstr2b' | 'tally'>('gstr1');
   const q = useApi('gst.summary', { period });
   const company = useApi('app.status').data?.company;
   const g = q.data;
@@ -42,6 +43,7 @@ export function GstPage() {
             <Select value={period} onChange={(e) => setPeriod(e.target.value)} className="w-48" data-testid="gst-period">
               {months.map((m) => <option key={m} value={m}>{label(m)}</option>)}
             </Select>
+            <Button variant="outline" icon={<FileJson className="h-4 w-4" />} onClick={() => setTab('tally')} data-testid="tally-open">Export to Tally</Button>
             <Button variant="outline" icon={<FileJson className="h-4 w-4" />} onClick={() => dl('gstr3b')} disabled={!g}>GSTR-3B JSON</Button>
             <Button variant="primary" icon={<FileJson className="h-4 w-4" />} onClick={() => dl('gstr1')} disabled={!g} data-testid="gstr1-download">GSTR-1 JSON</Button>
           </>
@@ -70,7 +72,7 @@ export function GstPage() {
           </div>
           <p className="flex items-center gap-1.5 text-xs text-muted"><Info className="h-3.5 w-3.5" /> Net payable is before cross-utilisation rules (IGST credit first). Confirm on the portal or with your CA before paying.</p>
 
-          <Tabs value={tab} onChange={setTab} tabs={[{ value: 'gstr1', label: 'GSTR-1 preview' }, { value: 'gstr3b', label: 'GSTR-3B preview' }, { value: 'hsn', label: 'HSN summary' }, { value: 'gstr2b', label: 'GSTR-2B match' }, { value: 'einvoice', label: 'e-Invoice' }]} />
+          <Tabs value={tab} onChange={setTab} tabs={[{ value: 'gstr1', label: 'GSTR-1 preview' }, { value: 'gstr3b', label: 'GSTR-3B preview' }, { value: 'hsn', label: 'HSN summary' }, { value: 'gstr2b', label: 'GSTR-2B match' }, { value: 'einvoice', label: 'e-Invoice' }, { value: 'tally', label: 'Export to Tally' }]} />
 
           {tab === 'gstr1' && g1 && (
             <div className="grid gap-4 lg:grid-cols-2">
@@ -108,6 +110,7 @@ export function GstPage() {
             </div>
           )}
           {tab === 'einvoice' && <EinvoiceTab period={period} />}
+          {tab === 'tally' && <TallyTab period={period} />}
           {tab === 'gstr2b' && <Gstr2bTab period={period} />}
           {tab === 'hsn' && g1?.hsn && (
             <Card padded={false} title="12 · HSN-wise summary (B2B & B2C)">

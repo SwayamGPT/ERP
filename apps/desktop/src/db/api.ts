@@ -21,6 +21,7 @@ import * as attachments from './repos/attachments';
 import * as gst from './repos/gst';
 import { stockReport } from './repos/stockReport';
 import * as imports from './repos/imports';
+import * as tally from './repos/tally';
 import type { DraftInvoice } from './types';
 import { searchHsn } from '@hisaab/core';
 
@@ -228,6 +229,10 @@ export const api = {
   'reports.health': (ctx: Ctx) => reports.ledgerHealth(ctx),
   'gst.summary': (ctx: Ctx, a: { period: string }) => reports.gstSummary(ctx, a.period),
   'gst.eway': (ctx: Ctx, a: Parameters<typeof reports.ewayBill>[1]) => reports.ewayBill(ctx, a),
+  'tally.masters': (ctx: Ctx) => tally.tallyMasters(ctx),
+  'tally.vouchers': (ctx: Ctx, a: { from: string; to: string }) => tally.tallyVouchers(ctx, a),
+  'tally.ledgers': (ctx: Ctx) => (guard(ctx, 'gst.view'), tally.tallyLedgerList(ctx)),
+  'tally.saveNames': (ctx: Ctx, a: { names: Record<string, string> }) => tally.saveTallyNames(ctx, a.names),
 };
 
 export type Api = typeof api;

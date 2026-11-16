@@ -12,3 +12,4 @@ export * from './einvoice';
 export * from './gstr2b';
 export * from './sha256';
 export * from './smartImport';
+export * from './tally';
