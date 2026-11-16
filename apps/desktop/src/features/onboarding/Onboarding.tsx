@@ -102,7 +102,7 @@ export function Onboarding({ onCancel }: { onCancel?: () => void }) {
         <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-white/10 blur-2xl" />
         <div className="absolute -bottom-32 -left-16 h-96 w-96 rounded-full bg-saffron/30 blur-3xl" />
         <div className="relative flex items-center gap-3">
-          <Logo className="h-10 w-10 [&_rect]:fill-white/15" />
+          <Logo className="h-10 w-10" />
           <span className="text-xl font-semibold tracking-tight">Hisaab</span>
         </div>
         <div className="relative mt-16 space-y-2">

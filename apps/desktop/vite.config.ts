@@ -14,7 +14,7 @@ export default defineConfig({
         name: 'Hisaab — billing, stock & GST',
         short_name: 'Hisaab',
         description: 'Your shop in your pocket: today’s sales, dues, stock and sale orders — works offline.',
-        theme_color: '#4338ca',
+        theme_color: '#154456',
         background_color: '#f7f7fb',
         display: 'standalone',
         orientation: 'portrait',

@@ -69,6 +69,9 @@ jobs:
         working-directory: apps/desktop
         run: npx tauri android init --ci
 
+      - name: Use the Hisaab launcher icon
+        run: cp -r apps/desktop/src-tauri/icons/android/. apps/desktop/src-tauri/gen/android/app/src/main/res/
+
       - name: Allow plain HTTP to the shop computer on the local Wi-Fi
         run: node apps/desktop/src-tauri/android/patch-manifest.mjs
 
