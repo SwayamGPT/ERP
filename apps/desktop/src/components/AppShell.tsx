@@ -30,7 +30,7 @@ import {
   Truck,
   Users,
   Wallet,
-  Warehouse, Ticket } from 'lucide-react';
+  Warehouse, Ticket, FileText } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { call } from '../db/client';
@@ -64,6 +64,7 @@ export function useNav(): Array<{ group: string; items: NavItem[] }> {
       items: [
         { to: '/pos', label: t('nav.newBill'), icon: <ShoppingCart />, perm: 'sale.create', kbd: 'Alt+N' },
         { to: '/sales', label: t('nav.sales'), icon: <ScrollText />, perm: 'sale.view', kbd: 'Alt+S' },
+        { to: '/quotations', label: 'Quotations', icon: <FileText />, perm: 'sale.view' },
       ],
     },
     {

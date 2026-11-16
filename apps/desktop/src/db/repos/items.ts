@@ -1,5 +1,5 @@
 import { recostBatches } from './invoices';
-import { parseWeightBarcode, roundQty, type Scheme } from '@hisaab/core';
+import { cessForHsn, gstRateForHsn, parseWeightBarcode, roundQty, type Scheme } from '@hisaab/core';
 import type { Batch, Item, ItemUnit } from '../types';
 import { AppError, allowed, audit, guard, stripCost, type Ctx } from './base';
 import { mustCompany } from './company';
@@ -160,8 +160,9 @@ export function saveItem(ctx: Ctx, input: ItemInput): number {
     category: input.category?.trim() || null,
     brand: input.brand?.trim() || null,
     hsn: input.hsn?.trim() || null,
-    gst_rate: input.gst_rate,
-    cess_rate: input.cess_rate ?? 0,
+    // No rate given: the usual GST rate for its HSN code.
+    gst_rate: input.gst_rate ?? gstRateForHsn(input.hsn) ?? 0,
+    cess_rate: input.cess_rate ?? (input.gst_rate == null ? cessForHsn(input.hsn) : 0),
     base_unit: input.base_unit.trim() || 'Pcs',
     is_loose: input.is_loose ? 1 : 0,
     tax_inclusive: input.tax_inclusive === false ? 0 : 1,

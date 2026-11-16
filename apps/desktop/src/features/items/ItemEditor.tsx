@@ -1,4 +1,4 @@
-import { CURRENT_GST_SLABS, expiryBucket, GST_RATES, internalItemBarcode, marginPct, searchHsn, type Scheme } from '@hisaab/core';
+import { CURRENT_GST_SLABS, expiryBucket, GST_RATES, internalItemBarcode, marginPct, searchHsn, type Scheme, cessForHsn, gstRateForHsn } from '@hisaab/core';
 import { Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { BarcodeSvg } from '../../components/BarcodeSvg';
@@ -198,22 +198,43 @@ export function ItemEditor({ id, onClose }: { id: number | null; onClose: () => 
             <h4 className="mb-3 text-sm font-semibold">GST</h4>
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="HSN code" className="relative">
-                <Input value={f.hsn || hsnQ} onChange={(e) => (set('hsn', ''), setHsnQ(e.target.value))} placeholder="Search: rice, 1006…" className="font-mono" />
+                <Input
+                  value={f.hsn || hsnQ}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setHsnQ(v);
+                    // A typed HSN code takes its usual GST rate straight away (change it if your product differs).
+                    if (/^\d{4,8}$/.test(v.trim())) {
+                      set('hsn', v.trim());
+                      const r = gstRateForHsn(v);
+                      if (r != null) (set('gst_rate', r), set('cess_rate', cessForHsn(v)));
+                    } else set('hsn', '');
+                  }}
+                  placeholder="Code or search: rice, 1006…"
+                  className="font-mono"
+                  data-testid="item-hsn"
+                />
                 {!f.hsn && hsnQ && (
                   <div className="absolute left-0 top-full z-10 mt-1 w-[420px] overflow-hidden rounded-lg border border-border bg-surface shadow-pop">
                     {hsn.map((h) => (
-                      <button type="button" key={h.code + h.description} onClick={() => (set('hsn', h.code), set('gst_rate', h.rate), setHsnQ(''))} className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-2">
+                      <button type="button" key={h.code + h.description} onClick={() => (set('hsn', h.code), set('gst_rate', h.rate), set('cess_rate', h.cess ?? 0), setHsnQ(''))} className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-2">
                         <span className="w-20 font-mono text-xs">{h.code}</span>
                         <span className="flex-1 truncate">{h.description}</span>
-                        <Badge tone="primary">{h.rate}%</Badge>
+                        <Badge tone="primary">{h.rate}%{h.cess ? ` + ${h.cess}% cess` : ''}</Badge>
                       </button>
                     ))}
-                    {!hsn.length && <button type="button" className="w-full px-3 py-2 text-left text-sm" onClick={() => (set('hsn', hsnQ.replace(/\D/g, '')), setHsnQ(''))}>Use “{hsnQ}”</button>}
+                    {!hsn.length && <button type="button" className="w-full px-3 py-2 text-left text-sm" onClick={() => {
+                      const code = hsnQ.replace(/\D/g, '');
+                      set('hsn', code);
+                      const r = gstRateForHsn(code);
+                      if (r != null) (set('gst_rate', r), set('cess_rate', cessForHsn(code)));
+                      setHsnQ('');
+                    }}>Use “{hsnQ}”</button>}
                   </div>
                 )}
               </Field>
-              <Field label="GST rate" hint="GST 2.0 slabs: 0, 5, 18, 40">
-                <Select value={f.gst_rate} onChange={(e) => set('gst_rate', Number(e.target.value))}>
+              <Field label="GST rate" hint={f.hsn && gstRateForHsn(f.hsn) != null ? (gstRateForHsn(f.hsn) === f.gst_rate ? `Usual rate for HSN ${f.hsn}` : `HSN ${f.hsn} is usually ${gstRateForHsn(f.hsn)}%`) : 'GST 2.0 slabs: 0, 5, 18, 40'}>
+                <Select value={f.gst_rate} onChange={(e) => set('gst_rate', Number(e.target.value))} data-testid="item-gst">
                   {GST_RATES.map((r) => <option key={r} value={r}>{r}%{(CURRENT_GST_SLABS as readonly number[]).includes(r) ? '' : ' (special/legacy)'}</option>)}
                 </Select>
               </Field>

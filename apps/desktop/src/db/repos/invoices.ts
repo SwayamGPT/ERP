@@ -1,6 +1,7 @@
 import { NO_PROMO, recordPromo, resolvePromo, reversePromo, type Promo } from './pricing';
 import { defaultGodown, receivePO, unreceivePO } from './purchasing';
 import { markBilled } from './orders';
+import { markQuotationConverted } from './quotations';
 import type { SqlJsAdapter } from '../adapter';
 import { nextSeriesNo, seriesCode } from '../sync/engine';
 import {
@@ -278,6 +279,10 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
       const emp = ctx.db.get('SELECT 1 FROM employees WHERE id = ? AND active = 1', [draft.servedBy]);
       if (!emp) throw new AppError('That staff member is no longer active. Pick someone else.');
       ctx.db.exec('UPDATE invoices SET served_by = ? WHERE id = ?', [draft.servedBy, invoiceId]);
+    }
+    if (draft.quotationId && !existing) {
+      if (kind !== 'sale') throw new AppError('Only sales bills can come from a quotation.');
+      markQuotationConverted(ctx, draft.quotationId, invoiceId);
     }
     if (draft.orderId && !existing) {
       if (kind !== 'sale') throw new AppError('Only sales bills can come from an order.');

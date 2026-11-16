@@ -50,7 +50,8 @@ function buildCtx(inv: Invoice, c: Company): Ctx {
   // A registered buyer needs the tax amounts to claim credit — never hide them on B2B bills.
   const tax: TaxDetail = inv.party_gstin && c.print_tax_detail === 'none' ? 'summary' : c.print_tax_detail;
   const forSummary = lines.map((l) => ({ ...l, gstRate: l.gst_rate, hsn: l.hsn ?? '', tax: l.cgst + l.sgst + l.igst + l.cess, qty: l.qty * l.factor }));
-  const balance = Math.max(0, inv.total - inv.paid);
+  // A quotation is not a sale: nothing paid, nothing due.
+  const balance = inv.quote ? 0 : Math.max(0, inv.total - inv.paid);
   return {
     inv,
     c,
@@ -61,7 +62,7 @@ function buildCtx(inv: Invoice, c: Company): Ctx {
     savings: inv.kind === 'sale' && c.print_show_savings ? lines.reduce((s, l) => s + Math.max(0, Math.round((l.mrp ?? 0) * l.factor * l.qty) - l.total), 0) : 0,
     rateRows: taxSummary(forSummary, 'rate'),
     hsnRows: taxSummary(forSummary, 'hsn'),
-    title: { sale: 'TAX INVOICE', sale_return: 'CREDIT NOTE', purchase: 'PURCHASE BILL', purchase_return: 'DEBIT NOTE' }[inv.kind],
+    title: inv.quote ? 'QUOTATION' : { sale: 'TAX INVOICE', sale_return: 'CREDIT NOTE', purchase: 'PURCHASE BILL', purchase_return: 'DEBIT NOTE' }[inv.kind],
     showQr: !!c.print_show_qr && !!c.upi_id && balance > 0 && inv.kind === 'sale',
   };
 }
@@ -148,7 +149,7 @@ function Receipt({ x, narrow }: { x: Ctx; narrow: boolean }) {
         <span>TOTAL</span>
         <span>₹{rupees(inv.total)}</span>
       </div>
-      <Row k={`Paid (${mode(inv.payment_mode)})`} v={rupees(inv.paid)} />
+      {!inv.quote && <Row k={`Paid (${mode(inv.payment_mode)})`} v={rupees(inv.paid)} />}
       {x.balance > 0 && <Row k="Balance due" v={rupees(x.balance)} bold />}
       {x.tax === 'detailed' && (
         <>
@@ -244,7 +245,7 @@ function ReceiptLarge({ x }: { x: Ctx }) {
         <span style={{ fontSize: 24, fontWeight: 800 }}>{inr(inv.total)}</span>
       </div>
       <div className="mt-1" style={{ fontSize: 13 }}>
-        <Row k={`Paid by ${mode(inv.payment_mode)}`} v={`${inr(inv.paid)}`} />
+        {!inv.quote && <Row k={`Paid by ${mode(inv.payment_mode)}`} v={`${inr(inv.paid)}`} />}
         {x.balance > 0 && <Row k="STILL TO PAY" v={`${inr(x.balance)}`} bold />}
       </div>
       {x.tax === 'none' && <div className="mt-1 text-center" style={{ fontSize: 12 }}>All prices include GST</div>}
@@ -296,7 +297,7 @@ function A4Classic({ x }: { x: Ctx }) {
             <div>Invoice no.</div><div style={{ fontWeight: 700 }}>{inv.number}</div>
             <div>Date</div><div style={{ fontWeight: 700 }}>{fmtDate(inv.date)}</div>
             <div>Place of supply</div><div>{inv.place_of_supply}-{STATES[inv.place_of_supply]}</div>
-            <div>Payment</div><div>{mode(inv.payment_mode)}</div>
+            {!inv.quote && <><div>Payment</div><div>{mode(inv.payment_mode)}</div></>}
             {inv.supplier_bill_no && (<><div>Supplier bill</div><div>{inv.supplier_bill_no}</div></>)}
           </div>
         </div>
@@ -376,7 +377,7 @@ function A4Classic({ x }: { x: Ctx }) {
               <span>Grand total</span>
               <span>{inr(inv.total)}</span>
             </div>
-            <SumRow k="Paid" v={inr(inv.paid)} />
+            {!inv.quote && <SumRow k="Paid" v={inr(inv.paid)} />}
             {x.balance > 0 && <SumRow k="Balance due" v={inr(x.balance)} bold />}
           </div>
         </div>
@@ -443,7 +444,7 @@ function A4Modern({ x }: { x: Ctx }) {
           <div className="grid grid-cols-2">
             <span className="text-[#6b7280]">Place of supply</span><span>{STATES[inv.place_of_supply]}</span>
             {x.tax !== 'none' && (<><span className="text-[#6b7280]">Tax type</span><span>{x.inter ? 'IGST (inter-state)' : 'CGST + SGST'}</span></>)}
-            <span className="text-[#6b7280]">Payment</span><span>{mode(inv.payment_mode)}</span>
+            {!inv.quote && <><span className="text-[#6b7280]">Payment</span><span>{mode(inv.payment_mode)}</span></>}
           </div>
         </Card>
       </div>
@@ -502,7 +503,7 @@ function A4Modern({ x }: { x: Ctx }) {
             <span style={{ fontWeight: 600 }}>Total</span>
             <span style={{ fontSize: 20, fontWeight: 800 }}>{inr(inv.total)}</span>
           </div>
-          <div className="mt-1"><SumRow k="Paid" v={inr(inv.paid)} />{x.balance > 0 && <SumRow k="Balance due" v={inr(x.balance)} bold />}</div>
+          <div className="mt-1">{!inv.quote && <SumRow k="Paid" v={inr(inv.paid)} />}{x.balance > 0 && <SumRow k="Balance due" v={inr(x.balance)} bold />}</div>
         </div>
       </div>
       <div className="mt-6 grid grid-cols-[1fr_auto_200px] items-end gap-4" style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, fontSize: 10.5, color: '#4b5563' }}>
@@ -586,7 +587,7 @@ function A5Simple({ x }: { x: Ctx }) {
             <span>TOTAL</span>
             <span>{inr(inv.total)}</span>
           </div>
-          <SumRow k="Paid" v={inr(inv.paid)} />
+          {!inv.quote && <SumRow k="Paid" v={inr(inv.paid)} />}
           {x.balance > 0 && <SumRow k="Balance" v={inr(x.balance)} bold />}
         </div>
       </div>
@@ -618,6 +619,17 @@ export function InvoiceDocument({ invoice, company, template }: { invoice: Invoi
         return <Receipt x={x} narrow={company.print_format === 'thermal58'} />;
     }
   })();
+  if (invoice.quote) {
+    const small = t === 'receipt' || t === 'receipt-large';
+    return (
+      <div data-testid="print-quote">
+        {doc}
+        <div style={{ marginTop: 8, borderTop: '1px dashed #999', paddingTop: 6, fontSize: small ? 10 : 11, textAlign: 'center' }}>
+          Quotation only — not a tax invoice.{invoice.quote.validUntil ? ` Prices valid till ${invoice.quote.validUntil.split('-').reverse().join('-')}.` : ''}
+        </div>
+      </div>
+    );
+  }
   const irn = invoice.irn && !invoice.irn_cancelled;
   if (!irn && !invoice.ewb_no) return doc;
   const small = t === 'receipt' || t === 'receipt-large';

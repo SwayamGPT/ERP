@@ -915,6 +915,67 @@ ALTER TABLE users ADD COLUMN perms_revoke TEXT;
 ALTER TABLE sale_orders ADD COLUMN cash_only INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    version: 18,
+    name: 'quotations',
+    sql: /* sql */ `
+CREATE TABLE quotations (
+  id INTEGER PRIMARY KEY,
+  number TEXT NOT NULL,
+  date TEXT NOT NULL,
+  valid_until TEXT,
+  party_id INTEGER REFERENCES parties(id),
+  party_name TEXT NOT NULL,
+  party_phone TEXT,
+  party_gstin TEXT,
+  place_of_supply TEXT,
+  inter_state INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','converted','cancelled')),
+  gross INTEGER NOT NULL DEFAULT 0,
+  discount INTEGER NOT NULL DEFAULT 0,
+  taxable INTEGER NOT NULL DEFAULT 0,
+  cgst INTEGER NOT NULL DEFAULT 0,
+  sgst INTEGER NOT NULL DEFAULT 0,
+  igst INTEGER NOT NULL DEFAULT 0,
+  cess INTEGER NOT NULL DEFAULT 0,
+  round_off INTEGER NOT NULL DEFAULT 0,
+  total INTEGER NOT NULL DEFAULT 0,
+  bill_discount_pct REAL NOT NULL DEFAULT 0,
+  notes TEXT,
+  invoice_id INTEGER REFERENCES invoices(id),
+  created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_quotations_date ON quotations(date);
+CREATE TABLE quotation_lines (
+  id INTEGER PRIMARY KEY,
+  quotation_id INTEGER NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id),
+  name TEXT NOT NULL,
+  hsn TEXT,
+  unit TEXT NOT NULL,
+  factor REAL NOT NULL DEFAULT 1,
+  qty REAL NOT NULL,
+  free_qty REAL NOT NULL DEFAULT 0,
+  rate INTEGER NOT NULL,
+  line_discount_pct REAL NOT NULL DEFAULT 0,
+  tax_inclusive INTEGER NOT NULL DEFAULT 0,
+  discount_pct REAL NOT NULL DEFAULT 0,
+  gross INTEGER NOT NULL DEFAULT 0,
+  discount INTEGER NOT NULL DEFAULT 0,
+  taxable INTEGER NOT NULL DEFAULT 0,
+  gst_rate REAL NOT NULL DEFAULT 0,
+  cess_rate REAL NOT NULL DEFAULT 0,
+  cgst INTEGER NOT NULL DEFAULT 0,
+  sgst INTEGER NOT NULL DEFAULT 0,
+  igst INTEGER NOT NULL DEFAULT 0,
+  cess INTEGER NOT NULL DEFAULT 0,
+  total INTEGER NOT NULL DEFAULT 0,
+  mrp INTEGER
+);
+CREATE INDEX idx_quotation_lines ON quotation_lines(quotation_id);
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

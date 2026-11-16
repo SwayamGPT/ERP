@@ -8,6 +8,7 @@ import * as items from './repos/items';
 import * as parties from './repos/parties';
 import * as reports from './repos/reports';
 import * as coupons from './repos/coupons';
+import * as quotations from './repos/quotations';
 import * as expenses from './repos/expenses';
 import * as staff from './repos/staff';
 import * as money from './repos/money';
@@ -152,6 +153,10 @@ export const api = {
   'coupons.history': (ctx: Ctx, a: { itemId?: number } = {}) => coupons.couponHistory(ctx, a?.itemId),
   'coupons.redeem': (ctx: Ctx, a: coupons.RedeemInput) => coupons.redeemCoupons(ctx, a),
   'coupons.toCollect': (ctx: Ctx) => coupons.couponsToCollect(ctx),
+  'quotations.save': (ctx: Ctx, a: quotations.QuotationInput) => quotations.saveQuotation(ctx, a),
+  'quotations.get': (ctx: Ctx, a: { id: number }) => quotations.getQuotation(ctx, a.id),
+  'quotations.list': (ctx: Ctx, a: { status?: 'open' | 'all'; q?: string }) => quotations.listQuotations(ctx, a ?? {}),
+  'quotations.cancel': (ctx: Ctx, a: { id: number }) => quotations.cancelQuotation(ctx, a.id),
   'invoices.update': (ctx: Ctx, a: { id: number; draft: DraftInvoice }) => invoices.updateInvoice(ctx, a.id, a.draft),
   'invoices.cancel': (ctx: Ctx, a: { id: number; reason: string }) => invoices.cancelInvoice(ctx, a.id, a.reason),
 
@@ -217,6 +222,7 @@ export const api = {
   'reports.stockDetail': (ctx: Ctx, a: { category?: string; godownId?: number }) => stockReport(ctx, a ?? {}),
   'reports.expiry': (ctx: Ctx, a: { days?: number }) => reports.expiryReport(ctx, a),
   'reports.daybook': (ctx: Ctx, a: { date: string }) => reports.dayBook(ctx, a.date),
+  'reports.dailyProfit': (ctx: Ctx, a: { from: string; to: string }) => reports.dailyProfit(ctx, a),
   'reports.cashbook': (ctx: Ctx, a: Parameters<typeof reports.cashBook>[1]) => reports.cashBook(ctx, a),
   'reports.outstanding': (ctx: Ctx, a: { kind: 'customer' | 'supplier' }) => reports.outstanding(ctx, a.kind),
   'reports.health': (ctx: Ctx) => reports.ledgerHealth(ctx),

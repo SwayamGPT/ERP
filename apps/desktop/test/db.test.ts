@@ -1,5 +1,5 @@
 import initSqlJs from 'sql.js';
-import { buildWeightBarcode, gstinCheckChar } from '@hisaab/core';
+import { buildWeightBarcode, cessForHsn, gstinCheckChar, gstRateForHsn } from '@hisaab/core';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { SqlJsAdapter } from '../src/db/adapter';
 import { api, isMutation } from '../src/db/api';
@@ -521,5 +521,83 @@ describe('people: delete, and what the owner allows each person', () => {
     expect(() => api['users.delete'](ctx, { id: owner.userId })).toThrow(/yourself/);
     // their bills keep their name
     expect(ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM invoices WHERE created_by = ?', [cashier])!.n).toBe(1);
+  });
+});
+
+describe('daily profit, GST and cess from HSN', () => {
+  it('knows the usual GST and cess for an HSN code, falling back to its heading', () => {
+    expect(gstRateForHsn('0405')).toBe(5);
+    expect(gstRateForHsn('04059020')).toBe(5); // heading 0405
+    expect(gstRateForHsn('04061000')).toBe(0); // the more exact entry wins over 0406
+    expect(gstRateForHsn('22021010')).toBe(40);
+    expect(gstRateForHsn('9999')).toBeNull();
+    expect(gstRateForHsn('12')).toBeNull();
+    expect(cessForHsn('21069020')).toBe(60);
+    expect(cessForHsn('2202')).toBe(0);
+    const ctx = setup('kirana', false);
+    const id = api['items.save'](ctx, { name: 'Pan masala 10g', hsn: '21069020', base_unit: 'Pcs', mrp: 1000, retail_price: 1000 } as never);
+    expect(ctx.db.get('SELECT gst_rate, cess_rate FROM items WHERE id = ?', [id])).toEqual({ gst_rate: 28, cess_rate: 60 });
+  });
+
+  it('cess is charged on the bill, posted, and in the GST summary', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Cola 600ml', gst_rate: 28, cess_rate: 12, base_unit: 'Pcs', mrp: 4000, retail_price: 4000, purchase_price: 2500, tax_inclusive: false });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 10, rate: 2500 }] });
+    const pv = api['invoices.preview'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 3000, taxInclusive: false }] });
+    expect(pv.totals.cess).toBe(360); // 12% of 30
+    const inv = api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 3000, taxInclusive: false }], payments: [{ mode: 'cash', amount: pv.totals.payable }] });
+    expect(inv.cess).toBe(360);
+    expect(ctx.db.get<{ c: number }>("SELECT COALESCE(SUM(credit - debit), 0) AS c FROM ledger_entries WHERE account = 'OUT_CESS'")!.c).toBe(360);
+    expect(ctx.db.get<{ c: number }>("SELECT COALESCE(SUM(debit - credit), 0) AS c FROM ledger_entries WHERE account = 'IN_CESS'")!.c).toBe(3000); // 12% of 250
+    expect(JSON.stringify(api['gst.summary'](ctx, { period: TODAY.slice(0, 7) }))).toContain('360');
+  });
+
+  it('daily profit: sales less returns, cost, profit and margin per day', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Rice 1kg', gst_rate: 0, base_unit: 'Pcs', mrp: 10000, retail_price: 10000, purchase_price: 8000 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 20, rate: 8000 }] });
+    const sell = (qty: number) => api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty, rate: 10000 }], payments: [{ mode: 'cash', amount: qty * 10000 }] });
+    const a = sell(3);
+    sell(2);
+    api['invoices.return'](ctx, { invoiceId: a.id, lines: [{ lineId: a.lines![0].id, qty: 1 }], refundMode: 'cash' });
+    const days = api['reports.dailyProfit'](ctx, { from: '2026-11-01', to: '2026-11-30' });
+    expect(days).toEqual([{ date: TODAY, bills: 2, sales: 40000, cost: 32000, profit: 8000, margin: 20 }]);
+  });
+});
+
+describe('quotations', () => {
+  it('a quotation sells nothing: stock, books and sales stay as they were until it becomes a bill', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Steel almirah', gst_rate: 18, base_unit: 'Pcs', mrp: 1500000, retail_price: 1200000, purchase_price: 900000 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Sup' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: `SB-${++billSeq}`, partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 5, rate: 900000 }] });
+    const snapshot = () => ({
+      stock: stockOf(ctx, itemId),
+      ledger: ctx.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM ledger_entries')!.n,
+      sales: ctx.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM invoices WHERE kind = 'sale'")!.n,
+    });
+    const before = snapshot();
+    const cust = api['parties.save'](ctx, { kind: 'customer', name: 'Hotel Surya', phone: '9822000077' });
+    const line = { itemId, unit: 'Pcs', factor: 1, qty: 2, rate: 1150000, discountPct: 2 };
+    const q = api['quotations.save'](ctx, { partyId: cust, lines: [line], validDays: 10, notes: 'Delivery in 3 days' });
+    expect(q).toMatchObject({ number: 'QT-1', status: 'open', party_name: 'Hotel Surya', valid_until: '2026-11-23' });
+    expect(q.total).toBe(api['invoices.preview'](ctx, { kind: 'sale', partyId: cust, lines: [line] }).totals.payable); // same as the bill would be
+    expect(snapshot()).toEqual(before);
+    expect(api['reports.dailyProfit'](ctx, { from: TODAY, to: TODAY })).toEqual([]);
+    // a prospect who isn't a customer yet
+    const q2 = api['quotations.save'](ctx, { partyName: 'Mr. Joshi', partyPhone: '9822000078', lines: [line] });
+    expect(q2).toMatchObject({ number: 'QT-2', party_name: 'Mr. Joshi', party_id: null });
+
+    // the customer agrees: the bill made from it sells the goods and closes the quotation
+    const inv = api['invoices.create'](ctx, { kind: 'sale', partyId: cust, quotationId: q.id, lines: [line], payments: [{ mode: 'cash', amount: q.total }] });
+    expect(stockOf(ctx, itemId)).toBe(3);
+    expect(api['quotations.get'](ctx, { id: q.id })).toMatchObject({ status: 'converted', invoice_id: inv.id, invoice_number: inv.number });
+    expect(() => api['invoices.create'](ctx, { kind: 'sale', partyId: cust, quotationId: q.id, lines: [line], payments: [{ mode: 'cash', amount: q.total }] })).toThrow(/already billed/);
+    expect(() => api['quotations.save'](ctx, { id: q.id, partyId: cust, lines: [line] })).toThrow(/converted/);
+    api['quotations.cancel'](ctx, { id: q2.id });
+    expect(api['quotations.list'](ctx, { status: 'open' })).toHaveLength(0);
+    expect(api['reports.health'](ctx).balanced).toBe(true);
   });
 });

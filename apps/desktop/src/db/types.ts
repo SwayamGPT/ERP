@@ -189,6 +189,8 @@ export interface DraftInvoice {
   supplierBillNo?: string;
   /** purchase only: bought without a GST bill (e.g. from a nearby shop); no input GST, the full price is the cost. */
   noBill?: boolean;
+  /** sale only: the quotation this bill was made from (marked converted when the bill is saved). */
+  quotationId?: number | null;
   overrideCreditLimit?: boolean;
   /** Optional: employee who served the customer (for sales-by-staff and incentives). */
   servedBy?: number | null;
@@ -243,6 +245,8 @@ export interface Invoice {
   irn_qr?: string | null;
   irn_test?: number;
   no_bill?: number;
+  /** Set when a quotation is shown with the bill templates: nothing paid or due, titled QUOTATION. */
+  quote?: { validUntil: string | null };
   edited_at?: string | null;
   edited_by?: number | null;
   irn_cancelled?: number;

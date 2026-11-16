@@ -122,6 +122,22 @@ export function itemProfit(ctx: Ctx, opts: { from: string; to: string }) {
   );
 }
 
+/** Profit day by day: sales (excl. GST, less returns), what the goods cost, profit and margin. */
+export function dailyProfit(ctx: Ctx, opts: { from: string; to: string }) {
+  guard(ctx, 'report.profit');
+  return ctx.db.query<{ date: string; bills: number; sales: number; cost: number; profit: number; margin: number | null }>(
+    `SELECT date,
+       SUM(CASE WHEN kind = 'sale' THEN 1 ELSE 0 END) AS bills,
+       SUM(CASE WHEN kind = 'sale' THEN 1 ELSE -1 END * taxable) AS sales,
+       SUM(CASE WHEN kind = 'sale' THEN 1 ELSE -1 END * cost_total) AS cost,
+       SUM(CASE WHEN kind = 'sale' THEN 1 ELSE -1 END * (taxable - cost_total)) AS profit,
+       ROUND(100.0 * SUM(CASE WHEN kind = 'sale' THEN 1 ELSE -1 END * (taxable - cost_total)) / NULLIF(SUM(CASE WHEN kind = 'sale' THEN 1 ELSE -1 END * taxable), 0), 2) AS margin
+     FROM invoices WHERE kind IN ('sale', 'sale_return') AND status = 'final' AND date BETWEEN ? AND ?
+     GROUP BY date ORDER BY date DESC`,
+    [opts.from, opts.to],
+  );
+}
+
 export function billProfit(ctx: Ctx, opts: { from: string; to: string }) {
   guard(ctx, 'report.profit');
   return ctx.db.query(

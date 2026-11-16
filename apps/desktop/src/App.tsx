@@ -32,6 +32,7 @@ import { CouponsPage } from './features/purchases/CouponsPage';
 import { ReportsPage } from './features/reports/ReportsPage';
 import { InvoiceList } from './features/sales/InvoiceList';
 import { InvoiceView } from './features/sales/InvoiceView';
+import { QuotationsPage, QuotationView } from './features/sales/QuotationsPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { ExpensesPage } from './features/expenses/ExpensesPage';
 import { StaffPage } from './features/staff/StaffPage';
@@ -99,6 +100,8 @@ function Main() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/pos" element={<RequirePerm perm="sale.create"><PosPage /></RequirePerm>} />
           <Route path="/sales" element={<RequirePerm perm="sale.view"><InvoiceList kind="sales_all" /></RequirePerm>} />
+          <Route path="/quotations" element={<RequirePerm perm="sale.view"><QuotationsPage /></RequirePerm>} />
+          <Route path="/quotations/:id" element={<RequirePerm perm="sale.view"><QuotationView /></RequirePerm>} />
           <Route path="/sales/:id" element={<RequirePerm perm="sale.view"><InvoiceView /></RequirePerm>} />
           <Route path="/purchases" element={<RequirePerm perm="purchase.view"><InvoiceList kind="purchases_all" /></RequirePerm>} />
           <Route path="/purchases/new" element={<RequirePerm perm="purchase.create"><PurchaseEntry /></RequirePerm>} />

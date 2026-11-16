@@ -3,6 +3,8 @@ export interface HsnEntry {
   description: string;
   rate: number;
   uqc: string;
+  /** Compensation cess %, where a flat percentage applies (confirm with your CA). */
+  cess?: number;
 }
 
 /**
@@ -59,6 +61,7 @@ export const HSN_CATALOG: HsnEntry[] = [
   { code: '2104', description: 'Soups and broths', rate: 5, uqc: 'KGS' },
   { code: '2105', description: 'Ice cream, frozen desserts', rate: 5, uqc: 'KGS' },
   { code: '2106', description: 'Namkeen, bhujia, ready-to-eat snacks', rate: 5, uqc: 'KGS' },
+  { code: '21069020', description: 'Pan masala (plus compensation cess)', rate: 28, uqc: 'KGS', cess: 60 },
   { code: '2201', description: 'Packaged drinking water', rate: 5, uqc: 'LTR' },
   { code: '2202', description: 'Aerated / carbonated beverages, colas', rate: 40, uqc: 'LTR' },
   { code: '22029920', description: 'Plant-based milk drinks', rate: 5, uqc: 'LTR' },
@@ -76,7 +79,7 @@ export const HSN_CATALOG: HsnEntry[] = [
   { code: '9603', description: 'Toothbrushes, brooms, brushes', rate: 5, uqc: 'NOS' },
   { code: '9619', description: 'Sanitary napkins', rate: 0, uqc: 'NOS' },
   { code: '96190030', description: 'Baby diapers', rate: 5, uqc: 'NOS' },
-  { code: '2402', description: 'Cigarettes, bidis, tobacco (plus cess)', rate: 40, uqc: 'NOS' },
+  { code: '2402', description: 'Cigarettes, bidis, tobacco (cess per stick varies: enter it on the item)', rate: 40, uqc: 'NOS' },
 ];
 
 export function searchHsn(q: string, limit = 12): HsnEntry[] {
@@ -94,6 +97,29 @@ export function searchHsn(q: string, limit = 12): HsnEntry[] {
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((x) => x.h);
+}
+
+/**
+ * The usual GST rate for an HSN code: the catalogue entry that matches it most closely (an
+ * 8-digit code falls back to its 6- or 4-digit heading). Null when the code isn't known.
+ */
+export function gstRateForHsn(code: string | null | undefined): number | null {
+  const c = (code ?? '').replace(/\D/g, '');
+  if (c.length < 4) return null;
+  let best: HsnEntry | null = null;
+  for (const h of HSN_CATALOG) {
+    if (c.startsWith(h.code) && (!best || h.code.length > best.code.length)) best = h;
+  }
+  return best ? best.rate : null;
+}
+
+/** The compensation cess % usually charged for an HSN code (0 when none is listed). */
+export function cessForHsn(code: string | null | undefined): number {
+  const c = (code ?? '').replace(/\D/g, '');
+  if (c.length < 4) return 0;
+  let best: HsnEntry | null = null;
+  for (const h of HSN_CATALOG) if (c.startsWith(h.code) && (!best || h.code.length > best.code.length)) best = h;
+  return best?.cess ?? 0;
 }
 
 /** Map our unit names to GSTN UQC codes. */

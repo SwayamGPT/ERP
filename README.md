@@ -12,24 +12,26 @@ instead of accounting jargon, while keeping proper double-entry books underneath
 
 ## Why Hisaab, compared with traditional ERPs
 
-| Everyday situation | Traditional desktop ERP | Hisaab |
+| Area | Traditional desktop ERP | Hisaab |
 |---|---|---|
-| **Billing speed** | Many screens and voucher types; training needed | One search box (name / code / barcode / scale sticker), Enter-Enter-F9. Several bills open at once for a queue at the counter |
-| **Selling pan masala at ₹190 that costs ₹195, because every 5 packs carry a ₹50 coupon** | Shows a ₹5 loss on every pack | Supplier coupons lower the real cost to ₹185 — shows ₹5 profit; coupons in hand are tracked and redeemed for cash, off the distributor's bill, or for free goods |
-| **Buying one missing item from the shop next door, without a bill** | Needs a supplier ledger, GST fields, workarounds | "Bought outside?" right on the billing screen — stock comes in at the price paid, no input GST, the sale goes through |
-| **A purchase typed at ₹8,000 instead of ₹800** | Wrong profit stays in old reports | Edit the purchase bill — every sale made from that stock is re-costed automatically |
-| **Fixing a saved bill** | Cancel and re-enter (new number) | Edit the bill — same number; stock, accounts, payments and loyalty are corrected in one go, and the change is audited |
-| **Selling below cost by mistake** | Found out at month end, if at all | Warned on the line as you bill ("Loss ₹12"); cashiers see "below cost" without seeing purchase rates |
-| **Daily rent of ₹600, paid when convenient** | Monthly-only recurring entries | Rent daily / every N days / weekly / monthly…, skip Sundays and holidays, then pay "4 days due" (or an amount, or a week ahead) in one go |
-| **Paying a supplier against specific bills** | Separate bill-wise adjustment screens | Tick the bills while paying; supplier invoice number is required on every purchase |
-| **Phones for staff** | Extra licences, remote desktop, or a separate app with its own data | Pair a phone with a 6-digit code over the shop Wi-Fi; staff bill, collect and check stock on the computer's own data, and print on the counter printer or WhatsApp the bill |
-| **Who can do what** | Fixed roles | Roles (owner, manager, cashier, salesman) **plus** per-person switches — e.g. a salesman who may not give credit gets cash-only orders |
-| **Many staff at the counter** | Long user list | Searchable sign-in grid, last person first, 4-digit PIN that unlocks on the 4th digit |
-| **Cash, banks and cheques** | One bank ledger per company, cheques as journal entries | Several bank accounts, deposit slips (cash + cheques), cheques count only when they clear, statement import with auto-matching |
-| **Backups** | Manual copy to a pen drive | Automatic, encrypted, to the owner's own Google Drive on a schedule — and encrypted cloud backups |
-| **Moving in** | Re-type everything | Import items, stock and dues from Marg / Tally / Busy / Excel exports with a smart column matcher |
-| **GST** | Separate utilities or a CA's software | GSTR-1, GSTR-3B, HSN summary, e-Way Bill and e-Invoice (IRN + signed QR), GSTR-2B matching — from the same data |
-| **Correct numbers** | Floating-point totals, rounding surprises | Every amount is whole paise; GST rounds half-up per line; every voucher balances to the paisa; a bill saves in one transaction or not at all |
+| **Billing speed** | Many screens and voucher types; training needed | One search box for name, code, barcode or scale sticker; several bills open at once; keyboard-first |
+| **Supplier schemes and coupons** | Selling under the bill rate shows as a loss | Coupons and schemes lower the real cost of stock, so profit is shown correctly; coupons in hand are tracked and redeemed |
+| **Buying without a GST bill** | Workarounds through journal entries | A purchase can be marked "no bill": no input GST, the full price is the cost — even straight from the billing screen when an item has run out |
+| **Correcting a purchase rate** | Old profit figures stay wrong | Editing the purchase re-costs every sale already made from that stock |
+| **Fixing a saved bill** | Cancel and re-enter under a new number | Edit the bill under the same number; stock, accounts and payments are corrected together and the change is audited |
+| **Selling below cost** | Noticed at month end, if at all | Flagged on the line while billing; staff without cost permission only see that it is below cost |
+| **Repeating bills (rent etc.)** | Monthly entries only | Daily, every few days, weekly, monthly…; skip closed days; pay several at once or in advance |
+| **Quotations** | Often a separate document tool | Quotations priced exactly like a bill, printed or shared on WhatsApp, and turned into a bill in one click — nothing is sold until then |
+| **Paying suppliers** | Separate bill-wise adjustment screens | Tick the bills while paying; the supplier's invoice number is recorded on every purchase |
+| **Phones for staff** | Extra licences or remote desktop | Pair a phone over the shop Wi-Fi; staff bill, collect and check stock on the computer's own data, and print or share bills |
+| **Who can do what** | Fixed roles | Roles plus per-person permissions set by the owner (for example, who may give credit) |
+| **Many staff at the counter** | A long user list | A searchable sign-in grid, the last person first, and 4-digit PINs |
+| **Cash, banks and cheques** | One bank ledger, cheques as journal entries | Several bank accounts, deposit slips for cash and cheques, cheques counted when they clear, statement matching |
+| **Backups** | Manual copies | Automatic, encrypted backups to the owner's Google Drive on a schedule, plus encrypted cloud backups |
+| **Moving in** | Re-type everything | Import items, stock and dues from other software's Excel / CSV exports with a smart column matcher |
+| **GST** | Separate utilities | GSTR-1, GSTR-3B, HSN summary, e-Way Bill, e-Invoice and GSTR-2B matching from the same data; GST and cess default from the HSN code |
+| **Correct numbers** | Floating-point totals, rounding surprises | Every amount in whole paise; GST rounded per line; every voucher balances to the paisa; a bill saves completely or not at all |
+
 
 ---
 
@@ -41,7 +43,8 @@ instead of accounting jargon, while keeping proper double-entry books underneath
 - Cash, UPI QR, card, **split** (part cash, part UPI), **udhaar** with credit limits
 - Tier prices (retail / wholesale / super-stockist), customer price lists, schemes (buy N get M, slab discounts), coupons, loyalty points
 - FIFO batches with expiry, multi-unit (piece / box / carton, kg / g), negative-stock control
-- **Loss warning** when a line sells below its stock cost; GST breakup always visible
+- **Loss warning** when a line sells below its stock cost; GST and cess breakup always visible
+- **Quotations**: priced like a bill, printed or shared on WhatsApp, billed later — nothing sold until then
 - **Edit saved bills** (same number) and returns / credit notes; "served by" staff for incentives
 - **Bought outside?** — bring in an out-of-stock item fetched from a nearby shop without a bill
 - Bills with no customer say **Cash**
@@ -76,7 +79,7 @@ instead of accounting jargon, while keeping proper double-entry books underneath
 - Running statements, credit limits, WhatsApp reminders, bill-wise payments, outstanding reports
 
 ### GST
-- CGST / SGST / IGST / cess, GST 2.0 slabs with an HSN helper
+- CGST / SGST / IGST / cess, GST 2.0 slabs; GST rate and cess fill in from the HSN code (editable)
 - GSTR-1 and GSTR-3B JSON (GSTN offline-tool format), HSN summary
 - e-Invoice (IRN, signed QR) and e-Way Bill — test mode built in, live through a GSP
 - GSTR-2B import and matching: what's matched, what credit is at risk
@@ -99,7 +102,7 @@ instead of accounting jargon, while keeping proper double-entry books underneath
 - "Bring in your shop" quick grids for shops that were already running
 
 ### Insights
-- Live dashboard, 30-day trend, top items, item & bill profit (real FIFO cost after coupons), registers, day book, cash book, outstanding — every report to CSV
+- Live dashboard, 30-day trend, top items, **daily, item and bill profit** (amount and margin %, real FIFO cost after supplier coupons), registers, day book, cash book, outstanding — every report to CSV
 
 ---
 

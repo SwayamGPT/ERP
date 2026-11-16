@@ -1,4 +1,4 @@
-import { roundQty, type ItemRecord, type PartyRecord } from '@hisaab/core';
+import { cessForHsn, gstRateForHsn, roundQty, type ItemRecord, type PartyRecord } from '@hisaab/core';
 import { AppError, audit, guard, type Ctx } from './base';
 import { adjustStock, saveItem } from './items';
 import { saveParty } from './parties';
@@ -68,7 +68,8 @@ export function importItems(ctx: Ctx, input: { records: ItemRecord[]; updateExis
             category: r.category ?? null,
             brand: r.brand ?? null,
             hsn: r.hsn ?? null,
-            gst_rate: r.gst ?? 0,
+            gst_rate: r.gst ?? gstRateForHsn(r.hsn) ?? 0, // no GST column: the usual rate for its HSN code
+            ...(r.gst == null ? { cess_rate: cessForHsn(r.hsn) } : {}),
             base_unit: r.unit,
             is_loose: LOOSE.has(r.unit),
             tax_inclusive: input.ratesIncludeGst !== false,

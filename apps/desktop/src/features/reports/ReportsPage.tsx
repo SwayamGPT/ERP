@@ -2,14 +2,15 @@ import { toCsv, type Permission } from '@hisaab/core';
 import { BarChart3, Download } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Badge, Button, Card, EmptyState, Input, Loading, Segmented, Tabs } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, Loading, Segmented, Stat, Tabs } from '../../components/ui';
 import { downloadCsv } from '../../lib/download';
 import { fmtDate, fmtQty, inr, monthStart, shiftDate, today } from '../../lib/format';
 import { useCan } from '../../lib/perm';
 import { useApi } from '../../lib/useApi';
 
-type Tab = 'salesmen' | 'staff' | 'pnl' | 'sales' | 'purchases' | 'profit' | 'bills' | 'stock' | 'expiry' | 'daybook' | 'cashbook' | 'outstanding';
+type Tab = 'daily' | 'salesmen' | 'staff' | 'pnl' | 'sales' | 'purchases' | 'profit' | 'bills' | 'stock' | 'expiry' | 'daybook' | 'cashbook' | 'outstanding';
 const TABS: Array<{ value: Tab; label: string; perm: Permission }> = [
+  { value: 'daily', label: 'Daily profit', perm: 'report.profit' },
   { value: 'pnl', label: 'Profit & loss', perm: 'report.profit' },
   { value: 'sales', label: 'Sales register', perm: 'report.view' },
   { value: 'purchases', label: 'Purchase register', perm: 'purchase.view' },
@@ -54,7 +55,7 @@ export function ReportsPage() {
             <p className="text-sm text-muted">Every report exports to CSV for Excel or your CA.</p>
           </div>
         </div>
-        {['pnl', 'staff', 'sales', 'purchases', 'profit', 'bills', 'cashbook'].includes(tab) && (
+        {['daily', 'pnl', 'staff', 'sales', 'purchases', 'profit', 'bills', 'cashbook'].includes(tab) && (
           <div className="flex items-center gap-2">
             <Segmented size="sm" value="" onChange={(v) => { if (v === 'today') (setFrom(today()), setTo(today())); if (v === 'month') (setFrom(monthStart()), setTo(today())); if (v === '30') (setFrom(shiftDate(today(), -29)), setTo(today())); }} options={[{ value: 'today', label: 'Today' }, { value: 'month', label: 'This month' }, { value: '30', label: '30 days' }]} />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-40" />
@@ -70,6 +71,7 @@ export function ReportsPage() {
       {tab === 'salesmen' && <Salesmen from={from} to={to} />}
       {tab === 'sales' && <Register kind="sale" from={from} to={to} />}
       {tab === 'purchases' && <Register kind="purchase" from={from} to={to} />}
+      {tab === 'daily' && <DailyProfit from={from} to={to} />}
       {tab === 'profit' && <ItemProfit from={from} to={to} />}
       {tab === 'bills' && <BillProfit from={from} to={to} />}
       {tab === 'stock' && <StockSummary />}
@@ -143,6 +145,41 @@ function Register({ kind, from, to }: { kind: 'sale' | 'purchase'; from: string;
   );
 }
 
+const profitCell = (r: R) => (Number(r.profit) < 0 ? <span className="font-medium text-bad">Loss {inr(-Number(r.profit))}</span> : <span className="text-good">{inr(Number(r.profit))}</span>);
+const marginCell = (r: R) => <span className={Number(r.margin) < 0 ? 'text-bad' : ''}>{r.margin == null ? '—' : `${String(r.margin)}%`}</span>;
+
+/** Profit for each day, with the period's total and margin on top. */
+function DailyProfit({ from, to }: { from: string; to: string }) {
+  const q = useApi('reports.dailyProfit', { from, to });
+  const rows = q.data ?? [];
+  const sales = rows.reduce((a, r) => a + r.sales, 0);
+  const profit = rows.reduce((a, r) => a + r.profit, 0);
+  const best = rows.reduce<(typeof rows)[number] | null>((b, r) => (!b || r.profit > b.profit ? r : b), null);
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4" data-testid="daily-profit-summary">
+        <Stat label="Profit in this period" value={inr(profit, false)} tone={profit < 0 ? 'bad' : 'good'} />
+        <Stat label="Margin" value={sales ? `${Math.round((profit / sales) * 1000) / 10}%` : '—'} />
+        <Stat label="Average per day" value={rows.length ? inr(Math.round(profit / rows.length), false) : '—'} sub={`${rows.length} day${rows.length === 1 ? '' : 's'} with sales`} />
+        <Stat label="Best day" value={best ? inr(best.profit, false) : '—'} sub={best ? fmtDate(best.date) : undefined} />
+      </div>
+      <ReportTable
+        name="daily-profit"
+        rows={q.data as R[] | undefined}
+        totals={['bills', 'sales', 'cost', 'profit']}
+        cols={[
+          date(),
+          { key: 'bills', label: 'Bills', right: true },
+          { key: 'sales', label: 'Sales (excl. GST)', money: true },
+          { key: 'cost', label: 'Cost of goods', money: true },
+          { key: 'profit', label: 'Profit / loss', money: true, render: profitCell },
+          { key: 'margin', label: 'Margin %', right: true, render: marginCell },
+        ]}
+      />
+    </div>
+  );
+}
+
 function ItemProfit({ from, to }: { from: string; to: string }) {
   const q = useApi('reports.itemProfit', { from, to });
   return (
@@ -155,8 +192,8 @@ function ItemProfit({ from, to }: { from: string; to: string }) {
         { key: 'qty', label: 'Qty sold', right: true, render: (r) => fmtQty(Number(r.qty)) },
         { key: 'sales', label: 'Sales (excl. GST)', money: true },
         { key: 'cost', label: 'Cost (FIFO)', money: true },
-        { key: 'profit', label: 'Profit / loss', money: true, render: (r) => (Number(r.profit) < 0 ? <span className="font-medium text-bad">Loss {inr(-Number(r.profit))}</span> : <span className="text-good">{inr(Number(r.profit))}</span>) },
-        { key: 'margin', label: 'Margin', right: true, render: (r) => `${r.margin ?? 0}%` },
+        { key: 'profit', label: 'Profit / loss', money: true, render: profitCell },
+        { key: 'margin', label: 'Margin %', right: true, render: marginCell },
       ]}
     />
   );
@@ -171,7 +208,7 @@ function BillProfit({ from, to }: { from: string; to: string }) {
       rows={q.data as R[] | undefined}
       onRow={(r) => nav(`/sales/${r.id}`)}
       totals={['taxable', 'cost', 'profit']}
-      cols={[date(), { key: 'number', label: 'Bill' }, { key: 'party_name', label: 'Customer' }, { key: 'taxable', label: 'Sales (excl. GST)', money: true }, { key: 'cost', label: 'Cost', money: true }, { key: 'profit', label: 'Profit / loss', money: true, render: (r) => (Number(r.profit) < 0 ? <span className="font-medium text-bad">Loss {inr(-Number(r.profit))}</span> : <span className="text-good">{inr(Number(r.profit))}</span>) }, { key: 'margin', label: 'Margin', right: true, render: (r) => <span className={Number(r.margin) < 0 ? 'text-bad' : ''}>{String(r.margin ?? 0)}%</span> }]}
+      cols={[date(), { key: 'number', label: 'Bill' }, { key: 'party_name', label: 'Customer' }, { key: 'taxable', label: 'Sales (excl. GST)', money: true }, { key: 'cost', label: 'Cost', money: true }, { key: 'profit', label: 'Profit / loss', money: true, render: profitCell }, { key: 'margin', label: 'Margin %', right: true, render: marginCell }]}
     />
   );
 }

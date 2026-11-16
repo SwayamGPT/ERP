@@ -20,7 +20,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { printInvoice } from '../../components/print/PrintInvoice';
 import { UpiQr } from '../../components/UpiQr';
 import { Badge, Button, ConfirmDialog, Dialog, Input, Kbd, MoneyInput, Segmented, toast } from '../../components/ui';
@@ -43,6 +43,7 @@ import { CounterTools, displayThanks, useCustomerDisplay } from './CounterTools'
 
 export function PosPage() {
   const canCreditUser = useCan()('credit.give');
+  const navigate = useNavigate();
   const t = useT();
   const canDo = useCan();
   const pos = usePos();
@@ -180,6 +181,7 @@ export function PosPage() {
         notes: bill.notes || undefined,
         servedBy: company?.billing_staff_mode === 'optional' ? bill.servedBy?.id ?? null : null,
         orderId: bill.orderId ?? null,
+        quotationId: bill.quotationId ?? null,
         payments,
         overrideCreditLimit: override,
       };
@@ -196,6 +198,22 @@ export function PosPage() {
       if (e instanceof ApiError && e.code === 'CREDIT_LIMIT' && canDo('discount.any')) setCreditConfirm({ print });
       else if (e instanceof ApiError && e.code === 'WALKIN_CREDIT') setPickCustomer(true), toast.error(e);
       else toast.error(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── a quotation: the same prices as a bill, but nothing is sold
+  const saveQuote = async () => {
+    if (!draft.lines.length || saving) return;
+    setSaving(true);
+    try {
+      const q = await call('quotations.save', { partyId: draft.partyId, lines: draft.lines, billDiscountPct: draft.billDiscountPct, notes: bill.notes || undefined });
+      pos.completed();
+      toast.success(`Quotation ${q.number} saved · ${formatINR(q.total)}`, 'Nothing was sold. Open it from Quotations to print, share or bill it.');
+      navigate(`/quotations/${q.id}`);
+    } catch (e) {
+      toast.error(e);
     } finally {
       setSaving(false);
     }
@@ -264,6 +282,11 @@ export function PosPage() {
           <div className="flex items-center gap-2 border-b border-border bg-warn/10 px-5 py-1.5 text-xs text-warn" data-testid="bill-editing">
             <Pencil className="h-3.5 w-3.5" /> Editing bill {bill.editNumber}. Saving replaces it (same number); stock, accounts and payments are corrected.
             <button className="ml-auto underline" onClick={() => (pos.closeBill(pos.active), focusSearch())}>Stop editing</button>
+          </div>
+        )}
+        {bill.quotationNumber && (
+          <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-5 py-1.5 text-xs text-primary" data-testid="bill-from-quote">
+            Billing quotation {bill.quotationNumber}. Saving makes it a sale and marks the quotation converted.
           </div>
         )}
         {bill.orderNumber && (
@@ -615,6 +638,11 @@ export function PosPage() {
           <Button variant="outline" className="w-full" kbd="F10" disabled={!draft.lines.length || saving} onClick={() => save(false)} data-testid="pos-save">
             Save without printing
           </Button>
+          {!bill.editId && !bill.quotationId && (
+            <Button variant="ghost" className="w-full" disabled={!draft.lines.length || saving} onClick={() => void saveQuote()} data-testid="pos-save-quote">
+              Save as quotation (nothing is sold)
+            </Button>
+          )}
         </div>
       </aside>
 
