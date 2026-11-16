@@ -228,6 +228,38 @@ describe('staff requests, festival bonus and staff on bills', () => {
     return { ...s, ravi, sunil, owner, login };
   }
 
+  it('a staff member with their own login sees their salary month by month, payments, money taken and receipts — only their own', () => {
+    const { ctx, ravi, sunil, login } = withStaff();
+    login('Owner', '1234');
+    const adv = api['staff.advance'](ctx, { employeeId: ravi, amount: 200000, mode: 'cash', direction: 'give', note: 'Rent' });
+    const sunilAdv = api['staff.advance'](ctx, { employeeId: sunil, amount: 100000, mode: 'cash', direction: 'give' });
+    const [octRavi] = api['staff.runSalary'](ctx, { period: '2026-10', rows: [{ employeeId: ravi, paidDays: 29, bonus: 50000 }, { employeeId: sunil, paidDays: 31 }] });
+    api['staff.paySalary'](ctx, { expenseId: octRavi, amount: 600000, mode: 'upi', recoverAdvance: 200000 });
+
+    login('Ravi', '1111');
+    const me = api['staff.myPay'](ctx);
+    expect(JSON.stringify(me)).not.toContain('Sunil');
+    expect(me.months).toHaveLength(1);
+    const oct = me.months[0];
+    expect(oct).toMatchObject({ kind: 'salary', period: '2026-10', paid: 800000, working: { monthly: 1200000, paidDays: 29, daysInMonth: 31, bonus: 50000 } });
+    expect(oct.amount).toBe(Math.round((1200000 * 29) / 31) + 50000);
+    expect(oct.due).toBe(oct.amount - 800000);
+    expect(oct.payments.map((p) => [p.how, p.amount])).toEqual(expect.arrayContaining([['upi', 600000], ['advance', 200000]]));
+    expect(me.money).toEqual([expect.objectContaining({ kind: 'advance', amount: 200000, note: 'Rent' })]);
+    expect(me.year).toMatchObject({ from: '2026-04-01', earned: oct.amount, received: 600000, adjusted: 200000, taken: 200000 });
+    expect(me.thisMonth).toMatchObject({ period: '2026-11', incentivePct: 1 });
+    expect(me.profile).toMatchObject({ payMode: 'cash', incentivePct: 1 });
+
+    // Their own receipts open; someone else's do not.
+    const r = api['staff.receipt'](ctx, oct.payments[0].receipt);
+    expect(r).toMatchObject({ type: 'salary', employee: { name: 'Ravi' }, paidToDate: 800000 });
+    expect(api['staff.receipt'](ctx, { kind: 'move', id: adv })).toMatchObject({ type: 'advance', amount: 200000 });
+    expect(() => api['staff.receipt'](ctx, { kind: 'move', id: sunilAdv })).toThrow(/only see your own/);
+    // …and they still cannot see anyone else's pay.
+    expect(() => api['staff.list'](ctx, {})).toThrow(/permission/);
+    expect(() => api['staff.get'](ctx, { id: sunil })).toThrow(/permission/);
+  });
+
   it('lets a linked staff member ask; only the owner approves or declines', () => {
     const { ctx, ravi, login, bal } = withStaff();
     login('Ravi', '1111');

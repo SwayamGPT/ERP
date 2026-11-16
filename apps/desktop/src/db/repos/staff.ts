@@ -301,12 +301,78 @@ export function withdrawRequest(ctx: Ctx, id: number) {
 /** What a staff member sees about themselves — and nothing about anyone else. */
 export function myPay(ctx: Ctx) {
   const me = mustBeMe(ctx);
-  const e = ctx.db.get<Employee>(`SELECT e.*, ${BAL} FROM employees e WHERE e.id = ?`, [me.id])!;
+  const e = ctx.db.get<Employee & { joined_on: string | null; pay_mode: string; bank_account: string | null }>(`SELECT e.*, ${BAL} FROM employees e WHERE e.id = ?`, [me.id])!;
   const requests = ctx.db.query<StaffRequest>(
     `SELECT r.*, ? AS employee_name, u.name AS decided_by_name FROM staff_requests r LEFT JOIN users u ON u.id = r.decided_by WHERE r.employee_id = ? ORDER BY r.id DESC LIMIT 20`,
     [me.name, me.id],
   );
-  return { name: e.name, monthlySalary: e.monthly_salary, advance: e.advance, salaryDue: e.salary_due, lastPaid: e.last_paid ?? null, requests, timeline: timeline(ctx, me.id).slice(0, 30) };
+
+  // Each salary / bonus bill, with how it was worked out and every payment against it.
+  const bills = ctx.db.query<{ id: number; kind: string | null; period: string | null; description: string; amount: number; paid: number; status: string; date: string; salary_detail: string | null }>(
+    "SELECT id, staff_pay_kind AS kind, salary_period AS period, description, amount, paid, status, date, salary_detail FROM expenses WHERE employee_id = ? AND status <> 'cancelled' ORDER BY COALESCE(salary_period, substr(date, 1, 7)) DESC, id DESC LIMIT 36",
+    [me.id],
+  );
+  const months = bills.map((b) => {
+    const d = b.salary_detail ? (JSON.parse(b.salary_detail) as { monthly: number; daysInMonth: number; paidDays: number; bonus?: number; deduction?: number; incentive?: number }) : null;
+    const paid = ctx.db.query<{ id: number; date: string; amount: number; mode: string }>('SELECT id, date, amount, mode FROM payments WHERE expense_id = ? AND cancelled = 0 ORDER BY id', [b.id]);
+    const adjusted = ctx.db.query<{ id: number; date: string; amount: number; payment_id: number | null }>("SELECT id, date, amount, payment_id FROM money_moves WHERE expense_id = ? AND kind = 'advance_recovery' AND cancelled = 0 ORDER BY id", [b.id]);
+    return {
+      id: b.id,
+      kind: (b.kind ?? 'salary') as 'salary' | 'bonus',
+      period: b.period,
+      title: b.description,
+      date: b.date,
+      working: d ? { monthly: d.monthly, daysInMonth: d.daysInMonth, paidDays: d.paidDays, bonus: d.bonus ?? 0, incentive: d.incentive ?? 0, deduction: d.deduction ?? 0 } : null,
+      amount: b.amount,
+      paid: b.paid,
+      due: Math.max(0, b.amount - b.paid),
+      payments: [
+        ...paid.map((p) => ({ date: p.date, amount: p.amount, how: p.mode, receipt: { kind: 'pay' as const, id: p.id } })),
+        ...adjusted.filter((m) => !m.payment_id).map((m) => ({ date: m.date, amount: m.amount, how: 'advance', receipt: { kind: 'move' as const, id: m.id } })),
+        ...adjusted.filter((m) => m.payment_id).map((m) => ({ date: m.date, amount: m.amount, how: 'advance', receipt: { kind: 'pay' as const, id: m.payment_id! } })),
+      ].sort((a, b) => a.date.localeCompare(b.date)),
+    };
+  });
+
+  // Money taken before payday, and paid back.
+  const money = ctx.db
+    .query<{ id: number; kind: string; date: string; amount: number; mode: string | null; note: string | null }>(
+      "SELECT id, kind, date, amount, mode, note FROM money_moves WHERE employee_id = ? AND kind IN ('advance','advance_return') AND cancelled = 0 ORDER BY date DESC, id DESC LIMIT 50",
+      [me.id],
+    )
+    .map((m) => ({ ...m, receipt: { kind: 'move' as const, id: m.id } }));
+
+  // This month so far: sales served and the incentive they earn.
+  const today = ctx.today();
+  const period = today.slice(0, 7);
+  const sales = salesServed(ctx, me.id, `${period}-01`, `${period}-31`);
+  const thisMonth = { period, salesServed: sales, incentivePct: e.incentive_pct, incentiveSoFar: e.incentive_pct > 0 ? Math.max(0, roundHalfUp((sales * e.incentive_pct) / 100)) : 0 };
+
+  // Financial year (April–March) totals.
+  const fyStart = `${+today.slice(5, 7) >= 4 ? today.slice(0, 4) : +today.slice(0, 4) - 1}-04-01`;
+  const sum = (sql: string) => ctx.db.get<{ s: number }>(sql, [me.id, fyStart])!.s;
+  const year = {
+    from: fyStart,
+    earned: sum("SELECT COALESCE(SUM(amount), 0) AS s FROM expenses WHERE employee_id = ? AND status <> 'cancelled' AND COALESCE(salary_period || '-01', date) >= ?"),
+    received: sum('SELECT COALESCE(SUM(p.amount), 0) AS s FROM payments p JOIN expenses x ON x.id = p.expense_id WHERE x.employee_id = ? AND p.cancelled = 0 AND p.date >= ?'),
+    adjusted: sum("SELECT COALESCE(SUM(amount), 0) AS s FROM money_moves WHERE employee_id = ? AND kind = 'advance_recovery' AND cancelled = 0 AND date >= ?"),
+    taken: sum("SELECT COALESCE(SUM(amount), 0) AS s FROM money_moves WHERE employee_id = ? AND kind = 'advance' AND cancelled = 0 AND date >= ?"),
+  };
+
+  return {
+    name: e.name,
+    profile: { designation: e.designation, phone: e.phone, joinedOn: e.joined_on, payMode: e.pay_mode, bankAccount: e.bank_account ? `•••• ${e.bank_account.slice(-4)}` : null, incentivePct: e.incentive_pct },
+    monthlySalary: e.monthly_salary,
+    advance: e.advance,
+    salaryDue: e.salary_due,
+    lastPaid: e.last_paid ?? null,
+    requests,
+    timeline: timeline(ctx, me.id).slice(0, 30),
+    months,
+    money,
+    thisMonth,
+    year,
+  };
 }
 
 export function listRequests(ctx: Ctx, opts: { status?: StaffRequest['status'] | 'all' } = {}) {
@@ -463,7 +529,12 @@ const MONEY_TAKEN = "('advance')";
  * or an advance adjusted in salary.
  */
 export function staffReceipt(ctx: Ctx, input: { kind: 'pay' | 'move'; id: number }): StaffReceipt {
-  guard(ctx, 'payroll.manage');
+  requireSession(ctx);
+  // The owner / payroll can print anyone's; a staff member only their own.
+  const owner = allowed(ctx, 'payroll.manage');
+  const onlyMine = (employeeId: number) => {
+    if (!owner && myEmployee(ctx)?.id !== employeeId) throw new AppError('You can only see your own receipts.', 'FORBIDDEN');
+  };
   let expenseId: number | null = null;
   let move: { id: number; kind: string; amount: number; mode: string | null; note: string | null; date: string; employee_id: number; cancelled: number; created_at: string } | undefined;
   if (input.kind === 'pay') {
@@ -493,6 +564,7 @@ export function staffReceipt(ctx: Ctx, input: { kind: 'pay' | 'move'; id: number
 
   if (expenseId == null) {
     const m = move!;
+    onlyMine(m.employee_id);
     upToLedger = lastLedgerId('move', m.id);
     return {
       type: m.kind as 'advance' | 'advance_return',
@@ -513,6 +585,7 @@ export function staffReceipt(ctx: Ctx, input: { kind: 'pay' | 'move'; id: number
     [expenseId],
   );
   if (!x) throw new AppError('Salary bill not found.', 'NOT_FOUND');
+  onlyMine(x.employee_id);
   // Order by the books (ledger entry ids), not the clock: two payments can share a second. One
   // "Pay" is its cash part plus the advance adjusted with it (money_moves.payment_id).
   const seq = (type: string, id: number) => ctx.db.get<{ s: number | null }>('SELECT MIN(id) AS s FROM ledger_entries WHERE voucher_type = ? AND voucher_id = ?', [type, id])?.s ?? 0;

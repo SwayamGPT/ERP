@@ -131,6 +131,9 @@ test('a manager handles expenses but never sees salaries', async ({ page }) => {
 });
 
 test('staff ask for money from their own PIN; the owner approves and pays', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { HisaabAndroid: unknown }).HisaabAndroid = { print: () => undefined }; // keep printed sheets readable
+  });
   await openShop(page);
   // Owner links the existing counter login to a new staff record.
   await page.goto('/#/staff');
@@ -171,6 +174,38 @@ test('staff ask for money from their own PIN; the owner approves and pays', asyn
   await page.goto('/#/me');
   await expect(page.getByTestId('my-advance')).toHaveText('₹500');
   await expect(page.getByTestId('my-requests')).toContainText('Approved');
+  await expect(page.getByTestId('my-money')).toContainText('₹500.00');
+
+  // Payday: the owner runs salary and pays part of it.
+  await page.getByTestId('user-menu').click();
+  await unlock(page, /Rakesh/, '1234');
+  await page.goto('/#/staff');
+  await page.getByTestId('salary-run').click();
+  await page.getByTestId('salary-create').click();
+  await page.getByTestId('staff-table').locator('tbody tr', { hasText: 'login: Ravi' }).locator('td').first().click();
+  await page.getByTestId('salary-pay').click();
+  await page.getByTestId('pay-expense-amount').fill('6000');
+  await page.getByTestId('pay-expense-save').click();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Part payment recorded' })).toBeVisible();
+  // Close the staff drawer (an Escape that lands while the pay dialog is still closing does nothing).
+  await expect(async () => {
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 500 });
+  }).toPass({ timeout: 10_000 });
+
+  // Ravi sees his month: how it was worked out, what was paid, what is still due, and his receipt.
+  await page.getByTestId('user-menu').click();
+  await unlock(page, /Ravi/, '1111');
+  await page.goto('/#/me');
+  const month = page.getByTestId('my-month').first();
+  await expect(month).toContainText('Part paid · ₹5,500.00 due'); // 12,000 − 6,000 paid − 500 adjusted
+  await expect(month).toContainText('Monthly salary');
+  await expect(month).toContainText('Adjusted from advance');
+  await expect(month).toContainText('Still due to you');
+  await expect(page.getByTestId('my-due')).toHaveText('₹5,500');
+  await month.getByTestId('my-receipt').first().click();
+  await expect(page.getByTestId('print-doc')).toContainText('SALARY RECEIPT — PART PAYMENT');
+  await expect(page.getByTestId('print-doc')).toContainText('Ravi');
 });
 
 test('festival bonus for everyone, paid now', async ({ page }) => {

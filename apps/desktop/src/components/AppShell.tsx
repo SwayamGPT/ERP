@@ -108,6 +108,8 @@ export function useNav(): Array<{ group: string; items: NavItem[] }> {
   ];
 }
 
+let lastUserId: number | null = null;
+
 export function AppShell({ company, children }: { company: Company; children: ReactNode }) {
   const nav = useNav();
   const canDo = useCan();
@@ -152,6 +154,9 @@ export function AppShell({ company, children }: { company: Company; children: Re
 
   const enterpriseId = useApi('app.status').data?.enterpriseId ?? null;
   useEffect(() => {
+    // Someone else signed in: the last person's messages (amounts, names) are not for them.
+    if (session && lastUserId !== null && lastUserId !== session.userId) toast.clear();
+    if (session) lastUserId = session.userId;
     // Create due bills for repeating expenses (rent, EMIs…) whenever someone unlocks.
     if (session) call('expenses.sync').then((n) => n > 0 && toast.info(`${n} repeating bill${n > 1 ? 's' : ''} added to Bills to pay`)).catch(() => {});
   }, [session?.userId, enterpriseId]);

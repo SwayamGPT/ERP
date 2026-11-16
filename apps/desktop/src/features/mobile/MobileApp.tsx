@@ -1,8 +1,9 @@
 import { can, resolvePrice, type Permission, type PriceTier } from '@hisaab/core';
-import { AlertTriangle, Check, ClipboardList, ListChecks, Cloud, CloudOff, HandCoins, Home, Lock, MessageCircle, Minus, Monitor, Package, Plus, Receipt, Search, ShoppingBag, Users, X } from 'lucide-react';
+import { AlertTriangle, Check, ClipboardList, ListChecks, Cloud, CloudOff, HandCoins, Home, Lock, MessageCircle, Minus, Monitor, Package, Plus, Receipt, Search, ShoppingBag, Users, Wallet, X } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Badge, Button, Dialog, Field, Input, Loading, MoneyInput, Segmented, toast } from '../../components/ui';
 import { call, db, LAN } from '../../db/client';
+import { MyPayPage } from '../me/MyPayPage';
 import { PhoneBill } from './PhoneBill';
 import type { Company, Item, Party, Session } from '../../db/types';
 import { cn } from '../../lib/cn';
@@ -16,12 +17,13 @@ import { useApi } from '../../lib/useApi';
  * The phone app (installable web app): the owner's pocket view of the shop and the salesman's order
  * book. Same local database engine as the counter, kept in step by cloud sync, so it works offline.
  */
-type Tab = 'bill' | 'home' | 'dues' | 'stock' | 'count' | 'requests' | 'orders' | 'new';
+type Tab = 'bill' | 'home' | 'dues' | 'stock' | 'count' | 'requests' | 'orders' | 'new' | 'me';
 
 export function MobileApp({ company, session, onDesktop }: { company: Company; session: Session; onDesktop?: () => void }) {
   const canDo = (p: Permission) => can(session.role, p, session);
   const salesman = session.role === 'salesman';
-  const pending = useApi('app.status').data?.pendingRequests ?? 0;
+  const status = useApi('app.status').data;
+  const pending = status?.pendingRequests ?? 0;
   const tabs: Array<{ value: Tab; label: string; icon: ReactNode; badge?: number; show: boolean }> = [
     { value: 'bill', label: 'Bill', icon: <Receipt />, show: canDo('sale.create') && LAN },
     { value: 'home', label: 'Today', icon: <Home />, show: canDo('report.view') },
@@ -31,6 +33,8 @@ export function MobileApp({ company, session, onDesktop }: { company: Company; s
     { value: 'stock', label: 'Stock', icon: <Package />, show: canDo('item.view') },
     { value: 'count', label: 'Count', icon: <ListChecks />, show: canDo('stock.adjust') },
     { value: 'requests', label: 'Staff', icon: <Users />, badge: pending, show: canDo('payroll.manage') },
+    // Staff with their own login: their salary, payments, receipts and asking for money.
+    { value: 'me', label: 'My pay', icon: <Wallet />, show: !!status?.me && !canDo('payroll.manage') },
   ].filter((t) => t.show) as never;
   const [tab, setTab] = useState<Tab>(tabs[0]?.value ?? 'stock');
 
@@ -58,6 +62,7 @@ export function MobileApp({ company, session, onDesktop }: { company: Company; s
         {tab === 'requests' && <Requests />}
         {tab === 'orders' && <MyOrders onNew={() => setTab('new')} />}
         {tab === 'new' && <NewOrder onDone={() => setTab('orders')} />}
+        {tab === 'me' && <MyPayPage compact />}
       </main>
       <nav className="grid shrink-0 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
         {tabs.map((t) => (
