@@ -152,11 +152,17 @@
     top: 0;
     display: block !important;
   }
+  /* Inside the printable area (80 mm paper prints ~72 mm); adjustable in Print setup. */
   .print-area.paper-thermal80 {
-    width: 72mm;
+    width: 70mm;
+    margin-left: 1mm;
   }
   .print-area.paper-thermal58 {
-    width: 48mm;
+    width: 46mm;
+    margin-left: 1mm;
+  }
+  .print-area.paper-thermal80 *, .print-area.paper-thermal58 * {
+    max-width: 100%;
   }
   .print-area.paper-a4, .print-area.paper-a5 {
     width: 100%;

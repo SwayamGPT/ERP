@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import type { Company, Invoice, PrintTemplate } from '../../db/types';
 import { InvoiceDocument, paperFor, type Paper } from './templates';
+import { thermalGeometry } from '../../lib/devicePrefs';
 
 type Job = { invoice: Invoice; company: Company; template: PrintTemplate };
 
@@ -25,8 +26,9 @@ export function printInvoice(invoice: Invoice, company: Company, template?: Prin
 }
 
 const PAGE: Record<Paper, string> = {
-  thermal80: '@page { size: 80mm auto; margin: 2mm; }',
-  thermal58: '@page { size: 58mm auto; margin: 2mm; }',
+  // No page margin on thermal paper: the bill sets its own width and left gap (thermalGeometry).
+  thermal80: '@page { size: 80mm auto; margin: 0; }',
+  thermal58: '@page { size: 58mm auto; margin: 0; }',
   a4: '@page { size: A4; margin: 10mm; }',
   a5: '@page { size: A5; margin: 8mm; }',
 };
@@ -47,8 +49,9 @@ export function PrintHost() {
   }, [job]);
   if (!job) return null;
   const paper = paperFor(job.template, job.company);
+  const g = paper === 'thermal80' || paper === 'thermal58' ? thermalGeometry(paper) : null;
   return createPortal(
-    <div className={`print-area print-only paper-${paper}`}>
+    <div className={`print-area print-only paper-${paper}`} style={g ? { width: `${g.widthMm}mm`, marginLeft: `${g.leftMm}mm` } : undefined} data-testid="print-invoice">
       <style>{`@media print { ${PAGE[paper]} }`}</style>
       <InvoiceDocument invoice={job.invoice} company={job.company} template={job.template} />
     </div>,

@@ -31,6 +31,10 @@ export function paperFor(template: PrintTemplate, company: Pick<Company, 'print_
 
 /* ───────────────────────── shared helpers ───────────────────────── */
 
+/** Thermal rows: the label may wrap; the amount stays whole and never pushes past the paper edge. */
+const WRAP: CSSProperties = { minWidth: 0, overflowWrap: 'anywhere' };
+const AMT: CSSProperties = { flexShrink: 0, whiteSpace: 'nowrap', textAlign: 'right' };
+
 interface Ctx {
   inv: Invoice;
   c: Company;
@@ -93,9 +97,9 @@ function Receipt({ x, narrow }: { x: Ctx; narrow: boolean }) {
   const { inv, c } = x;
   const Dash = () => <div style={{ borderTop: '1px dashed #000', margin: '4px 0' }} />;
   const Row = ({ k, v, bold }: { k: ReactNode; v: ReactNode; bold?: boolean }) => (
-    <div className="flex justify-between" style={bold ? { fontWeight: 700 } : undefined}>
-      <span>{k}</span>
-      <span>{v}</span>
+    <div className="flex justify-between gap-1" style={bold ? { fontWeight: 700 } : undefined}>
+      <span style={WRAP}>{k}</span>
+      <span style={AMT}>{v}</span>
     </div>
   );
   return (
@@ -197,9 +201,9 @@ function ReceiptLarge({ x }: { x: Ctx }) {
   const { inv, c } = x;
   const line = { borderTop: '2px solid #000', margin: '6px 0' } as CSSProperties;
   const Row = ({ k, v, bold }: { k: ReactNode; v: ReactNode; bold?: boolean }) => (
-    <div className="flex justify-between" style={bold ? { fontWeight: 800 } : undefined}>
-      <span>{k}</span>
-      <span>{v}</span>
+    <div className="flex justify-between gap-1" style={bold ? { fontWeight: 800 } : undefined}>
+      <span style={WRAP}>{k}</span>
+      <span style={AMT}>{v}</span>
     </div>
   );
   return (
@@ -211,9 +215,9 @@ function ReceiptLarge({ x }: { x: Ctx }) {
         <Licences c={c} sep={'\n'} className="whitespace-pre-line text-[11px]" />
       </div>
       <div style={line} />
-      <div className="flex justify-between" style={{ fontSize: 13 }}>
-        <span>Bill <b>{inv.number}</b></span>
-        <span>{fmtDate(inv.date)} {fmtTime(inv.created_at)}</span>
+      <div className="flex justify-between gap-1" style={{ fontSize: 13 }}>
+        <span style={WRAP}>Bill <b>{inv.number}</b></span>
+        <span style={{ ...WRAP, textAlign: 'right' }}>{fmtDate(inv.date)} {fmtTime(inv.created_at)}</span>
       </div>
       {!walkIn(inv) && <div style={{ fontSize: 13 }}>Customer: <b>{inv.party_name}</b></div>}
       {inv.served_by_name && <div style={{ fontSize: 13 }}>Served by: <b>{inv.served_by_name}</b></div>}
@@ -221,13 +225,13 @@ function ReceiptLarge({ x }: { x: Ctx }) {
       {x.lines.map((l, i) => (
         <div key={l.id} style={{ padding: '4px 0', borderBottom: i < x.lines.length - 1 ? '1px dotted #000' : undefined }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{l.name}</div>
-          <div className="flex items-baseline justify-between">
-            <span>
+          <div className="flex items-baseline justify-between gap-1">
+            <span style={WRAP}>
               {fmtQty(l.qty)} {unitLabel(l)} × {inr(l.rate)}
               {l.free_qty ? <b> + {fmtQty(l.free_qty)} FREE</b> : null}
               {x.tax === 'detailed' && <span style={{ fontSize: 12 }}> · GST {l.gst_rate}%</span>}
             </span>
-            <span style={{ fontSize: 16, fontWeight: 800 }}>{inr(l.total)}</span>
+            <span style={{ ...AMT, fontSize: 16, fontWeight: 800 }}>{inr(l.total)}</span>
           </div>
         </div>
       ))}
@@ -243,7 +247,7 @@ function ReceiptLarge({ x }: { x: Ctx }) {
       {inv.round_off !== 0 && <Row k="Round off" v={`${inr(inv.round_off)}`} />}
       <div className="mt-2 flex items-center justify-between" style={{ background: '#000', color: '#fff', padding: '8px 10px', borderRadius: 6, WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
         <span style={{ fontSize: 15, fontWeight: 700 }}>TOTAL</span>
-        <span style={{ fontSize: 24, fontWeight: 800 }}>{inr(inv.total)}</span>
+        <span style={{ ...AMT, fontSize: 22, fontWeight: 800 }}>{inr(inv.total)}</span>
       </div>
       <div className="mt-1" style={{ fontSize: 13 }}>
         {!inv.quote && <Row k={`Paid by ${mode(inv.payment_mode)}`} v={`${inr(inv.paid)}`} />}
@@ -405,9 +409,9 @@ function A4Classic({ x }: { x: Ctx }) {
 
 function SumRow({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
   return (
-    <div className="flex justify-between" style={bold ? { fontWeight: 700 } : undefined}>
-      <span>{k}</span>
-      <span>{v}</span>
+    <div className="flex justify-between gap-1" style={bold ? { fontWeight: 700 } : undefined}>
+      <span style={WRAP}>{k}</span>
+      <span style={AMT}>{v}</span>
     </div>
   );
 }

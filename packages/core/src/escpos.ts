@@ -193,6 +193,29 @@ export interface ReceiptOptions {
   profile?: PrinterProfile;
 }
 
+/** Split text into lines of at most `width` characters, breaking between words where possible. */
+export function wrapWords(text: string, width: number): string[] {
+  const out: string[] = [];
+  let cur = '';
+  for (const word of text.trim().split(/\s+/)) {
+    for (let w = word; w; ) {
+      const room = cur ? width - cur.length - 1 : width;
+      if (w.length <= room) {
+        cur = cur ? `${cur} ${w}` : w;
+        w = '';
+      } else if (cur) {
+        out.push(cur);
+        cur = '';
+      } else {
+        out.push(w.slice(0, width));
+        w = w.slice(width);
+      }
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
 /** A receipt laid out for 58 mm (32 columns), 80 mm (48) or 42-column paper. */
 export function receipt(r: ReceiptData, opts: ReceiptOptions = {}): Uint8Array {
   const prof = opts.profile ?? PRINTER_PROFILES[0];
@@ -200,8 +223,12 @@ export function receipt(r: ReceiptData, opts: ReceiptOptions = {}): Uint8Array {
   const p = new EscPos(cols);
   const big = prof.bigText;
   p.align('center').bold(true);
-  if (big) p.size(2, 2).line(r.shop.name.slice(0, Math.floor(cols / 2))).size(1, 1);
-  else p.line(r.shop.name.slice(0, cols));
+  // The shop name never gets cut: it wraps onto more lines (double-size letters take two columns).
+  if (big) {
+    p.size(2, 2);
+    for (const l of wrapWords(r.shop.name, Math.floor(cols / 2)).slice(0, 3)) p.line(l);
+    p.size(1, 1);
+  } else for (const l of wrapWords(r.shop.name, cols).slice(0, 2)) p.line(l);
   p.bold(false);
   if (r.shop.address) p.line(r.shop.address.slice(0, cols * 2));
   if (r.shop.phone) p.line(`Ph: ${r.shop.phone}`);
@@ -209,7 +236,7 @@ export function receipt(r: ReceiptData, opts: ReceiptOptions = {}): Uint8Array {
   if (r.shop.fssai) p.line(`FSSAI: ${r.shop.fssai}`);
   p.bold(true).line(r.shop.gstin ? 'TAX INVOICE' : 'BILL').bold(false).align('left').rule();
   p.lr(`Bill: ${r.number}`, `${r.date}${r.time ? ` ${r.time.slice(0, 5)}` : ''}`);
-  if (r.party) p.line(`To: ${r.party}`.slice(0, cols));
+  if (r.party) for (const l of wrapWords(`To: ${r.party}`, cols).slice(0, 2)) p.line(l);
   if (r.partyGstin) p.line(`GSTIN: ${r.partyGstin}`);
   else if (r.partyPan) p.line(`PAN: ${r.partyPan}`);
   p.rule();

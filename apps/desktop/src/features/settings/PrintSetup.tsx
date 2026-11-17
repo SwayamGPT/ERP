@@ -7,6 +7,7 @@ import { Button, Card, Field, Input, Segmented, Switch } from '../../components/
 import type { Company, PrintTemplate, TaxDetail } from '../../db/types';
 import { cn } from '../../lib/cn';
 import { useAction } from '../../lib/useApi';
+import { THERMAL_PRESETS_MM, thermalGeometry, useDevice } from '../../lib/devicePrefs';
 
 /** Choose a bill layout, decide what it shows, and see exactly what will print. */
 export function PrintSetup({ company }: { company: Company }) {
@@ -19,6 +20,11 @@ export function PrintSetup({ company }: { company: Company }) {
   const paper = paperFor(f.print_template, f);
   const dirty = (['print_template', 'print_format', 'print_tax_detail', 'print_show_hsn', 'print_show_savings', 'print_show_qr', 'print_show_bank', 'print_show_signature', 'print_footer', 'print_terms'] as const).some((k) => f[k] !== company[k]);
   const isReceipt = PRINT_TEMPLATES.find((t) => t.id === f.print_template)?.paper === 'thermal';
+  const dev = useDevice();
+  const thermal = paper === 'thermal80' || paper === 'thermal58' ? paper : null;
+  const geo = thermal ? thermalGeometry(thermal, dev) : null;
+  // Preview at the same scale as before (300 px ≈ 72 mm of 80 mm paper, 220 px ≈ 48 mm of 58 mm).
+  const pxPerMm = thermal === 'thermal58' ? 220 / 48 : 300 / 72;
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,520px)_minmax(0,1fr)]">
@@ -46,6 +52,21 @@ export function PrintSetup({ company }: { company: Company }) {
             <div className="mt-3 flex items-center gap-3">
               <span className="text-sm text-muted">Paper width</span>
               <Segmented size="sm" value={f.print_format === 'thermal58' ? 'thermal58' : 'thermal80'} onChange={(v) => set('print_format', v)} options={[{ value: 'thermal80', label: '3 inch (80 mm)' }, { value: 'thermal58', label: '2 inch (58 mm)' }]} />
+            </div>
+          )}
+          {isReceipt && thermal && geo && (
+            <div className="mt-3 space-y-2 rounded-lg border border-border p-3" data-testid="receipt-fit">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="w-28 text-sm text-muted">Printed width</span>
+                <Segmented size="sm" value={String(geo.widthMm)} onChange={(v) => dev.set({ receiptWidthMm: Number(v) })}
+                  options={THERMAL_PRESETS_MM[thermal].map((mm) => ({ value: String(mm), label: `${mm} mm` }))} />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="w-28 text-sm text-muted">Move right</span>
+                <Segmented size="sm" value={String(geo.leftMm)} onChange={(v) => dev.set({ receiptLeftMm: Number(v) })}
+                  options={[0, 1, 2, 3, 4].map((mm) => ({ value: String(mm), label: `${mm} mm` }))} />
+              </div>
+              <p className="text-xs text-muted">Right edge cut off? Pick a smaller width. Left edge cut off or bill off-centre? Move it right. Set for this computer’s printer (each counter keeps its own).</p>
             </div>
           )}
         </Card>
@@ -93,9 +114,18 @@ export function PrintSetup({ company }: { company: Company }) {
           <Segmented size="sm" value={b2b ? 'b2b' : 'b2c'} onChange={(v) => setB2b(v === 'b2b')} options={[{ value: 'b2c', label: 'Retail customer' }, { value: 'b2b', label: 'GST customer (B2B)' }]} />
         </div>
         <div className="max-h-[calc(100vh-180px)] overflow-auto rounded-xl bg-[#e5e7eb] p-6" data-testid="print-preview">
-          <div className="mx-auto origin-top bg-white p-4 shadow-pop" style={{ width: PREVIEW_WIDTH[paper] + 32, zoom: paper === 'a4' ? 0.72 : 1 }}>
-            <InvoiceDocument invoice={sample} company={f} />
-          </div>
+          {geo ? (
+            // The paper, with the bill drawn at the width and position it will print.
+            <div className="mx-auto origin-top bg-white py-4 shadow-pop" style={{ width: (thermal === 'thermal58' ? 58 : 80) * pxPerMm }}>
+              <div style={{ width: geo.widthMm * pxPerMm, marginLeft: geo.leftMm * pxPerMm }} data-testid="preview-bill">
+                <InvoiceDocument invoice={sample} company={f} />
+              </div>
+            </div>
+          ) : (
+            <div className="mx-auto origin-top bg-white p-4 shadow-pop" style={{ width: PREVIEW_WIDTH[paper] + 32, zoom: paper === 'a4' ? 0.72 : 1 }}>
+              <InvoiceDocument invoice={sample} company={f} />
+            </div>
+          )}
         </div>
       </div>
     </div>

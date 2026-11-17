@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { drawerKick, EscPos, profileById, receipt, testPage, zplLabel } from '../src/escpos';
+import { drawerKick, EscPos, profileById, receipt, testPage, wrapWords, zplLabel } from '../src/escpos';
 import { cleanScan, ScanDetector } from '../src/barcode';
 
 const text = (b: Uint8Array) => new TextDecoder('latin1').decode(b);
@@ -112,5 +112,17 @@ describe('barcode scanners', () => {
     // Tab suffix works too
     for (const k of 'ABCD1') d.key(k, (t += 4));
     expect(d.key('Tab', (t += 4))).toBe('ABCD1');
+  });
+});
+
+describe('long shop names', () => {
+  it('wrap instead of being cut', () => {
+    expect(wrapWords('M/S SIDDHI VINAYAK ENTERPROSE', 24)).toEqual(['M/S SIDDHI VINAYAK', 'ENTERPROSE']);
+    expect(wrapWords('ABCDEFGHIJKLMNOPQRSTUVWXYZ', 10)).toEqual(['ABCDEFGHIJ', 'KLMNOPQRST', 'UVWXYZ']);
+    const r = { shop: { name: 'M/S SIDDHI VINAYAK ENTERPROSE' }, number: 'INV-2', date: '17-11-2026', lines: [], taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, roundOff: 0, total: 0, paid: 0, mode: 'cash' };
+    const text = new TextDecoder('latin1').decode(receipt(r, { profile: profileById('generic-80') }));
+    expect(text).toContain('M/S SIDDHI VINAYAK\n');
+    expect(text).toContain('ENTERPROSE\n');
+    expect(new TextDecoder('latin1').decode(receipt(r, { profile: profileById('cheap-58') }))).toContain('M/S SIDDHI VINAYAK ENTERPROSE');
   });
 });
