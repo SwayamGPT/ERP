@@ -143,6 +143,7 @@ function Rules({ c }: { c: Company }) {
         <Field label="…and again every (days)"><Input type="number" min={1} value={f.reminder_every_days} onChange={(e) => set('reminder_every_days', Number(e.target.value))} /></Field>
         <Field label="Expenses above this need the owner's approval" hint="₹0 = off. Applies to managers and cashiers."><MoneyInput value={f.expense_approval_limit ?? 0} onChange={(v) => set('expense_approval_limit', v)} /></Field>
         <Field label="Petty-cash float at the counter" hint="Small expenses paid from the box; top it back up from Expenses."><MoneyInput value={f.petty_cash_float ?? 0} onChange={(v) => set('petty_cash_float', v)} /></Field>
+        <Field label="Customer's name and PAN / GSTIN needed on sales of" hint="Bill total including GST. ₹0 = not required."><MoneyInput value={f.kyc_limit ?? 0} onChange={(v) => set('kyc_limit', v)} data-testid="kyc-limit" /></Field>
       </div>
       <Button className="mt-3" variant="primary" loading={busy} onClick={() => save(['reminder_after_days', 'reminder_every_days', 'expense_approval_limit', 'petty_cash_float'])}>Save</Button>
     </Card>

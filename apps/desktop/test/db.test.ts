@@ -482,6 +482,42 @@ describe('buying without a GST bill', () => {
   });
 });
 
+describe('big sales need the buyer name and PAN or GSTIN', () => {
+  it('₹50,000 or more: no Cash bills, a named customer with a PAN or GSTIN; the PAN goes on the bill', () => {
+    const ctx = setup('kirana', false);
+    const itemId = api['items.save'](ctx, { name: 'Gold coin', gst_rate: 3, base_unit: 'Pcs', mrp: 2500000, retail_price: 2500000, purchase_price: 2300000 });
+    const sup = api['parties.save'](ctx, { kind: 'supplier', name: 'Bullion Co' });
+    api['invoices.create'](ctx, { kind: 'purchase', supplierBillNo: 'BC-1', partyId: sup, lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 20, rate: 2300000 }] });
+    const sell = (rate: number, extra: Record<string, unknown> = {}) =>
+      api['invoices.create'](ctx, { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate }], payments: [{ mode: 'cash', amount: rate }], ...extra } as never);
+    // just under: a Cash bill is fine
+    expect(sell(4999900).party_name).toBe('Cash');
+    // at the limit (tax-inclusive total): refused without a customer
+    expect(() => sell(5000000)).toThrow(expect.objectContaining({ code: 'KYC_REQUIRED', message: expect.stringMatching(/₹50,000 or more need the customer's name and PAN or GSTIN/) }));
+    const plain = api['parties.save'](ctx, { kind: 'customer', name: 'Mehta ji', phone: '9822000111' });
+    expect(() => sell(5000000, { partyId: plain })).toThrow(/PAN or GSTIN/);
+    expect(() => api['parties.save'](ctx, { id: plain, kind: 'customer', name: 'Mehta ji', phone: '9822000111', pan: 'ABCDE123' })).toThrow(/PAN does not look right/);
+    api['parties.save'](ctx, { id: plain, kind: 'customer', name: 'Mehta ji', phone: '9822000111', pan: 'abcde1234f' });
+    const ok = sell(5000000, { partyId: plain });
+    expect(ok).toMatchObject({ party_name: 'Mehta ji', party_pan: 'ABCDE1234F' });
+    // a GSTIN is enough (and fills the PAN)
+    const firm = api['parties.save'](ctx, { kind: 'customer', name: 'Shree Traders', gstin: G('27AAKFM4821K1Z') });
+    expect(sell(6000000, { partyId: firm }).party_pan).toBe('AAKFM4821K');
+    // editing a saved Cash bill up past the limit is refused too
+    const small = sell(4000000);
+    expect(() => api['invoices.update'](ctx, { id: small.id, draft: { kind: 'sale', lines: [{ itemId, unit: 'Pcs', factor: 1, qty: 1, rate: 6000000 }], payments: [{ mode: 'cash', amount: 6000000 }] } as never })).toThrow(/PAN or GSTIN/);
+    // returns of a big bill are not held up; they carry its PAN
+    const line = ctx.db.get<{ id: number }>('SELECT id FROM invoice_lines WHERE invoice_id = ?', [ok.id])!.id;
+    expect(api['invoices.return'](ctx, { invoiceId: ok.id, lines: [{ lineId: line, qty: 1 }] } as never).party_pan).toBe('ABCDE1234F');
+    // the owner can change the amount (0 = off)
+    api['company.save'](ctx, { kyc_limit: 10000000 } as never);
+    expect(sell(6000000).party_name).toBe('Cash');
+    api['company.save'](ctx, { kyc_limit: 0 } as never);
+    expect(sell(9000000).party_name).toBe('Cash');
+    expect(api['reports.health'](ctx).balanced).toBe(true);
+  });
+});
+
 describe('purchases without a GST bill stay out of GST returns', () => {
   it('cash and challan purchases are not inward supplies: not counted, no nil-rated inward, no ITC; a real GST bill is', () => {
     const ctx = setup('kirana', false);

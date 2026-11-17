@@ -21,6 +21,10 @@ export const isPan = (v: string) => /^[A-Z]{5}\d{4}[A-Z]$/.test(v.trim().toUpper
 /** The PAN is embedded in a GSTIN (characters 3–12). */
 export const panFromGstin = (gstin: string) => (gstin.length >= 12 ? gstin.slice(2, 12).toUpperCase() : '');
 
+/** Enough to identify the buyer of a big sale: a name, and a valid PAN or GSTIN. */
+export const kycOk = (name: string | null | undefined, pan: string | null | undefined, gstin: string | null | undefined) =>
+  !!name?.trim() && ((!!pan && isPan(pan)) || (!!gstin && validateGstin(gstin.trim().toUpperCase())));
+
 export interface EnterpriseDetails {
   name: string;
   businessType: string;

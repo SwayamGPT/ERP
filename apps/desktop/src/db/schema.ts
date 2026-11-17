@@ -1002,6 +1002,17 @@ CREATE UNIQUE INDEX idx_sync_alerts_open ON _sync_alerts(kind, ref_id) WHERE res
 ALTER TABLE money_moves ADD COLUMN payment_id INTEGER REFERENCES payments(id);
 `,
   },
+  {
+    version: 21,
+    name: 'customer PAN; PAN or GSTIN required on big sales',
+    sql: /* sql */ `
+ALTER TABLE parties ADD COLUMN pan TEXT;
+ALTER TABLE invoices ADD COLUMN party_pan TEXT;
+-- Sales of this much or more (paise, incl. GST) need the customer's name and PAN or GSTIN. 0 = off.
+ALTER TABLE company ADD COLUMN kyc_limit INTEGER NOT NULL DEFAULT 5000000;
+UPDATE parties SET pan = substr(gstin, 3, 10) WHERE gstin IS NOT NULL AND gstin <> '';
+`,
+  },
 ];
 
 export function migrate(db: StorageAdapter): number {

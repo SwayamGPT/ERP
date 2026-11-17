@@ -1,4 +1,4 @@
-import { CASHIER_DISCOUNT_CAP, cleanScan, describeScheme, expiryBucket, formatINR, roundQty, ScanDetector } from '@hisaab/core';
+import { CASHIER_DISCOUNT_CAP, cleanScan, kycOk, describeScheme, expiryBucket, formatINR, roundQty, ScanDetector } from '@hisaab/core';
 import { beep } from '../../lib/beep';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
@@ -34,6 +34,7 @@ import { useT } from '../../lib/i18n';
 import { useCan } from '../../lib/perm';
 import { billMessage, upiLink, whatsappLink } from '../../lib/share';
 import { useApi } from '../../lib/useApi';
+import { CustomerKycDialog } from './CustomerKyc';
 import { CustomerPicker } from './CustomerPicker';
 import { MAX_BILLS, pickParty, usePos, type CartLine, type PayMode } from './store';
 import { BillTabs } from './BillTabs';
@@ -66,9 +67,13 @@ export function PosPage() {
   const [advanced, setAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [creditConfirm, setCreditConfirm] = useState<null | { print: boolean }>(null);
+  const [kycAsk, setKycAsk] = useState<null | { print: boolean }>(null);
+  /** Opened by a refused save (save again after), not by the hint under the total. */
+  const saveAfterKyc = useRef(false);
+  const kycLimit = company?.kyc_limit ?? 0;
   const [last, setLast] = useState<Invoice | null>(null);
   const [flashKey, setFlashKey] = useState<string | null>(null);
-  const anyDialog = pickCustomer || closeAsk !== null || discOpen || clearOpen || !!creditConfirm;
+  const anyDialog = pickCustomer || closeAsk !== null || discOpen || clearOpen || !!creditConfirm || !!kycAsk;
 
   const focusSearch = () => setTimeout(() => searchRef.current?.focus(), 0);
   useEffect(() => { focusSearch(); }, []);
@@ -239,13 +244,17 @@ export function PosPage() {
       if (print && company) printInvoice(inv, company);
       focusSearch();
     } catch (e) {
-      if (e instanceof ApiError && e.code === 'CREDIT_LIMIT' && canDo('discount.any')) setCreditConfirm({ print });
+      if (e instanceof ApiError && e.code === 'KYC_REQUIRED') (saveAfterKyc.current = true), setKycAsk({ print });
+      else if (e instanceof ApiError && e.code === 'CREDIT_LIMIT' && canDo('discount.any')) setCreditConfirm({ print });
       else if (e instanceof ApiError && e.code === 'WALKIN_CREDIT') setPickCustomer(true), toast.error(e);
       else toast.error(e);
     } finally {
       setSaving(false);
     }
   };
+
+  const saveRef = useRef(save);
+  saveRef.current = save;
 
   // ── a quotation: the same prices as a bill, but nothing is sold
   const saveQuote = async () => {
@@ -580,6 +589,11 @@ export function PosPage() {
               </button>
             </div>
             <div className="mt-1 text-4xl font-semibold tracking-tight tnum" data-testid="pos-total">{inr(payable)}</div>
+            {kycLimit > 0 && payable >= kycLimit && (!party || party.is_walkin || !kycOk(party.name, party.pan, party.gstin)) && (
+              <button onClick={() => ((saveAfterKyc.current = false), setKycAsk({ print: false }))} className="mt-1.5 w-full rounded-md bg-saffron px-2 py-1 text-left text-xs font-medium text-saffron-ink" data-testid="bill-kyc">
+                {formatINR(kycLimit, { decimals: false })} or more: add the customer's name and PAN or GSTIN
+              </button>
+            )}
             {pv?.belowCost && (
               <div className="mt-1.5 rounded-md bg-bad px-2 py-1 text-xs font-medium text-white" data-testid="bill-loss">
                 Selling below purchase cost{pv.loss != null ? ` · loss ${inr(pv.loss)}` : ''}
@@ -689,6 +703,24 @@ export function PosPage() {
           )}
         </div>
       </aside>
+
+      {kycAsk && (
+        <CustomerKycDialog
+          party={party}
+          limit={kycLimit}
+          onClose={() => (setKycAsk(null), focusSearch())}
+          onDone={async (p) => {
+            const again = kycAsk;
+            setKycAsk(null);
+            await pickParty(p);
+            toast.success(`${p.name} added to the bill`);
+            // The bill was being saved when the details were asked for: save it now.
+            // After the bill has re-rendered with the customer (the latest save, not this render's).
+            if (saveAfterKyc.current) setTimeout(() => void saveRef.current(again!.print), 50);
+            focusSearch();
+          }}
+        />
+      )}
 
       <CustomerPicker
         open={pickCustomer}

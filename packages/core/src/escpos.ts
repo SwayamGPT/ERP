@@ -167,6 +167,7 @@ export interface ReceiptData {
   time?: string;
   party?: string | null;
   partyGstin?: string | null;
+  partyPan?: string | null;
   lines: Array<{ name: string; qty: number; unit: string; rate: number; total: number }>;
   taxable: number;
   cgst: number;
@@ -210,6 +211,7 @@ export function receipt(r: ReceiptData, opts: ReceiptOptions = {}): Uint8Array {
   p.lr(`Bill: ${r.number}`, `${r.date}${r.time ? ` ${r.time.slice(0, 5)}` : ''}`);
   if (r.party) p.line(`To: ${r.party}`.slice(0, cols));
   if (r.partyGstin) p.line(`GSTIN: ${r.partyGstin}`);
+  else if (r.partyPan) p.line(`PAN: ${r.partyPan}`);
   p.rule();
   const wide = cols >= 42;
   const w = cols === 48 ? [22, -7, -9, -10] : cols === 42 ? [18, -6, -8, -10] : [14, -5, 0, -13];

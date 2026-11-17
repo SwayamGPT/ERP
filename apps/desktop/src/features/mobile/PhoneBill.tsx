@@ -1,6 +1,6 @@
 import { resolvePrice, type PriceTier } from '@hisaab/core';
 import { Check, MessageCircle, Minus, Plus, Printer, Search, Smartphone, UserRound, Wifi, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { printInvoice } from '../../components/print/PrintInvoice';
 import { Button, Dialog, Field, Input, Segmented, toast } from '../../components/ui';
 import { call, LAN } from '../../db/client';
@@ -14,6 +14,7 @@ import { autoPrinted, lanPrint } from '../../lan/client';
 import { isNative } from '../../native';
 import { receiptBytes } from '../../native/print';
 import { printQueued } from '../../native/printQueue';
+import { CustomerKycDialog } from '../pos/CustomerKyc';
 
 type Line = { item: Item; qty: number };
 type Mode = 'cash' | 'upi' | 'card' | 'credit';
@@ -23,6 +24,8 @@ export function PhoneBill({ company }: { company: Company }) {
   const canCredit = useCan()('credit.give');
   const [party, setParty] = useState<Party | null>(null);
   const [picking, setPicking] = useState(false);
+  const [kyc, setKyc] = useState(false);
+  const retry = useRef(false);
   const [lines, setLines] = useState<Line[]>([]);
   const [mode, setMode] = useState<Mode>('cash');
   const [busy, setBusy] = useState(false);
@@ -47,14 +50,31 @@ export function PhoneBill({ company }: { company: Company }) {
       setMode('cash');
     } catch (e) {
       toast.error(e);
+      // A big bill needs the customer's name and PAN or GSTIN: ask, then save again.
+      if ((e as { code?: string }).code === 'KYC_REQUIRED') setKyc(true);
     } finally {
       setBusy(false);
     }
   };
 
+  // Customer details just added for a big bill: save it now, with that customer.
+  useEffect(() => {
+    if (!retry.current || !party) return;
+    retry.current = false;
+    void save();
+  }, [party]); // eslint-disable-line react-hooks/exhaustive-deps
+  const kycDialog = kyc && (
+    <CustomerKycDialog party={party} limit={company.kyc_limit} onClose={() => setKyc(false)}
+      onDone={(p) => {
+        setKyc(false);
+        setParty(p);
+        retry.current = true;
+      }} />
+  );
   if (picking) return <PickParty onPick={(p) => (setParty(p), setPicking(false))} onCancel={() => setPicking(false)} />;
   return (
     <div className="space-y-3" data-testid="m-bill">
+      {kycDialog}
       <button className="flex w-full items-center justify-between rounded-xl border border-border bg-surface p-3 text-left" onClick={() => setPicking(true)} data-testid="m-bill-customer">
         <span className="flex items-center gap-2"><UserRound className="h-4 w-4 text-muted" /><span className="font-medium">{party?.name ?? 'Cash'}</span></span>
         <span className="text-xs text-primary">{party ? 'Change' : 'Pick customer'}</span>

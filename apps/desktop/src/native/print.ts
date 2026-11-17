@@ -18,6 +18,7 @@ export function receiptBytes(inv: Invoice, company: Company, opts: { cols?: 32 |
       time: inv.created_at?.slice(11, 19),
       party: inv.party_name === 'Cash' || inv.party_name === 'Walk-in Customer' ? null : inv.party_name,
       partyGstin: inv.party_gstin,
+      partyPan: inv.party_pan,
       lines: (inv.lines ?? []).map((l) => ({ name: l.name, qty: l.qty, unit: l.unit, rate: l.rate, total: l.total })),
       taxable: inv.taxable, cgst: inv.cgst, sgst: inv.sgst, igst: inv.igst, cess: inv.cess, discount: inv.discount, roundOff: inv.round_off,
       total: inv.total, paid: inv.paid, mode: inv.payment_mode ?? 'credit', upi: company.upi_id,

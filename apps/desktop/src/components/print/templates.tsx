@@ -115,6 +115,7 @@ function Receipt({ x, narrow }: { x: Ctx; narrow: boolean }) {
         <div>
           To: {inv.party_name}
           {inv.party_gstin && <div>GSTIN: {inv.party_gstin}</div>}
+          {!inv.party_gstin && inv.party_pan && <div>PAN: {inv.party_pan}</div>}
         </div>
       )}
       <Dash />
@@ -291,6 +292,7 @@ function A4Classic({ x }: { x: Ctx }) {
             <div style={{ fontSize: 13, fontWeight: 700 }}>{inv.party_name}</div>
             {inv.party_phone && <div>Phone: {inv.party_phone}</div>}
             {inv.party_gstin && <div style={{ fontWeight: 600 }}>GSTIN: {inv.party_gstin}</div>}
+            {!inv.party_gstin && inv.party_pan && <div style={{ fontWeight: 600 }}>PAN: {inv.party_pan}</div>}
             <div>State: {STATES[inv.place_of_supply]} ({inv.place_of_supply})</div>
           </div>
           <div className="grid grid-cols-2 gap-x-3" style={{ padding: '6px 10px' }}>
@@ -439,6 +441,7 @@ function A4Modern({ x }: { x: Ctx }) {
           <div style={{ fontSize: 14, fontWeight: 700 }}>{inv.party_name}</div>
           {inv.party_phone && <div>{inv.party_phone}</div>}
           {inv.party_gstin && <div>GSTIN {inv.party_gstin}</div>}
+          {!inv.party_gstin && inv.party_pan && <div>PAN {inv.party_pan}</div>}
         </Card>
         <Card label="Details">
           <div className="grid grid-cols-2">
@@ -551,6 +554,7 @@ function A5Simple({ x }: { x: Ctx }) {
         To: <b style={{ fontSize: 15 }}>{inv.party_name}</b>
         {inv.party_phone && <span> · {inv.party_phone}</span>}
         {inv.party_gstin && <span> · GSTIN {inv.party_gstin}</span>}
+        {!inv.party_gstin && inv.party_pan && <span> · PAN {inv.party_pan}</span>}
       </div>
       <table className="w-full border-collapse">
         <thead>

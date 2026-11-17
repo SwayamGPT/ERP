@@ -60,6 +60,8 @@ export interface Company {
   loyalty_point_value: number;
   reminder_after_days: number;
   reminder_every_days: number;
+  /** Sales of this much or more (paise) need the customer's name and PAN or GSTIN; 0 = off. */
+  kyc_limit: number;
   expense_approval_limit: number;
   petty_cash_float: number;
   einvoice_mode: 'off' | 'portal' | 'test';
@@ -135,6 +137,7 @@ export interface Party {
   name: string;
   phone: string | null;
   gstin: string | null;
+  pan?: string | null;
   state_code: string | null;
   address: string | null;
   city: string | null;
@@ -259,6 +262,7 @@ export interface Invoice {
   party_id: number;
   party_name: string;
   party_gstin: string | null;
+  party_pan?: string | null;
   party_phone: string | null;
   place_of_supply: string;
   inter_state: number;

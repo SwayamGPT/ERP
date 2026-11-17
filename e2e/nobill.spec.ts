@@ -4,7 +4,7 @@ import { addItem, openShop } from './helpers';
 test('out of stock at the counter: bought from a nearby shop without a bill, then sold', async ({ page }) => {
   await openShop(page);
   await page.keyboard.press('Alt+n');
-  await addItem(page, 'iodised salt', '5000');
+  await addItem(page, 'iodised salt', '1000'); // more than in stock, under the ₹50,000 customer-details limit
   await expect(page.getByTestId('line-buy-outside')).toBeVisible();
   await page.getByTestId('line-buy-outside').click();
   const short = Number(await page.getByTestId('buy-outside-qty').inputValue());

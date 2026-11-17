@@ -9,6 +9,8 @@ import {
   applyScheme,
   CASHIER_DISCOUNT_CAP,
   computeLine,
+  formatINR,
+  kycOk,
   isInterState,
   roundHalfUp,
   roundQty,
@@ -248,6 +250,13 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
       if (after > b.party.credit_limit) throw new AppError(`This takes ${b.party.name} over their credit limit.`, 'CREDIT_LIMIT');
     }
     if (draft.overrideCreditLimit && !allowed(ctx, 'discount.any')) throw new AppError('Only the owner or manager can go over a credit limit.');
+    // Big sales must name the buyer: a real customer with a PAN or GSTIN (owner sets the amount).
+    if (draft.kind === 'sale') {
+      const limit = ctx.db.get<{ l: number }>('SELECT kyc_limit AS l FROM company WHERE id = 1')?.l ?? 0;
+      if (limit > 0 && total >= limit && (b.party.is_walkin || !kycOk(b.party.name, b.party.pan, b.party.gstin))) {
+        throw new AppError(`Bills of ${formatINR(limit, { decimals: false })} or more need the customer's name and PAN or GSTIN.`, 'KYC_REQUIRED');
+      }
+    }
 
     const kind = draft.kind;
     const number = existing?.number ?? nextNumber(ctx, kind);
@@ -255,21 +264,21 @@ function writeInvoice(ctx: Ctx, s: { userId: number }, draft: DraftInvoice, exis
     const t = b.totals;
     if (existing) {
       ctx.db.exec(
-        `UPDATE invoices SET date = ?, party_id = ?, party_name = ?, party_gstin = ?, party_phone = ?, place_of_supply = ?, inter_state = ?, gross = ?, discount = ?,
+        `UPDATE invoices SET date = ?, party_id = ?, party_name = ?, party_gstin = ?, party_pan = ?, party_phone = ?, place_of_supply = ?, inter_state = ?, gross = ?, discount = ?,
           taxable = ?, cgst = ?, sgst = ?, igst = ?, cess = ?, other_charges = ?, round_off = ?, total = ?, paid = ?, payment_mode = ?, supplier_bill_no = ?, notes = ?,
           served_by = NULL, promo_discount = 0, edited_at = ?, edited_by = ? WHERE id = ?`,
         [
-          date, b.party.id, b.party.name, b.party.gstin, b.party.phone, b.pos, b.interState ? 1 : 0, t.gross, t.discount, t.taxable, t.cgst, t.sgst, t.igst, t.cess,
+          date, b.party.id, b.party.name, b.party.gstin, b.party.pan ?? null, b.party.phone, b.pos, b.interState ? 1 : 0, t.gross, t.discount, t.taxable, t.cgst, t.sgst, t.igst, t.cess,
           draft.otherCharges ?? 0, t.roundOff, total, paid, mode, draft.supplierBillNo ?? null, draft.notes ?? null, `${ctx.today()} ${nowTime()}`, s.userId, existing.id,
         ],
       );
     }
     const invoiceId = existing ? existing.id : ctx.db.exec(
-      `INSERT INTO invoices (kind, number, date, party_id, party_name, party_gstin, party_phone, place_of_supply, inter_state, gross, discount, taxable,
+      `INSERT INTO invoices (kind, number, date, party_id, party_name, party_gstin, party_pan, party_phone, place_of_supply, inter_state, gross, discount, taxable,
         cgst, sgst, igst, cess, other_charges, round_off, total, paid, payment_mode, supplier_bill_no, notes, created_by, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        kind, number, date, b.party.id, b.party.name, b.party.gstin, b.party.phone, b.pos, b.interState ? 1 : 0, t.gross, t.discount, t.taxable,
+        kind, number, date, b.party.id, b.party.name, b.party.gstin, b.party.pan ?? null, b.party.phone, b.pos, b.interState ? 1 : 0, t.gross, t.discount, t.taxable,
         t.cgst, t.sgst, t.igst, t.cess, draft.otherCharges ?? 0, t.roundOff, total, paid, mode, draft.supplierBillNo ?? null, draft.notes ?? null,
         s.userId, `${date} ${nowTime()}`,
       ],
@@ -616,11 +625,11 @@ export function createReturn(
     const t = sumLines(lines.map((l) => l.tax), { roundOff: !!company.round_off });
     const number = nextNumber(ctx, kind);
     const id = ctx.db.exec(
-      `INSERT INTO invoices (kind, number, date, party_id, party_name, party_gstin, party_phone, place_of_supply, inter_state, gross, discount, taxable,
+      `INSERT INTO invoices (kind, number, date, party_id, party_name, party_gstin, party_pan, party_phone, place_of_supply, inter_state, gross, discount, taxable,
         cgst, sgst, igst, cess, round_off, total, paid, payment_mode, ref_invoice_id, notes, created_by, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        kind, number, date, orig.party_id, orig.party_name, orig.party_gstin, orig.party_phone, orig.place_of_supply, orig.inter_state, t.gross, t.discount,
+        kind, number, date, orig.party_id, orig.party_name, orig.party_gstin, orig.party_pan ?? null, orig.party_phone, orig.place_of_supply, orig.inter_state, t.gross, t.discount,
         t.taxable, t.cgst, t.sgst, t.igst, t.cess, t.roundOff, t.payable, 0, input.refundMode ?? 'adjust', orig.id, input.notes ?? null, s.userId, `${date} ${nowTime()}`,
       ],
     ).lastId;

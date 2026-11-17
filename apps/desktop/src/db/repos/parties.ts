@@ -1,4 +1,4 @@
-import { validateGstin, type PriceTier } from '@hisaab/core';
+import { isPan, panFromGstin, validateGstin, type PriceTier } from '@hisaab/core';
 import type { LedgerRow, Party } from '../types';
 import { AppError, audit, guard, postVoucher, type Ctx } from './base';
 import { mustCompany } from './company';
@@ -41,6 +41,8 @@ export interface PartyInput {
   name: string;
   phone?: string | null;
   gstin?: string | null;
+  /** Income-tax PAN (filled from the GSTIN when only that is given). */
+  pan?: string | null;
   state_code?: string | null;
   address?: string | null;
   city?: string | null;
@@ -56,6 +58,9 @@ export function saveParty(ctx: Ctx, input: PartyInput): number {
   if (!input.name?.trim()) throw new AppError('Name is required.');
   const gstin = input.gstin?.trim().toUpperCase() || null;
   if (gstin && !validateGstin(gstin)) throw new AppError('That GSTIN does not look right. Please check it.');
+  let pan = input.pan?.trim().toUpperCase() || null;
+  if (pan && !isPan(pan)) throw new AppError('That PAN does not look right. It is 10 characters, like ABCDE1234F.');
+  if (!pan && gstin) pan = panFromGstin(gstin);
   const phone = input.phone?.replace(/[^\d+]/g, '') || null;
   if (phone && phone.replace(/^\+?91/, '').length !== 10) throw new AppError('Enter a 10-digit mobile number.');
   const company = mustCompany(ctx);
@@ -69,15 +74,15 @@ export function saveParty(ctx: Ctx, input: PartyInput): number {
       const existing = ctx.db.get<{ is_walkin: number }>('SELECT is_walkin FROM parties WHERE id = ?', [input.id]);
       if (existing?.is_walkin) throw new AppError('The Cash customer cannot be edited.');
       ctx.db.exec(
-        'UPDATE parties SET kind=?, name=?, phone=?, gstin=?, state_code=?, address=?, city=?, pincode=?, price_tier=?, credit_limit=?, credit_days=? WHERE id = ?',
-        [...vals, input.id] as never,
+        'UPDATE parties SET kind=?, name=?, phone=?, gstin=?, state_code=?, address=?, city=?, pincode=?, price_tier=?, credit_limit=?, credit_days=?, pan=? WHERE id = ?',
+        [...vals, pan, input.id] as never,
       );
       audit(ctx, 'party.update', 'party', input.id);
       return input.id;
     }
     const id = ctx.db.exec(
-      'INSERT INTO parties (kind, name, phone, gstin, state_code, address, city, pincode, price_tier, credit_limit, credit_days) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      vals as never,
+      'INSERT INTO parties (kind, name, phone, gstin, state_code, address, city, pincode, price_tier, credit_limit, credit_days, pan) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      [...vals, pan] as never,
     ).lastId;
     if (input.opening_balance) {
       postVoucher(ctx, 'opening', id, ctx.today(), [

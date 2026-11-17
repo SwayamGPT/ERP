@@ -1,4 +1,4 @@
-import { PRICE_TIERS, STATES, validateGstin, type PriceTier } from '@hisaab/core';
+import { formatINR, isPan, panFromGstin, PRICE_TIERS, STATES, validateGstin, type PriceTier } from '@hisaab/core';
 import { useEffect, useState } from 'react';
 import { Button, Field, Input, MoneyInput, Segmented, Select } from '../../components/ui';
 import type { Party } from '../../db/types';
@@ -11,6 +11,7 @@ export function PartyForm({ initial, kind = 'customer', onSaved, onCancel, compa
     name: initial?.name ?? '',
     phone: initial?.phone ?? '',
     gstin: initial?.gstin ?? '',
+    pan: initial?.pan ?? '',
     state_code: initial?.state_code ?? company?.state_code ?? '27',
     address: initial?.address ?? '',
     city: initial?.city ?? '',
@@ -27,13 +28,14 @@ export function PartyForm({ initial, kind = 'customer', onSaved, onCancel, compa
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((s) => ({ ...s, [k]: v }));
   const save = useAction('parties.save', { success: () => (initial?.id ? 'Saved' : `${f.name} added`), onSuccess: onSaved });
   const gstErr = f.gstin && !validateGstin(f.gstin) ? 'GSTIN looks wrong' : null;
+  const panErr = f.pan && !isPan(f.pan) ? 'PAN is 10 characters, like ABCDE1234F' : null;
 
   return (
     <form
       className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate({ ...f, id: initial?.id, gstin: f.gstin || null, opening_balance: f.kind === 'supplier' ? -f.opening_balance : f.opening_balance });
+        save.mutate({ ...f, id: initial?.id, gstin: f.gstin || null, pan: f.pan || null, opening_balance: f.kind === 'supplier' ? -f.opening_balance : f.opening_balance });
       }}
     >
       {!initial?.id && !compact && (
@@ -47,7 +49,13 @@ export function PartyForm({ initial, kind = 'customer', onSaved, onCancel, compa
           <Input value={f.phone} onChange={(e) => set('phone', e.target.value.replace(/[^\d+ ]/g, ''))} inputMode="tel" placeholder="98XXXXXXXX" data-testid="party-phone" />
         </Field>
         <Field label="GSTIN" error={gstErr} hint="For B2B bills">
-          <Input value={f.gstin} onChange={(e) => set('gstin', e.target.value.toUpperCase().slice(0, 15))} className="font-mono" data-testid="party-gstin" />
+          <Input value={f.gstin} onChange={(e) => {
+            const g = e.target.value.toUpperCase().slice(0, 15);
+            setF((s) => ({ ...s, gstin: g, pan: validateGstin(g) && !s.pan ? panFromGstin(g) : s.pan }));
+          }} className="font-mono" data-testid="party-gstin" />
+        </Field>
+        <Field label="PAN" error={panErr} hint={company?.kyc_limit ? `Needed on bills of ${formatINR(company.kyc_limit, { decimals: false })} or more (or a GSTIN)` : 'Income-tax PAN'}>
+          <Input value={f.pan} onChange={(e) => set('pan', e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))} className="font-mono" placeholder="ABCDE1234F" data-testid="party-pan" />
         </Field>
         {!compact && (
           <>
@@ -91,7 +99,7 @@ export function PartyForm({ initial, kind = 'customer', onSaved, onCancel, compa
       </div>
       <div className="flex justify-end gap-2 pt-2">
         {onCancel && <Button variant="ghost" onClick={onCancel}>Cancel</Button>}
-        <Button type="submit" variant="primary" loading={save.isPending} disabled={!f.name.trim() || !!gstErr} data-testid="party-save">
+        <Button type="submit" variant="primary" loading={save.isPending} disabled={!f.name.trim() || !!gstErr || !!panErr} data-testid="party-save">
           {initial?.id ? 'Save changes' : f.kind === 'customer' ? 'Add customer' : 'Add supplier'}
         </Button>
       </div>
