@@ -17,3 +17,9 @@ apps/desktop/src-tauri/gen/android/
 apps\desktop\hisaab-updates.key
 apps\desktop\hisaab-updates.key.pub
 apps\desktop\hisaab.jks
+
+# Android signing keys
+*.jks
+*.keystore
+*.key
+*.key.pub
