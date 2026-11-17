@@ -1,5 +1,6 @@
 import { drawerKick, receipt, tsplLabel, zplLabel } from '@hisaab/core';
 import type { Company, Invoice } from '../db/types';
+import { buildCtx } from '../components/print/templates';
 import { activeProfile, useDevice } from '../lib/devicePrefs';
 import { isNative, native } from './index';
 import { printQueued, usePrintQueue } from './printQueue';
@@ -10,18 +11,35 @@ const RECEIPT_TEMPLATES = new Set(['receipt', 'receipt-large']);
 export function receiptBytes(inv: Invoice, company: Company, opts: { cols?: 32 | 42 | 48; cut?: boolean; drawer?: boolean } = {}) {
   const d = useDevice.getState();
   const cashLike = inv.kind === 'sale' && (inv.payment_mode === 'cash' || inv.payment_mode === 'split');
+  // The same choices as the on-screen template (Settings → Print setup): GST detail, HSN, savings,
+  // QR, bank details, footer and terms.
+  const x = buildCtx(inv, company);
+  const c = company;
   return receipt(
     {
-      shop: { name: company.name, address: [company.address, company.city].filter(Boolean).join(', '), phone: company.phone, gstin: company.gstin, fssai: (company as { fssai?: string | null }).fssai, footer: company.print_footer },
+      shop: {
+        name: c.name, tagline: c.tagline, address: [c.address, c.city, c.pincode].filter(Boolean).join(', '), phone: c.phone, gstin: c.gstin, fssai: c.fssai,
+        footer: c.print_footer, terms: c.print_terms,
+        bank: c.print_show_bank && c.bank_account ? `Bank: ${[c.bank_name, `A/c ${c.bank_account}`, c.bank_ifsc && `IFSC ${c.bank_ifsc}`].filter(Boolean).join(' - ')}` : null,
+      },
+      title: c.gstin || inv.quote || inv.kind !== 'sale' ? x.title : 'BILL',
       number: inv.number,
       date: inv.date.split('-').reverse().join('-'),
       time: inv.created_at?.slice(11, 19),
+      by: inv.served_by_name ? `Served by: ${inv.served_by_name}` : inv.cashier ? `By: ${inv.cashier}` : null,
       party: inv.party_name === 'Cash' || inv.party_name === 'Walk-in Customer' ? null : inv.party_name,
       partyGstin: inv.party_gstin,
       partyPan: inv.party_pan,
-      lines: (inv.lines ?? []).map((l) => ({ name: l.name, qty: l.qty, unit: l.unit, rate: l.rate, total: l.total })),
-      taxable: inv.taxable, cgst: inv.cgst, sgst: inv.sgst, igst: inv.igst, cess: inv.cess, discount: inv.discount, roundOff: inv.round_off,
-      total: inv.total, paid: inv.paid, mode: inv.payment_mode ?? 'credit', upi: company.upi_id,
+      lines: x.lines.map((l) => ({ name: l.name, qty: l.qty, unit: l.unit, rate: l.rate, total: l.total, freeQty: l.free_qty, gstRate: l.gst_rate, hsn: l.hsn })),
+      taxable: inv.taxable, cgst: inv.cgst, sgst: inv.sgst, igst: inv.igst, cess: inv.cess, discount: inv.discount, otherCharges: inv.other_charges, roundOff: inv.round_off,
+      total: inv.total, paid: inv.paid, mode: inv.payment_mode ?? 'credit', upi: c.upi_id,
+      savings: x.savings,
+      taxDetail: x.tax,
+      interState: x.inter,
+      taxRows: x.rateRows.map((t) => ({ rate: t.rate, taxable: t.taxable, cgst: t.cgst, sgst: t.sgst, igst: t.igst })),
+      showHsn: !!c.print_show_hsn,
+      showQr: x.showQr,
+      quote: !!inv.quote,
     },
     { profile: activeProfile(d), cols: opts.cols, cut: opts.cut ?? d.autoCut, drawer: opts.drawer ?? (d.drawerOnCash && cashLike) },
   );

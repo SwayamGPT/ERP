@@ -97,7 +97,7 @@ export function PrintSetup({ company }: { company: Company }) {
           <div className="mt-4 space-y-3">
             <Field label="Thank-you line"><Input value={f.print_footer ?? ''} onChange={(e) => set('print_footer', e.target.value)} placeholder="Thank you! Visit again." /></Field>
             <Field label="Terms & conditions" hint="One per line">
-              <textarea className="input h-20 py-2" value={f.print_terms ?? ''} onChange={(e) => set('print_terms', e.target.value)} placeholder={'Goods once sold will not be taken back.\nSubject to local jurisdiction.'} />
+              <textarea className="input h-20 py-2" value={f.print_terms ?? ''} onChange={(e) => set('print_terms', e.target.value)} placeholder={'Goods once sold will not be taken back.\nSubject to local jurisdiction.'} data-testid="print-terms" />
             </Field>
           </div>
         </Card>

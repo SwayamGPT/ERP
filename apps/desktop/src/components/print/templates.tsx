@@ -35,7 +35,7 @@ export function paperFor(template: PrintTemplate, company: Pick<Company, 'print_
 const WRAP: CSSProperties = { minWidth: 0, overflowWrap: 'anywhere' };
 const AMT: CSSProperties = { flexShrink: 0, whiteSpace: 'nowrap', textAlign: 'right' };
 
-interface Ctx {
+export interface Ctx {
   inv: Invoice;
   c: Company;
   lines: InvoiceLine[];
@@ -49,7 +49,8 @@ interface Ctx {
   showQr: boolean;
 }
 
-function buildCtx(inv: Invoice, c: Company): Ctx {
+/** What a bill shows, worked out once for every layout (screen, print dialog and thermal printer). */
+export function buildCtx(inv: Invoice, c: Company): Ctx {
   const lines = inv.lines ?? [];
   // A registered buyer needs the tax amounts to claim credit — never hide them on B2B bills.
   const tax: TaxDetail = inv.party_gstin && c.print_tax_detail === 'none' ? 'summary' : c.print_tax_detail;
@@ -210,6 +211,7 @@ function ReceiptLarge({ x }: { x: Ctx }) {
     <div className="bg-white text-black" style={{ fontFamily: 'Inter Variable, Arial, sans-serif', fontSize: 14, lineHeight: 1.35, padding: '2mm 1mm' }}>
       <div className="text-center">
         <div style={{ fontSize: 20, fontWeight: 800 }}>{c.name}</div>
+        {c.tagline && <div style={{ fontSize: 12, fontStyle: 'italic' }}>{c.tagline}</div>}
         <div style={{ fontSize: 12 }}>{addressLine(c)}</div>
         <div style={{ fontSize: 13, fontWeight: 600 }}>📞 {c.phone}</div>
         <Licences c={c} sep={'\n'} className="whitespace-pre-line text-[11px]" />
@@ -257,6 +259,7 @@ function ReceiptLarge({ x }: { x: Ctx }) {
       {x.savings > 0 && <div className="mt-2 text-center" style={{ fontSize: 15, fontWeight: 800, border: '2px dashed #000', padding: 4 }}>You saved {inr(x.savings)}!</div>}
       <div className="mt-2"><Qr x={x} size={120} /></div>
       {c.print_footer && <div className="mt-2 text-center" style={{ fontSize: 13, fontWeight: 600 }}>{c.print_footer}</div>}
+      {c.print_terms && <div className="mt-2 whitespace-pre-line" style={{ fontSize: 11, borderTop: '1px dashed #000', paddingTop: 4 }} data-testid="bill-terms">{c.print_terms}</div>}
     </div>
   );
 }
@@ -599,6 +602,7 @@ function A5Simple({ x }: { x: Ctx }) {
           {x.balance > 0 && <SumRow k="Balance" v={inr(x.balance)} bold />}
         </div>
       </div>
+      {c.print_terms && <div className="mt-3 whitespace-pre-line" style={{ fontSize: 10 }}><b>Terms & conditions</b>{'\n'}{c.print_terms}</div>}
       <div className="mt-4 flex items-end justify-between" style={{ fontSize: 11 }}>
         <div>{c.print_footer}</div>
         <Qr x={x} size={72} />

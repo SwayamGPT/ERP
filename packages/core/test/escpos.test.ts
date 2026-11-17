@@ -76,7 +76,7 @@ describe('printer profiles', () => {
     const lines = text(receipt(r, { profile: profileById('font-b-80') })).split('\n');
     const taxable = lines.find((l) => l.includes('Taxable value'))!;
     expect(taxable.length).toBe(42);
-    expect(lines.find((l) => l.includes('Tea'))!.replace(/^.*[\x00-\x1f]/, '').length).toBe(42);
+    expect(lines.find((l) => l.includes('1 Pcs x 10.00'))!.replace(/^.*[\x00-\x1f]/, '').length).toBe(42);
   });
 
   it('prints a test page with ruler and cut', () => {
@@ -124,5 +124,40 @@ describe('long shop names', () => {
     expect(text).toContain('M/S SIDDHI VINAYAK\n');
     expect(text).toContain('ENTERPROSE\n');
     expect(new TextDecoder('latin1').decode(receipt(r, { profile: profileById('cheap-58') }))).toContain('M/S SIDDHI VINAYAK ENTERPROSE');
+  });
+});
+
+describe('the thermal receipt prints what Print setup shows', () => {
+  const r = {
+    shop: { name: 'M/S SIDDHI VINAYAK ENTERPROSE', tagline: 'Fresh groceries since 1998', address: 'Jayanta Dutta Path, Dibrugarh, 786001', phone: '7002042520', gstin: '18AKAPG9911C1ZH', fssai: '11523999000123', footer: 'Thank you! Visit again.', terms: 'Goods once sold will not be taken back.\nSubject to Dibrugarh jurisdiction “only”.', bank: 'Bank: SBI - A/c 1234567890 - IFSC SBIN0001234' },
+    title: 'TAX INVOICE', number: 'INV-2', date: '17-11-2026', time: '16:57:00', by: 'Served by: Ravi', party: 'Meena Joshi',
+    lines: [
+      { name: 'Glucose Biscuits 250g', qty: 24, unit: 'Pcs', rate: 3000, total: 72000, freeQty: 2, gstRate: 5, hsn: '19053100' },
+      { name: 'Detergent Powder 1kg', qty: 2, unit: 'Pcs', rate: 12800, total: 24832, gstRate: 18, hsn: '34022000' },
+    ],
+    taxable: 87100, cgst: 3200, sgst: 3200, igst: 0, cess: 0, discount: 768, roundOff: -32, total: 96832, paid: 76832, mode: 'upi', savings: 2168, upi: 'shop@upi',
+    taxDetail: 'detailed' as 'detailed' | 'summary' | 'none', interState: false, taxRows: [{ rate: 5, taxable: 68571, cgst: 1714, sgst: 1714, igst: 0 }, { rate: 18, taxable: 21044, cgst: 1894, sgst: 1894, igst: 0 }],
+    showHsn: true, showQr: true,
+  };
+  const out = (o: Partial<typeof r> = {}, prof = 'generic-80') => new TextDecoder('latin1').decode(receipt({ ...r, ...o }, { profile: profileById(prof) })).replace(/\x1b@/g, '').replace(/\x1b[Ea!d][\x00-\x31]/g, '').replace(/\x1d![\x00-\x31]/g, '');
+  it('includes tagline, licences, served by, HSN, free qty, GST breakup, savings, QR, bank, footer and terms', () => {
+    const t = out();
+    if (process.env.RECEIPT_TXT) require('node:fs').writeFileSync(process.env.RECEIPT_TXT, t);
+    for (const s of ['Fresh groceries since 1998', 'FSSAI Lic. No: 11523999000123', 'Served by: Ravi', 'HSN 19053100', '(5%)', '+2 free', 'GST breakup', 'Total GST', 'You saved Rs.21.68', 'Scan & pay Rs.200.00', 'Bank: SBI', 'Goods once sold will not be taken back.', 'Subject to Dibrugarh jurisdiction "only".', 'Round off                                  -0.32', 'Paid (UPI)'])
+      expect(t, s).toContain(s);
+    for (const line of t.split('\n').filter((l) => !l.includes('upi://'))) expect(line.replace(/[^\x20-\x7e]/g, '').length, line).toBeLessThanOrEqual(48);
+  });
+  it('follows the GST choice: totals only, or none', () => {
+    const sum = out({ taxDetail: 'summary' });
+    expect(sum).toContain('CGST');
+    expect(sum).not.toContain('GST breakup');
+    const none = out({ taxDetail: 'none', showHsn: false });
+    expect(none).toContain('Prices are inclusive of GST');
+    expect(none).not.toContain('Taxable value');
+    expect(none).not.toContain('HSN');
+    expect(out({ showQr: false })).not.toContain('Scan & pay');
+  });
+  it('fits 58 mm paper too', () => {
+    for (const line of out({}, 'cheap-58').split('\n').filter((l) => !l.includes('upi://'))) expect(line.replace(/[^\x20-\x7e]/g, '').length, line).toBeLessThanOrEqual(32);
   });
 });

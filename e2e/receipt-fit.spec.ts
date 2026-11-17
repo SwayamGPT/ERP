@@ -9,6 +9,8 @@ test('the big-print receipt fits 80 mm paper, and its width can be adjusted per 
   await openShop(page);
   await page.goto('/#/settings?tab=print');
   await page.getByTestId('tpl-receipt-large').click();
+  await page.getByTestId('print-terms').fill('Goods once sold will not be taken back.\nSubject to Pune jurisdiction.');
+  await expect(page.getByTestId('print-preview')).toContainText('Subject to Pune jurisdiction.');
   await page.getByTestId('print-save').click();
   await expect(page.getByTestId('toast').filter({ hasText: 'Print setup saved' })).toBeVisible();
   // Default: 70 mm wide, 1 mm in from the left.
@@ -27,6 +29,7 @@ test('the big-print receipt fits 80 mm paper, and its width can be adjusted per 
   await page.keyboard.press('F9');
   const bill = page.getByTestId('print-invoice');
   await expect(bill).toContainText('TOTAL');
+  await expect(bill.getByTestId('bill-terms')).toContainText('Goods once sold will not be taken back.');
   await page.emulateMedia({ media: 'print' }); // the bill is only laid out when printing
   const box = await bill.evaluate((el) => {
     const r = el.getBoundingClientRect();
