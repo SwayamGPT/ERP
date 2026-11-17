@@ -1,3 +1,4 @@
+import { UpdatesCard } from '../updates/UpdatesCard';
 import { panFromGstin, STATES, validateEnterprise } from '@hisaab/core';
 import { Building2, Database, Download, FileBadge, HeartPulse, Landmark, Settings, ShieldCheck, Store, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -56,7 +57,7 @@ export function SettingsPage() {
         {tab === 'sales' && <SalesSettings c={company} />}
         {tab === 'phones' && <LanSettings />}
         {tab === 'cloud' && <CloudSettings />}
-        {tab === 'backup' && <Backup />}
+        {tab === 'backup' && <div className="space-y-4"><UpdatesCard /><Backup /></div>}
       </div>
     </div>
   );

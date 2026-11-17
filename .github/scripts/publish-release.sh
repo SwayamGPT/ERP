@@ -24,7 +24,8 @@ if [[ "${GITHUB_REF:-}" == refs/tags/v* ]]; then
   PRE=""
 else
   TAG="latest-build"
-  TITLE="Hisaab — latest build"
+  # The version is in the title: the Android app reads it to know an update is out.
+  TITLE="Hisaab ${APP_VERSION:-} — latest build"
   PRE="--prerelease"
   # Point the moving tag at this commit (every job of one push points it at the same commit).
   git tag -f "$TAG" "$GITHUB_SHA"

@@ -24,6 +24,8 @@ export interface DevicePrefs {
   lanPort: number;
   /** Print phone bills on this counter's receipt printer as soon as they are saved. */
   lanAutoPrint: boolean;
+  /** Look for app updates in the background (they install only when someone presses Restart). */
+  autoUpdate: boolean;
   /**
    * Bills printed through the print dialog on a thermal printer: how wide to draw them and how far
    * from the left edge. Printers print less than the paper (80 mm paper ≈ 72 mm) and drivers add
@@ -36,7 +38,7 @@ export interface DevicePrefs {
 }
 
 const KEY = 'hisaab.device';
-const DEFAULTS: DevicePrefs = { directPrint: false, receiptPrinter: '', receiptCols: 48, printerProfile: 'generic-80', profileTweaks: {}, autoCut: true, drawerOnCash: true, labelPrinter: '', labelLang: 'tspl', scalePort: '', scaleBaud: 9600, scaleRequest: '', lanEnabled: false, lanPort: 8787, lanAutoPrint: true, wifiPrinter: '', receiptWidthMm: 0, receiptLeftMm: 1 };
+const DEFAULTS: DevicePrefs = { directPrint: false, receiptPrinter: '', receiptCols: 48, printerProfile: 'generic-80', profileTweaks: {}, autoCut: true, drawerOnCash: true, labelPrinter: '', labelLang: 'tspl', scalePort: '', scaleBaud: 9600, scaleRequest: '', lanEnabled: false, lanPort: 8787, lanAutoPrint: true, wifiPrinter: '', autoUpdate: true, receiptWidthMm: 0, receiptLeftMm: 1 };
 
 function load(): DevicePrefs {
   try {

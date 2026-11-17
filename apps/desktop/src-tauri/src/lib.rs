@@ -215,8 +215,12 @@ fn lan_reply(rid: u64, body: String, lan: State<'_, Lan>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    // Updates are checked and downloaded from the web view (features/updates); the plugins do the
+    // signature check, the install and the restart.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());
+    builder
         .setup(|app| {
             let dir = app.path().app_data_dir()?.join("data");
             let store = Store::new(dir, 7).map_err(|e| Box::<dyn std::error::Error>::from(e))?;

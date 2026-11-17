@@ -37,6 +37,8 @@ jobs:
       SIGNED: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the build number is the commit count
 
       - uses: actions/setup-node@v4
         with:
@@ -69,6 +71,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Version (and in-app updates when the APK is signed)
+        run: node .github/scripts/prepare-build.mjs android
 
       - name: Generate the Android project
         working-directory: apps/desktop

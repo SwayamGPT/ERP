@@ -196,6 +196,30 @@ so SmartScreen / Gatekeeper warn on first launch.
 Without signing secrets it is debug-signed and installs directly; add `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` to get a signed release APK.
 
+**Auto-update** — the desktop app checks for a new version a few seconds after it starts and every
+4 hours, downloads it quietly and shows *Hisaab x.y.z is ready — Restart now / Later*; nothing
+changes until someone presses Restart. The Android app shows *Hisaab x.y.z is available — Install*
+and Android asks to confirm. Every build gets a rising version (`0.1.<commits>`, or the tag's).
+Updates are switched on by adding signing keys as repository secrets
+(*GitHub → Settings → Secrets and variables → Actions → New repository secret*). Keep the key files
+and passwords safe and private: if they are lost, installed apps cannot receive updates and must be
+reinstalled.
+
+1. *Desktop update key* (on any computer with Node.js, inside `apps/desktop` after `npm install`):
+   `npx tauri signer generate -w hisaab-updates.key` — choose a password. Add the secrets
+   `TAURI_SIGNING_PRIVATE_KEY` (the whole contents of `hisaab-updates.key`),
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (that password) and `TAURI_UPDATER_PUBKEY` (the contents of
+   `hisaab-updates.key.pub`).
+2. *Android signing key* (needs Java): `keytool -genkeypair -v -keystore hisaab.jks -alias hisaab -keyalg RSA -keysize 2048 -validity 10000`
+   — use the same password for the keystore and the key. Add `ANDROID_KEYSTORE_BASE64` (the file as
+   base64: `base64 -w0 hisaab.jks` on Linux / macOS, or in PowerShell
+   `[Convert]::ToBase64String([IO.File]::ReadAllBytes("hisaab.jks"))`), `ANDROID_KEY_ALIAS` (`hisaab`)
+   and `ANDROID_KEY_PASSWORD`.
+
+The next push builds signed apps that update themselves. Install that build once by hand: an APK
+signed with the new key can't replace one signed with the old test key, so uninstall the old app
+from the phone first (pair it again afterwards); desktop installs over the old version as usual.
+
 **Phones on Wi-Fi** — on the shop computer open *Settings → Phones on Wi-Fi*, turn it on and press
 *Pair a phone*. Allow Hisaab through the Windows firewall on private networks when asked. Keep the
 shop Wi-Fi password-protected; don't forward the port to the internet.

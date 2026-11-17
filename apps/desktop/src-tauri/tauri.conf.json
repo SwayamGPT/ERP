@@ -44,5 +44,16 @@
     "macOS": {
       "minimumSystemVersion": "10.15"
     }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/SwayamGPT/Hisaab-ERP/releases/download/latest-build/latest.json"
+      ],
+      "pubkey": "",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

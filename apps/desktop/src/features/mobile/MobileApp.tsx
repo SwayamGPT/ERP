@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { Badge, Button, Dialog, Field, Input, Loading, MoneyInput, Segmented, toast } from '../../components/ui';
 import { call, db, LAN } from '../../db/client';
 import { MyPayPage } from '../me/MyPayPage';
+import { UpdateBanner } from '../updates/UpdateBanner';
 import { PhoneBill } from './PhoneBill';
 import type { Company, Item, Party, Session } from '../../db/types';
 import { cn } from '../../lib/cn';
@@ -53,6 +54,7 @@ export function MobileApp({ company, session, onDesktop }: { company: Company; s
           <Lock className="h-4 w-4" />
         </button>
       </header>
+      <UpdateBanner />
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {tab === 'bill' && <PhoneBill company={company} />}
         {tab === 'home' && <Today company={company} />}
