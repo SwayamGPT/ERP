@@ -158,3 +158,18 @@ test('migrating a medical store: fix rows, trial run, compare with the old softw
   await page.goto('/#/items');
   await expect(page.getByText('Paracetamol 650 Tab 15s')).toHaveCount(0);
 });
+
+test('Marg: a backup file is rejected with guidance, and the Excel route is explained', async ({ page }) => {
+  await openShop(page);
+  await page.goto('/#/import');
+  // Marg is the default source; its note warns the backup file can't be read.
+  await expect(page.getByTestId('import-note')).toContainText("Marg’s own backup file");
+  await expect(page.getByTestId('import-note')).toContainText('password-protected');
+
+  // Dropping the raw backup zip gives a clear, friendly message — not a parse error.
+  const zip = join(tmpdir(), `marg-backup-${Date.now()}.zip`);
+  await writeFile(zip, Buffer.from('504b0304', 'hex')); // a (stub) .zip
+  await page.getByTestId('import-file').setInputFiles(zip);
+  await expect(page.getByTestId('toast').filter({ hasText: 'export the Stock report and the Outstanding' })).toBeVisible();
+  await expect(page.getByTestId('import-file-panel')).toHaveCount(0);
+});

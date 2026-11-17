@@ -106,7 +106,7 @@ instead of accounting jargon, while keeping proper double-entry books underneath
 - Several businesses on one computer, each with its own database, staff and open bills
 
 ### Moving in
-- Import items, opening stock and party balances from Marg, Tally, Busy or any Excel / CSV export — the smart matcher finds the columns
+- Import items, opening stock and party balances from Marg, Tally, Busy or any Excel / CSV export — the smart matcher finds the columns. (Marg’s own `.zip` backup is password-protected and can’t be read; export the Stock report and Outstanding to Excel instead — the Import page shows the exact steps.)
 - **Staged migration**: checks flag duplicate barcodes, expired stock, impossible GST rates and duplicate parties; fix or skip rows; a trial run imports into a scratch copy and shows the totals (items, stock quantity, stock value at cost, receivable, payable) next to the old software's figures; the real import can be undone exactly, and cloud sync waits until it is kept
 - Batch-wise stock with expiry and each batch's own cost; 15,000 items with 30,000 batches import in about 10 seconds
 - Day-one cut-over checklist and a migration check to send to the CA

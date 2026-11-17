@@ -11,14 +11,15 @@ import { readSheet } from '../../lib/sheet';
 
 type Source = 'marg' | 'tally' | 'busy' | 'other';
 
-const HOWTO: Record<Source, { title: string; steps: string[] }> = {
+const HOWTO: Record<Source, { title: string; steps: string[]; note?: string }> = {
   marg: {
     title: 'From Marg ERP',
     steps: [
-      'Items with stock: open the Stock Statement (batch-wise if you use batches) or the Item / Product list report.',
-      'Customers & suppliers: open the Party list, or Outstanding / Ledger balances for opening balances (Sundry Debtors and Sundry Creditors).',
-      'Export each report to Excel (or CSV) and save it. Take the reports on the same day you start billing in Hisaab.',
+      'Items with stock: Display → Stock Reports → Stock Report (choose “Batch wise” if you keep batches/expiry). Press the Excel button to export.',
+      'Customers & suppliers with balances: Display → Outstanding → Outstanding Analysis (or Ledger Balances), for Sundry Debtors and Sundry Creditors. Export each to Excel.',
+      'Save the files and upload them here. Take the reports on the day you start billing in Hisaab, so the opening stock and balances match.',
     ],
+    note: 'Marg’s own backup file (a .zip of .mbk files) is password-protected and can’t be read here. Use the Excel exports above — they bring in everything Hisaab needs (items, HSN, GST, prices, batch stock with expiry, and party balances).',
   },
   tally: {
     title: 'From Tally',
@@ -51,6 +52,8 @@ export function ImportPage() {
     const loaded: Loaded[] = [];
     for (const f of Array.from(list)) {
       try {
+        if (/\.(zip|mbk|mst|dbf|mdb|gdb|bak)$/i.test(f.name))
+          throw new Error('this looks like a software backup file, not a spreadsheet. In Marg (or Tally / Busy), export the Stock report and the Outstanding/party balances to Excel, and upload those files.');
         const rows = await readSheet(f);
         if (!rows.length) throw new Error('The file is empty.');
         loaded.push({ file: f.name, rows, det: detect(rows) });
@@ -73,6 +76,7 @@ export function ImportPage() {
         <div className="mt-3 text-sm">
           <p className="font-medium">{HOWTO[source].title}</p>
           <ol className="mt-1 list-decimal space-y-0.5 pl-5 text-muted">{HOWTO[source].steps.map((s) => <li key={s}>{s}</li>)}</ol>
+          {HOWTO[source].note && <p className="mt-2 flex gap-1.5 rounded-lg bg-warn-soft px-2.5 py-1.5 text-xs text-warn" data-testid="import-note"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{HOWTO[source].note}</p>}
           <p className="mt-2 text-xs text-faint">Hisaab finds the heading row, works out what each column is, reads Indian amounts, Dr/Cr, dates and units, and skips totals and page headings. You fix problem rows, do a trial run that saves nothing, compare the totals with your old software, and only then import — with a one-click undo.</p>
         </div>
         <div className="mt-4 flex items-center gap-3">
