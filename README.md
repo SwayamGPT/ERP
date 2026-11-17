@@ -176,13 +176,23 @@ data; the test suites build their own fixture shop.
 
 ## Installers
 
+**Download** (no GitHub account needed) — the latest build:
+
+| | |
+|---|---|
+| Windows | [Hisaab-Setup-Windows.exe](https://github.com/SwayamGPT/Hisaab-ERP/releases/download/latest-build/Hisaab-Setup-Windows.exe) · [.msi](https://github.com/SwayamGPT/Hisaab-ERP/releases/download/latest-build/Hisaab-Windows.msi) |
+| macOS | [Hisaab-macOS.dmg](https://github.com/SwayamGPT/Hisaab-ERP/releases/download/latest-build/Hisaab-macOS.dmg) |
+| Android | [Hisaab-Android.apk](https://github.com/SwayamGPT/Hisaab-ERP/releases/download/latest-build/Hisaab-Android.apk) |
+
+All files: the [latest build release](https://github.com/SwayamGPT/Hisaab-ERP/releases/tag/latest-build).
+Every push updates it; pushing a tag such as `v0.1.0` publishes a versioned release "Hisaab v0.1.0".
+
 **Desktop (Windows / macOS)** — the `Desktop build` workflow builds the Windows `.exe` + `.msi` and a
-universal macOS `.dmg` on every push. Download the `hisaab-windows` / `hisaab-macos` artifacts from
-the Actions tab, or push a tag such as `v0.1.0` for a draft GitHub Release. Locally:
+universal macOS `.dmg` on every push and publishes them as above (also kept as workflow artifacts). Locally:
 `cd apps/desktop && npm run tauri build` (needs Rust and the Tauri prerequisites). Builds are unsigned,
 so SmartScreen / Gatekeeper warn on first launch.
 
-**Android** — the `Android build` workflow builds the APK on every push (artifact `hisaab-android`).
+**Android** — the `Android build` workflow builds the APK on every push and publishes it as above.
 Without signing secrets it is debug-signed and installs directly; add `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` to get a signed release APK.
 
